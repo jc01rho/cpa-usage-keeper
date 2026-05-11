@@ -98,7 +98,7 @@ func ListActiveUsageIdentities(ctx context.Context, db *gorm.DB) ([]entities.Usa
 
 	// 解析和筛选场景只需要活跃身份，直接在 SQL 层过滤 deleted rows，避免无效数据进入内存 resolver。
 	var identities []entities.UsageIdentity
-	if err := activeUsageIdentitiesQuery(db.WithContext(ctx), nil).Find(&identities).Error; err != nil {
+	if err := activeUsageIdentitiesQuery(db.WithContext(ctx), nil).Order("auth_type asc, name asc, id asc").Find(&identities).Error; err != nil {
 		return nil, fmt.Errorf("list active usage identities: %w", err)
 	}
 	return identities, nil
@@ -124,7 +124,7 @@ func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request Lis
 		return nil, 0, fmt.Errorf("count active usage identities page: %w", err)
 	}
 	var identities []entities.UsageIdentity
-	if err := query.Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
+	if err := query.Order("total_requests DESC").Order("id ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&identities).Error; err != nil {
 		return nil, 0, fmt.Errorf("list active usage identities page: %w", err)
 	}
 	return identities, total, nil
@@ -136,7 +136,7 @@ func activeUsageIdentitiesQuery(db *gorm.DB, authType *entities.UsageIdentityAut
 	if authType != nil {
 		query = query.Where("auth_type = ?", *authType)
 	}
-	return query.Order("auth_type asc, name asc, id asc")
+	return query
 }
 
 func GetActiveAuthFileUsageIdentityByAuthIndex(ctx context.Context, db *gorm.DB, authIndex string) (entities.UsageIdentity, error) {

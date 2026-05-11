@@ -1392,10 +1392,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     total={credentialsData.authFileTotal}
                     page={credentialsData.authFilePage}
                     totalPages={credentialsData.authFileTotalPages}
+                    pageSize={credentialsData.authFilePageSize}
                     loading={credentialsData.loading}
                     quotaRefreshing={credentialsData.quotaRefreshing}
                     quotaRefreshError={credentialsData.quotaRefreshError}
                     onPageChange={credentialsData.setAuthFilePage}
+                    onPageSizeChange={credentialsData.setAuthFilePageSize}
                     onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
                     onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
                   />
@@ -1404,8 +1406,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     total={credentialsData.aiProviderTotal}
                     page={credentialsData.aiProviderPage}
                     totalPages={credentialsData.aiProviderTotalPages}
+                    pageSize={credentialsData.aiProviderPageSize}
                     loading={credentialsData.loading}
                     onPageChange={credentialsData.setAiProviderPage}
+                    onPageSizeChange={credentialsData.setAiProviderPageSize}
                   />
                 </div>
               </>
