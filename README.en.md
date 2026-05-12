@@ -24,18 +24,24 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 ## Project Structure
 
 ```text
-cmd/                 Application entrypoint
-internal/api/        HTTP routes and handlers
-internal/app/        App wiring and startup
-internal/auth/       In-memory session auth
-internal/backup/     SQLite database backup management
-internal/config/     Environment config loading
-internal/cpa/        CPA client and types
-internal/models/     GORM models
-internal/poller/     Background sync loop
-internal/repository/ SQLite access and aggregations
-internal/service/    Sync, usage, and pricing services
-web/                 React + TypeScript frontend
+cmd/server/              Application entrypoint
+internal/api/            HTTP routes and handlers
+internal/app/            App wiring and startup
+internal/auth/           In-memory session auth
+internal/backup/         SQLite database backup management
+internal/config/         Environment config loading
+internal/cpa/            CPA client and types
+internal/entities/       GORM data models
+internal/logging/        Logging setup and retention
+internal/poller/         Background queue consumption and metadata sync
+internal/quota/          Quota cache, refresh, and query services
+internal/redact/         Browser-facing field redaction
+internal/repository/     SQLite access and aggregations
+internal/service/        Usage, pricing, and identity services
+internal/timeutil/       Project timezone and time helpers
+internal/updatecheck/    GitHub Release update checks
+deploy/                  systemd, Docker, and deployment assets
+web/                     React + TypeScript frontend
 ```
 
 ## Configuration
