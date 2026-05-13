@@ -13,6 +13,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
+	"cpa-usage-keeper/internal/openrouter"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/quota"
 	"cpa-usage-keeper/internal/repository"
@@ -95,7 +96,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
-	pricingService := service.NewPricingService(db, cpaClient)
+	var pricingService service.PricingProvider
+	if cfg.OpenRouterAPIKey != "" {
+		orClient := openrouter.NewClient(cfg.OpenRouterAPIKey, cfg.RequestTimeout)
+		pricingService = service.NewPricingServiceWithOpenRouter(db, cpaClient, orClient)
+	} else {
+		pricingService = service.NewPricingService(db, cpaClient)
+	}
 	quotaService := quota.NewService(db, cpaClient)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{

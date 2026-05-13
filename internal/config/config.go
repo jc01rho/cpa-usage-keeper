@@ -90,6 +90,7 @@ type Config struct {
 	LoginPassword string
 	// AuthSessionTTL 是登录 session 有效时长。
 	AuthSessionTTL time.Duration
+	OpenRouterAPIKey string
 }
 
 type LoadOptions struct {
@@ -235,6 +236,7 @@ func Load(options LoadOptions) (*Config, error) {
 		AuthEnabled:            authEnabled,
 		LoginPassword:          strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:         authSessionTTL,
+		OpenRouterAPIKey:       strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")),
 	}
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")

@@ -38,6 +38,10 @@ func (s *pricingStub) DeletePricing(_ context.Context, model string) error {
 	return s.err
 }
 
+func (s pricingStub) FetchFromOpenRouter(context.Context) ([]entities.ModelPriceSetting, []string, error) {
+	return nil, nil, s.err
+}
+
 func TestPricingRoutesReturnEmptyResponsesWithoutProvider(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
 
