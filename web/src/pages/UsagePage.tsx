@@ -1530,6 +1530,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 modelPrices={modelPrices}
                 onPricesChange={setModelPrices}
                 loading={pricingLoading}
+                onRefreshPricing={loadPricing}
               />
             )}
           </div>

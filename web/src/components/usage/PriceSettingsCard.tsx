@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select, type SelectOption } from '@/components/ui/Select';
 import { IconCheck } from '@/components/ui/icons';
+import { useNotificationStore } from '@/stores';
+import { fetchPricingFromOpenRouter } from '@/lib/api';
 import type { ModelPrice } from '@/utils/usage';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -20,6 +22,7 @@ export interface PriceSettingsCardProps {
   modelPrices: Record<string, ModelPrice>;
   onPricesChange: (prices: Record<string, ModelPrice>) => void;
   loading?: boolean;
+  onRefreshPricing?: () => Promise<void> | void;
 }
 
 function PriceSettingsTitle({ title, subtitle, eyebrow }: { title: string; subtitle: string; eyebrow: string }) {
@@ -67,9 +70,12 @@ export function PriceSettingsCard({
   modelNames,
   modelPrices,
   onPricesChange,
-  loading = false
+  loading = false,
+  onRefreshPricing
 }: PriceSettingsCardProps) {
   const { t } = useTranslation();
+  const { showNotification } = useNotificationStore();
+  const [isFetchingOpenRouter, setIsFetchingOpenRouter] = useState(false);
 
   // 新增价格表单先暂存输入值，保存成功后再一次性同步到父级配置。
   const [selectedModel, setSelectedModel] = useState('');
@@ -136,6 +142,21 @@ export function PriceSettingsCard({
     }
   };
 
+  const handleFetchOpenRouter = async () => {
+    setIsFetchingOpenRouter(true);
+    try {
+      const result = await fetchPricingFromOpenRouter();
+      showNotification(t('usage_stats.fetch_openrouter_success', { count: result.pricing.length }), 'success');
+      if (onRefreshPricing) {
+        await onRefreshPricing();
+      }
+    } catch (error) {
+      showNotification(t('usage_stats.fetch_openrouter_error'), 'error');
+    } finally {
+      setIsFetchingOpenRouter(false);
+    }
+  };
+
   const options = useMemo(
     () => buildPricingModelOptions(
       modelNames,
@@ -150,11 +171,21 @@ export function PriceSettingsCard({
   return (
     <Card
       title={
-        <PriceSettingsTitle
-          eyebrow={t('usage_stats.model_price_settings_eyebrow')}
-          title={t('usage_stats.model_price_settings_title')}
-          subtitle={t('usage_stats.model_price_settings_subtitle')}
-        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', gap: '16px' }}>
+          <PriceSettingsTitle
+            eyebrow={t('usage_stats.model_price_settings_eyebrow')}
+            title={t('usage_stats.model_price_settings_title')}
+            subtitle={t('usage_stats.model_price_settings_subtitle')}
+          />
+          <Button 
+            variant="secondary" 
+            onClick={handleFetchOpenRouter} 
+            disabled={isFetchingOpenRouter || loading}
+            style={{ flexShrink: 0 }}
+          >
+            {isFetchingOpenRouter ? t('usage_stats.fetch_openrouter_loading') : t('usage_stats.fetch_openrouter')}
+          </Button>
+        </div>
       }
       className={`${styles.detailsFixedCard} ${styles.pricingFixedCard}`}
     >
