@@ -301,3 +301,18 @@ export async function deletePricing(model: string): Promise<void> {
     await parseApiError(response, `Failed to delete pricing: ${response.status}`)
   }
 }
+
+
+export interface FetchOpenRouterResponse {
+  updated: number
+  pricing: PricingEntry[]
+  unmatched: string[]
+}
+
+export async function fetchPricingFromOpenRouter(signal?: AbortSignal): Promise<FetchOpenRouterResponse> {
+  const response = await apiFetch(apiPath('/pricing/fetch-openrouter'), { method: 'POST', signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to fetch from OpenRouter: ${response.status}`)
+  }
+  return response.json()
+}
