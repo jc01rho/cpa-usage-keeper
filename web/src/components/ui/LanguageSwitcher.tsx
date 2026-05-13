@@ -4,9 +4,7 @@ import i18n, { isSupportedLanguage, persistLanguage, type SupportedLanguage } fr
 import styles from './LanguageSwitcher.module.scss';
 
 const LANGUAGE_OPTIONS: ReadonlyArray<{ value: SupportedLanguage; label: string }> = [
-  { value: 'en', label: 'EN' },
-  { value: 'zh', label: '中' },
-  { value: 'zh-TW', label: '繁' }
+  { value: 'en', label: 'EN' }
 ];
 
 export function LanguageSwitcher({ className = '' }: { className?: string }) {

@@ -31,6 +31,12 @@ type updatePricingRequest struct {
 	CachePricePer1M      float64 `json:"cache_price_per_1m"`
 }
 
+type fetchOpenRouterResponse struct {
+	Updated   int                    `json:"updated"`
+	Pricing   []pricingEntryResponse `json:"pricing"`
+	Unmatched []string               `json:"unmatched"`
+}
+
 func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingProvider) {
 	router.GET("/models/used", func(c *gin.Context) {
 		if pricingProvider == nil {
@@ -98,6 +104,42 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 			return
 		}
 		c.Status(http.StatusNoContent)
+	})
+
+	router.POST("/pricing/fetch-openrouter", func(c *gin.Context) {
+		if pricingProvider == nil {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": "pricing provider is not configured"})
+			return
+		}
+
+		updated, unmatched, err := pricingProvider.FetchFromOpenRouter(c.Request.Context())
+		if err != nil {
+			if strings.Contains(err.Error(), "not configured") {
+				c.JSON(http.StatusNotImplemented, gin.H{"error": err.Error()})
+				return
+			}
+			writeInternalError(c, "fetch OpenRouter pricing failed", err)
+			return
+		}
+
+		pricing := make([]pricingEntryResponse, 0, len(updated))
+		for _, s := range updated {
+			pricing = append(pricing, pricingEntryResponse{
+				Model:                s.Model,
+				PromptPricePer1M:     s.PromptPricePer1M,
+				CompletionPricePer1M: s.CompletionPricePer1M,
+				CachePricePer1M:      s.CachePricePer1M,
+			})
+		}
+		if unmatched == nil {
+			unmatched = []string{}
+		}
+
+		c.JSON(http.StatusOK, fetchOpenRouterResponse{
+			Updated:   len(updated),
+			Pricing:   pricing,
+			Unmatched: unmatched,
+		})
 	})
 }
 
