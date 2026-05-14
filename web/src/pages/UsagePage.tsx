@@ -13,8 +13,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents } from '@/lib/api';
-import type { StatusResponse, UsageAnalysisResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import { ApiError, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, updateCpaApiKeyAlias } from '@/lib/api';
+import type { CpaApiKeyOption, CpaApiKeySettingsItem, StatusResponse, UsageAnalysisResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -28,6 +28,7 @@ import {
   ChartLineSelector,
   ApiDetailsCard,
   ModelStatsCard,
+  ApiKeySettingsCard,
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
@@ -94,7 +95,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'pricing'] as const;
+const USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'settings'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
@@ -102,7 +103,7 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   credentials: 'usage_stats.tab_credentials',
-  pricing: 'usage_stats.tab_pricing',
+  settings: 'usage_stats.tab_settings',
 };
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
@@ -111,7 +112,7 @@ const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'pricing' && tab !== 'credentials';
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
 
 export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
 
@@ -147,7 +148,6 @@ type RequestEventFilterOptionsState = {
 
 type RefreshPageDataOptions = {
   refreshActiveTab: () => Promise<void>;
-  triggerBackendSync?: () => Promise<void>;
 };
 
 type OverviewAutoRefreshDocument = Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
@@ -157,13 +157,6 @@ type OverviewAutoRefreshOptions = {
   refreshOverview: () => void | Promise<void>;
   documentRef?: OverviewAutoRefreshDocument;
   intervalMs?: number;
-};
-
-type SyncCpaDataOptions = {
-  triggerBackendSync: () => Promise<StatusResponse>;
-  refreshActiveTab: () => Promise<void>;
-  refreshStatus: () => Promise<StatusResponse>;
-  onStatus: (status: StatusResponse) => void;
 };
 
 export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptions) => {
@@ -223,25 +216,6 @@ export const scheduleOverviewAutoRefresh = ({
     stopTimer();
     targetDocument.removeEventListener('visibilitychange', handleVisibilityChange);
   };
-};
-
-export const syncCpaData = async ({ triggerBackendSync, refreshActiveTab, refreshStatus, onStatus }: SyncCpaDataOptions) => {
-  try {
-    await triggerBackendSync();
-    await refreshActiveTab();
-    const nextStatus = await refreshStatus();
-    onStatus(nextStatus);
-  } catch (error) {
-    if (!(error instanceof ApiError && error.status === 401)) {
-      try {
-        const nextStatus = await refreshStatus();
-        onStatus(nextStatus);
-      } catch {
-        // 忽略状态刷新失败，继续抛出原始同步错误。
-      }
-    }
-    throw error;
-  }
 };
 
 export const sanitizeRequestEventFilters = (
@@ -487,6 +461,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
   const [customTimeRange, setCustomTimeRange] = useState<{ start: string; end: string }>(loadCustomTimeRange);
+  const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
+  const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
+  const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const isOverviewTab = activeTab === 'overview';
 
   const {
@@ -501,6 +478,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     customStart: customTimeRange.start,
     customEnd: customTimeRange.end,
     enabled: activeTab === 'overview',
+    apiKeyId: selectedApiKeyId,
   });
   const {
     modelNames,
@@ -511,8 +489,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setModelPrices,
   } = usePricingData({
     onAuthRequired,
-    enabled: activeTab === 'pricing',
+    enabled: activeTab === 'settings',
   });
+  const [apiKeySettings, setApiKeySettings] = useState<CpaApiKeySettingsItem[]>([]);
+  const [apiKeySettingsLoading, setApiKeySettingsLoading] = useState(false);
+  const [apiKeySettingsError, setApiKeySettingsError] = useState('');
+  const [apiKeySettingsSavingId, setApiKeySettingsSavingId] = useState<string | null>(null);
+  const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
@@ -549,6 +532,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   const tabOptions = useMemo(() => getUsageTabOptions(t), [t]);
   const timeRangeOptions = useMemo(() => getTimeRangeOptions(t), [t]);
+  const apiKeySelectOptions = useMemo(
+    () => [
+      { value: '', label: t('usage_stats.api_key_filter_all') },
+      ...apiKeyOptions.map((option) => ({ value: option.id, label: option.label })),
+    ],
+    [apiKeyOptions, t],
+  );
   const themeOptions = useMemo(
     () =>
       THEME_OPTIONS.map((option) => ({
@@ -598,6 +588,84 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setCustomRangeHint('');
   }, [customTimeRange.end, customTimeRange.start, t, timeRange]);
 
+  const loadApiKeyOptions = useCallback(async () => {
+    apiKeyOptionsRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    apiKeyOptionsRequestControllerRef.current = controller;
+    try {
+      const response = await fetchCpaApiKeyOptions(controller.signal);
+      if (apiKeyOptionsRequestControllerRef.current !== controller) {
+        return;
+      }
+      setApiKeyOptions(response.options ?? []);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (apiKeyOptionsRequestControllerRef.current === controller) {
+        setApiKeyOptions([]);
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+      }
+    } finally {
+      if (apiKeyOptionsRequestControllerRef.current === controller) {
+        apiKeyOptionsRequestControllerRef.current = null;
+      }
+    }
+  }, [onAuthRequired]);
+
+  const loadApiKeySettings = useCallback(async () => {
+    apiKeySettingsRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    apiKeySettingsRequestControllerRef.current = controller;
+
+    setApiKeySettingsLoading(true);
+    setApiKeySettingsError('');
+    try {
+      const response = await fetchCpaApiKeys(controller.signal);
+      if (apiKeySettingsRequestControllerRef.current !== controller) {
+        return;
+      }
+      setApiKeySettings(response.items ?? []);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (apiKeySettingsRequestControllerRef.current === controller) {
+        setApiKeySettings([]);
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to load CPA API keys');
+    } finally {
+      if (apiKeySettingsRequestControllerRef.current === controller) {
+        setApiKeySettingsLoading(false);
+        apiKeySettingsRequestControllerRef.current = null;
+      }
+    }
+  }, [onAuthRequired]);
+
+  const handleSaveApiKeyAlias = useCallback(async (id: string, keyAlias: string) => {
+    setApiKeySettingsSavingId(id);
+    setApiKeySettingsError('');
+    try {
+      const updated = await updateCpaApiKeyAlias(id, keyAlias);
+      setApiKeySettings((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setApiKeyOptions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to update CPA API key alias');
+    } finally {
+      setApiKeySettingsSavingId(null);
+    }
+  }, [onAuthRequired]);
+
   const loadAnalysis = useCallback(async () => {
     if (timeRange === 'custom') {
       if (!customTimeRange.start || !customTimeRange.end) {
@@ -629,7 +697,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setAnalysisData({ apis: [], models: [] });
     try {
       const queryWindow = timeRange === 'custom' ? buildCustomDateRangeQuery({ start: customTimeRange.start, end: customTimeRange.end }) : { start: undefined, end: undefined };
-      const response = await fetchUsageAnalysis(timeRange, queryWindow.start, queryWindow.end, controller.signal);
+      const response = await fetchUsageAnalysis(timeRange, queryWindow.start, queryWindow.end, controller.signal, selectedApiKeyId);
       if (analysisRequestControllerRef.current !== controller) {
         return;
       }
@@ -653,7 +721,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         analysisRequestControllerRef.current = null;
       }
     }
-  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, timeRange]);
+  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, selectedApiKeyId, timeRange]);
   const hourWindowHours = useMemo(
     () => getOverviewHourWindowHours({ timeRange, filterWindow }),
     [filterWindow, timeRange]
@@ -729,7 +797,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
   useEffect(() => {
     setEventsPage(1);
-  }, [customTimeRange.end, customTimeRange.start, timeRange]);
+  }, [customTimeRange.end, customTimeRange.start, selectedApiKeyId, timeRange]);
 
   useEffect(() => {
     if (timeRange !== 'custom') return;
@@ -765,6 +833,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       window.clearInterval(timer);
     };
   }, [onAuthRequired]);
+
+  useEffect(() => {
+    void loadApiKeyOptions();
+    return () => {
+      apiKeyOptionsRequestControllerRef.current?.abort();
+      apiKeyOptionsRequestControllerRef.current = null;
+    };
+  }, [loadApiKeyOptions]);
+
+  useEffect(() => {
+    if (selectedApiKeyId && !apiKeyOptions.some((option) => option.id === selectedApiKeyId)) {
+      setSelectedApiKeyId('');
+    }
+  }, [apiKeyOptions, selectedApiKeyId]);
 
   useEffect(() => {
     if (!shouldShowUpdateCheckButton(status)) {
@@ -853,6 +935,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
+        apiKeyId: selectedApiKeyId,
       });
       if (eventsRequestControllerRef.current !== controller) {
         return;
@@ -884,7 +967,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, timeRange]);
+  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, selectedApiKeyId, timeRange]);
 
   const resetEventsPage = useCallback(() => {
     setEventsPage(1);
@@ -923,12 +1006,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await loadAnalysis();
       return;
     }
-    if (activeTab === 'pricing') {
-      await loadPricing();
+    if (activeTab === 'settings') {
+      await Promise.all([loadApiKeySettings(), loadPricing()]);
       return;
     }
     await loadUsage();
-  }, [activeTab, loadAnalysis, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
+  }, [activeTab, loadAnalysis, loadApiKeySettings, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -1042,6 +1125,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       analysisRequestControllerRef.current = null;
     };
   }, [activeTab, loadAnalysis]);
+
+  useEffect(() => {
+    if (activeTab !== 'settings') {
+      apiKeySettingsRequestControllerRef.current?.abort();
+      apiKeySettingsRequestControllerRef.current = null;
+      setApiKeySettingsLoading(false);
+      return;
+    }
+    void loadApiKeySettings();
+    return () => {
+      apiKeySettingsRequestControllerRef.current?.abort();
+      apiKeySettingsRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadApiKeySettings]);
 
   useEffect(() => {
     const next = sanitizeRequestEventFilters(
@@ -1285,106 +1382,121 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
 
               <div className={styles.toolbarActionsRight}>
-                {showRangeControls && (
-                  <div className={styles.timeRangeGroup}>
-                    <span className={styles.timeRangeLabel}>{t('usage_stats.range_filter')}</span>
-                    <Select
-                      value={timeRange}
-                      options={timeRangeOptions}
-                      onChange={(value) => setTimeRange(value as UsageTimeRange)}
-                      className={styles.timeRangeSelectControl}
-                      ariaLabel={t('usage_stats.range_filter')}
-                      fullWidth={false}
-                    />
-                    {/* 自定义日期只在 Custom 模式挂载，非自定义范围保持工具栏内容宽度。 */}
+                <div className={`${styles.usageFilterBar} ${showRangeControls ? '' : styles.usageFilterBarCollapsed}`.trim()} aria-hidden={!showRangeControls}>
+                  <div className={styles.apiKeyFilterGroup}>
+                    <label className={`${styles.usageFilterField} ${styles.apiKeyFilterField}`.trim()}>
+                      <span className={styles.usageFilterLabel}>{t('usage_stats.api_key_filter')}</span>
+                      <Select
+                        value={selectedApiKeyId}
+                        options={apiKeySelectOptions}
+                        onChange={setSelectedApiKeyId}
+                        className={styles.apiKeySelectControl}
+                        ariaLabel={t('usage_stats.api_key_filter')}
+                        fullWidth
+                      />
+                    </label>
+                  </div>
+                  <div className={`${styles.timeRangeGroup} ${showRangeControls ? '' : styles.timeRangeGroupCollapsed}`.trim()}>
+                    <label className={`${styles.usageFilterField} ${styles.rangeFilterField}`.trim()}>
+                      <span className={styles.usageFilterLabel}>{t('usage_stats.range_filter')}</span>
+                      <Select
+                        value={timeRange}
+                        options={timeRangeOptions}
+                        onChange={(value) => setTimeRange(value as UsageTimeRange)}
+                        className={styles.rangeSelectControl}
+                        ariaLabel={t('usage_stats.range_filter')}
+                        fullWidth
+                      />
+                    </label>
                     {isCustomRange && (
-                      <div className={`${styles.customRangeInline} ${styles.customRangeInlineOpen}`.trim()}>
-                        <div className={styles.customRangeFields}>
-                          <label className={styles.customRangeField}>
-                            <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
-                            <input
-                              type="date"
-                              className={`input ${styles.customRangeInput}`}
-                              value={customTimeRange.start}
-                              min={customDateRangeBounds.min}
-                              max={customDateRangeBounds.max}
-                              onClick={handleCustomDateInputActivate}
-                              onFocus={handleCustomDateInputActivate}
-                              onKeyDown={handleCustomDateInputKeyDown}
-                              onPaste={(event) => event.preventDefault()}
-                              onChange={(event) => {
-                                const nextValue = event.target.value;
-                                if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
-                                setCustomTimeRange((current) => ({
-                                  ...current,
-                                  start: nextValue
-                                }));
-                              }}
-                              aria-label={t('usage_stats.custom_start')}
-                            />
-                          </label>
-                          <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
-                          <label className={styles.customRangeField}>
-                            <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
-                            <input
-                              type="date"
-                              className={`input ${styles.customRangeInput}`}
-                              value={customTimeRange.end}
-                              min={customDateRangeBounds.min}
-                              max={customDateRangeBounds.max}
-                              onClick={handleCustomDateInputActivate}
-                              onFocus={handleCustomDateInputActivate}
-                              onKeyDown={handleCustomDateInputKeyDown}
-                              onPaste={(event) => event.preventDefault()}
-                              onChange={(event) => {
-                                const nextValue = event.target.value;
-                                if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
-                                setCustomTimeRange((current) => ({
-                                  ...current,
-                                  end: nextValue
-                                }));
-                              }}
-                              aria-label={t('usage_stats.custom_end')}
-                            />
-                          </label>
-                        </div>
+                      <div className={styles.customRangeFieldGroup}>
+                        <label className={styles.customRangeField}>
+                          <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
+                          <input
+                            type="date"
+                            className={`input ${styles.customRangeInput}`}
+                            value={customTimeRange.start}
+                            min={customDateRangeBounds.min}
+                            max={customDateRangeBounds.max}
+                            onClick={handleCustomDateInputActivate}
+                            onFocus={handleCustomDateInputActivate}
+                            onKeyDown={handleCustomDateInputKeyDown}
+                            onPaste={(event) => event.preventDefault()}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
+                              setCustomTimeRange((current) => ({
+                                ...current,
+                                start: nextValue
+                              }));
+                            }}
+                            aria-label={t('usage_stats.custom_start')}
+                          />
+                        </label>
+                        <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
+                        <label className={styles.customRangeField}>
+                          <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
+                          <input
+                            type="date"
+                            className={`input ${styles.customRangeInput}`}
+                            value={customTimeRange.end}
+                            min={customDateRangeBounds.min}
+                            max={customDateRangeBounds.max}
+                            onClick={handleCustomDateInputActivate}
+                            onFocus={handleCustomDateInputActivate}
+                            onKeyDown={handleCustomDateInputKeyDown}
+                            onPaste={(event) => event.preventDefault()}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
+                              setCustomTimeRange((current) => ({
+                                ...current,
+                                end: nextValue
+                              }));
+                            }}
+                            aria-label={t('usage_stats.custom_end')}
+                          />
+                        </label>
                       </div>
                     )}
                   </div>
-                )}
+                </div>
                 {showRangeControls && isCustomRange && customRangeHint && (
                   <span className={styles.customRangeHint}>{customRangeHint}</span>
                 )}
                 {showRangeControls && isCustomRange && customRangeError && (
                   <span className={styles.customRangeError}>{customRangeError}</span>
                 )}
-                <div className={styles.refreshSwitcher} role="group" aria-label={t('usage_stats.refresh')}>
-                  <button
-                    type="button"
-                    className={`${styles.refreshPill} ${styles.refreshPillActive} ${manualRefreshLoading ? styles.refreshPillLoading : ''}`.trim()}
-                    onClick={() => void handleManualRefresh().catch(() => {})}
-                    disabled={manualRefreshLoading}
-                    aria-busy={manualRefreshLoading}
-                  >
-                    {manualRefreshLoading ? (
-                      <span className={styles.refreshPillInner}>
-                        <LoadingSpinner size={12} className={styles.refreshSpinner} />
-                        <span>{t('common.loading')}</span>
-                      </span>
-                    ) : (
-                      <span className={styles.refreshPillInner}>
-                        <IconRefreshCw size={14} />
-                        <span>{t('usage_stats.refresh')}</span>
-                      </span>
-                    )}
-                  </button>
+                <div className={styles.usageFilterActions}>
+                  <div className={styles.refreshSwitcher} role="group" aria-label={t('usage_stats.refresh')}>
+                    <button
+                      type="button"
+                      className={`${styles.refreshPill} ${styles.refreshPillActive} ${manualRefreshLoading ? styles.refreshPillLoading : ''}`.trim()}
+                      onClick={() => void handleManualRefresh().catch(() => {})}
+                      disabled={manualRefreshLoading}
+                      aria-busy={manualRefreshLoading}
+                    >
+                      {manualRefreshLoading ? (
+                        <span className={styles.refreshPillInner}>
+                          <LoadingSpinner size={12} className={styles.refreshSpinner} />
+                          <span>{t('common.loading')}</span>
+                        </span>
+                      ) : (
+                        <span className={styles.refreshPillInner}>
+                          <IconRefreshCw size={14} />
+                          <span>{t('usage_stats.refresh')}</span>
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
 
             {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
-            {activeTab === 'pricing' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
-            {!(activeTab === 'overview' ? error : activeTab === 'pricing' ? pricingError : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
+            {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
+            {activeTab === 'settings' && apiKeySettingsError && <div className={styles.errorBox}>{apiKeySettingsError}</div>}
+            {!(activeTab === 'overview' ? error : activeTab === 'settings' ? (pricingError || apiKeySettingsError) : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
 
             {activeTab === 'overview' && (
               <>
@@ -1524,14 +1636,22 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </>
             )}
 
-            {activeTab === 'pricing' && (
-              <PriceSettingsCard
-                modelNames={modelNames}
-                modelPrices={modelPrices}
-                onPricesChange={setModelPrices}
-                loading={pricingLoading}
-                onRefreshPricing={loadPricing}
-              />
+            {activeTab === 'settings' && (
+              <div className={styles.settingsSections}>
+                <ApiKeySettingsCard
+                  apiKeys={apiKeySettings}
+                  loading={apiKeySettingsLoading}
+                  savingId={apiKeySettingsSavingId}
+                  onSaveAlias={handleSaveApiKeyAlias}
+                />
+                <PriceSettingsCard
+                  modelNames={modelNames}
+                  modelPrices={modelPrices}
+                  onPricesChange={setModelPrices}
+                  loading={pricingLoading}
+                  onRefreshPricing={loadPricing}
+                />
+              </div>
             )}
           </div>
         </main>
