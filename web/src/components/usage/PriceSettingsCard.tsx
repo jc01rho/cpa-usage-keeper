@@ -151,7 +151,7 @@ export function PriceSettingsCard({
         await onRefreshPricing();
       }
     } catch (error) {
-      showNotification(t('usage_stats.fetch_openrouter_error'), 'error');
+      showNotification(t('usage_stats.fetch_openrouter_error', { error: error instanceof Error ? error.message : String(error) }), 'error');
     } finally {
       setIsFetchingOpenRouter(false);
     }
