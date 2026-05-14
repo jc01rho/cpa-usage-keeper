@@ -7,6 +7,7 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	repodto "cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
 
@@ -130,6 +131,76 @@ func TestBuildUsageSnapshotPreservesStoredAPIKey(t *testing.T) {
 	}
 	if _, ok := snapshot.APIs["sk-live-secret-value"]; !ok {
 		t.Fatalf("expected repository snapshot to preserve stored API key")
+	}
+}
+
+func TestBuildUsageOverviewWithFilterFiltersByAPIGroupKey(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	insertAPIKeyFilterEvents(t, db)
+
+	overview, err := BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key"})
+	if err != nil {
+		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
+	}
+	if overview.Summary.RequestCount != 2 || overview.Summary.TokenCount != 70 {
+		t.Fatalf("expected only target key events in overview summary, got %+v", overview.Summary)
+	}
+	if _, ok := overview.Usage.APIs["sk-other-key"]; ok {
+		t.Fatalf("expected overview to exclude other key, got %+v", overview.Usage.APIs)
+	}
+	if overview.Usage.APIs["sk-target-key"].TotalRequests != 2 {
+		t.Fatalf("expected target key aggregate only, got %+v", overview.Usage.APIs)
+	}
+}
+
+func TestListUsageAnalysisWithFilterFiltersByAPIGroupKey(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	insertAPIKeyFilterEvents(t, db)
+
+	apiRows, modelRows, err := ListUsageAnalysisWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key"})
+	if err != nil {
+		t.Fatalf("ListUsageAnalysisWithFilter returned error: %v", err)
+	}
+	if len(apiRows) != 1 || apiRows[0].APIGroupKey != "sk-target-key" || apiRows[0].TotalRequests != 2 || apiRows[0].TotalTokens != 70 {
+		t.Fatalf("expected only target key api aggregate, got %+v", apiRows)
+	}
+	if len(modelRows) != 2 {
+		t.Fatalf("expected target key models only, got %+v", modelRows)
+	}
+	for _, model := range modelRows {
+		if model.Model == "claude-other" {
+			t.Fatalf("expected analysis to exclude other key model, got %+v", modelRows)
+		}
+	}
+}
+
+func TestListUsageEventsWithFilterFiltersByAPIGroupKey(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	insertAPIKeyFilterEvents(t, db)
+
+	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Page: 1, PageSize: 100, Limit: 100})
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if page.TotalCount != 2 || len(page.Events) != 2 {
+		t.Fatalf("expected only target key events, got %+v", page)
+	}
+	for _, event := range page.Events {
+		if event.APIGroupKey != "sk-target-key" {
+			t.Fatalf("expected target key only, got %+v", page.Events)
+		}
+	}
+}
+
+func insertAPIKeyFilterEvents(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	events := []entities.UsageEvent{
+		{EventKey: "target-1", APIGroupKey: " sk-target-key ", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "1", Failed: false, LatencyMS: 100, InputTokens: 10, OutputTokens: 20, TotalTokens: 30},
+		{EventKey: "target-2", APIGroupKey: "sk-target-key", Model: "claude-opus", Timestamp: time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "2", Failed: true, LatencyMS: 200, InputTokens: 15, OutputTokens: 25, TotalTokens: 40},
+		{EventKey: "other-1", APIGroupKey: "sk-other-key", Model: "claude-other", Timestamp: time.Date(2026, 4, 20, 11, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", Failed: false, LatencyMS: 300, InputTokens: 100, OutputTokens: 200, TotalTokens: 300},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 }
 
