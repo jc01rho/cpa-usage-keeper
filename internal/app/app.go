@@ -113,13 +113,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
-	var pricingService service.PricingProvider
-	if cfg.OpenRouterAPIKey != "" {
-		orClient := openrouter.NewClient(cfg.OpenRouterAPIKey, cfg.RequestTimeout)
-		pricingService = service.NewPricingServiceWithOpenRouter(db, cpaClient, orClient)
-	} else {
-		pricingService = service.NewPricingService(db, cpaClient)
-	}
+	orClient := openrouter.NewClient(cfg.OpenRouterAPIKey, cfg.RequestTimeout)
+	pricingService := service.NewPricingServiceWithOpenRouter(db, cpaClient, orClient)
 	quotaService := quota.NewService(db, cpaClient)
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{

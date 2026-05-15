@@ -133,7 +133,7 @@ func normalizeCPAModels(result *response.ModelsResult) []string {
 // upserts pricing entries, and returns updated settings plus unmatched model names.
 func (s *pricingService) FetchFromOpenRouter(ctx context.Context) ([]entities.ModelPriceSetting, []string, error) {
 	if s.openRouter == nil {
-		return nil, nil, fmt.Errorf("OpenRouter API key is not configured")
+		return nil, nil, fmt.Errorf("OpenRouter client is not configured")
 	}
 
 	usedModels, err := repository.ListUsedModels(s.db)
