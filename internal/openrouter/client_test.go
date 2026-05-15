@@ -19,12 +19,11 @@ func TestClientFetchesModels(t *testing.T) {
 				{
 					"id":   "anthropic/claude-sonnet-4",
 					"name": "Anthropic: Claude Sonnet 4",
-					"pricing": map[string]string{
-						"prompt":           "3.0",
-						"completion":       "15.0",
-						"input_cache_read": "0.3",
-					},
-				},
+				"pricing": map[string]string{
+					"prompt":           "0.000003",
+					"completion":       "0.000015",
+					"input_cache_read": "0.0000003",
+				},				},
 				{
 					"id":   " ",
 					"name": "Blank ID",
@@ -48,13 +47,13 @@ func TestClientFetchesModels(t *testing.T) {
 	if models[0].ID != "anthropic/claude-sonnet-4" {
 		t.Fatalf("unexpected model id: %q", models[0].ID)
 	}
-	if models[0].Pricing.Prompt != "3.0" {
+	if models[0].Pricing.Prompt != "0.000003" {
 		t.Fatalf("unexpected prompt price: %q", models[0].Pricing.Prompt)
 	}
-	if models[0].Pricing.Completion != "15.0" {
+	if models[0].Pricing.Completion != "0.000015" {
 		t.Fatalf("unexpected completion price: %q", models[0].Pricing.Completion)
 	}
-	if models[0].Pricing.CacheRead != "0.3" {
+	if models[0].Pricing.CacheRead != "0.0000003" {
 		t.Fatalf("unexpected cache price: %q", models[0].Pricing.CacheRead)
 	}
 }
