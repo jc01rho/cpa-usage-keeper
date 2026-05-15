@@ -163,6 +163,12 @@ func (s *pricingService) FetchFromOpenRouter(ctx context.Context) ([]entities.Mo
 		promptPrice, _ := strconv.ParseFloat(info.Pricing.Prompt, 64)
 		completionPrice, _ := strconv.ParseFloat(info.Pricing.Completion, 64)
 		cachePrice, _ := strconv.ParseFloat(info.Pricing.CacheRead, 64)
+		
+		// OpenRouter API returns prices per-token, but we store per-1M-token
+		// Multiply by 1,000,000 to convert from per-token to per-1M-token
+		promptPrice *= 1_000_000
+		completionPrice *= 1_000_000
+		cachePrice *= 1_000_000
 
 		setting, err := repository.UpsertModelPriceSetting(s.db, repodto.ModelPriceSettingInput{
 			Model:                model,
