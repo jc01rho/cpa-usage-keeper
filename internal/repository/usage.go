@@ -277,7 +277,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	if bucketByDay {
 		fullDayStart, fullDayEnd := usageOverviewFullDayWindow(fullStart, fullEnd)
 		if fullDayEnd.After(fullDayStart) {
-			rows, err := loadUsageOverviewDailyStatsWithFilter(db, filter, fullDayStart, fullDayEnd)
+			rows, err := loadAnalysisOverviewDailyStatsWithFilter(db, filter, fullDayStart, fullDayEnd)
 			if err != nil {
 				return nil, err
 			}
@@ -285,7 +285,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		}
 		return record, nil
 	}
-	rows, err := loadUsageOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd)
+	rows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -696,10 +696,21 @@ func usageOverviewEventInsideWindow(event entities.UsageEvent, start, end time.T
 
 // loadUsageOverviewHourlyStatsWithFilter 读取完整小时 stats，并复用 Overview 的 API key 过滤条件。
 func loadUsageOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]entities.UsageOverviewHourlyStat, error) {
+	return loadUsageOverviewHourlyStats(db, filter, start, end, false)
+}
+
+func loadAnalysisOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]entities.UsageOverviewHourlyStat, error) {
+	return loadUsageOverviewHourlyStats(db, filter, start, end, true)
+}
+
+func loadUsageOverviewHourlyStats(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeCPAAPIKeysOnly bool) ([]entities.UsageOverviewHourlyStat, error) {
 	var rows []entities.UsageOverviewHourlyStat
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
 		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
 		Order("bucket_start asc")
+	if activeCPAAPIKeysOnly {
+		query = query.Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+	}
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
@@ -711,10 +722,21 @@ func loadUsageOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFi
 
 // loadUsageOverviewDailyStatsWithFilter 读取完整本地天 stats，并复用 Overview 的 API key 过滤条件。
 func loadUsageOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]entities.UsageOverviewDailyStat, error) {
+	return loadUsageOverviewDailyStats(db, filter, start, end, false)
+}
+
+func loadAnalysisOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]entities.UsageOverviewDailyStat, error) {
+	return loadUsageOverviewDailyStats(db, filter, start, end, true)
+}
+
+func loadUsageOverviewDailyStats(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeCPAAPIKeysOnly bool) ([]entities.UsageOverviewDailyStat, error) {
 	var rows []entities.UsageOverviewDailyStat
 	query := db.Model(&entities.UsageOverviewDailyStat{}).
 		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
 		Order("bucket_start asc")
+	if activeCPAAPIKeysOnly {
+		query = query.Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+	}
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}

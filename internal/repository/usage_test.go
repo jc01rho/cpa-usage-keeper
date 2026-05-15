@@ -173,6 +173,9 @@ func TestBuildUsageOverviewWithFilterFiltersByAPIGroupKey(t *testing.T) {
 func TestBuildAnalysisWithFilterUsesOverviewStatsWithoutUsageEvents(t *testing.T) {
 	db := openUsageTestDatabase(t)
 	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
+		t.Fatalf("insert CPA API key: %v", err)
+	}
 	if err := db.Create(&entities.UsageOverviewHourlyStat{
 		BucketStart:  bucket,
 		APIGroupKey:  "sk-target-key",
@@ -202,10 +205,51 @@ func TestBuildAnalysisWithFilterUsesOverviewStatsWithoutUsageEvents(t *testing.T
 	}
 }
 
+func TestBuildAnalysisWithFilterExcludesMissingAndDeletedCPAAPIKeys(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
+	deletedAt := bucket.Add(time.Hour)
+	if err := db.Create([]entities.CPAAPIKey{
+		{APIKey: "sk-active-key", DisplayKey: "sk-*********active"},
+		{APIKey: "sk-deleted-key", DisplayKey: "sk-*********deleted", IsDeleted: true, LastSyncedAt: &deletedAt},
+	}).Error; err != nil {
+		t.Fatalf("insert CPA API keys: %v", err)
+	}
+	if err := db.Create([]entities.UsageOverviewHourlyStat{
+		{BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", RequestCount: 2, InputTokens: 10, OutputTokens: 20, TotalTokens: 30},
+		{BucketStart: bucket, APIGroupKey: "sk-deleted-key", Model: "claude-opus", RequestCount: 3, InputTokens: 30, OutputTokens: 40, TotalTokens: 70},
+		{BucketStart: bucket, APIGroupKey: "sk-missing-key", Model: "gpt-4", RequestCount: 4, InputTokens: 50, OutputTokens: 60, TotalTokens: 110},
+	}).Error; err != nil {
+		t.Fatalf("insert hourly stats: %v", err)
+	}
+	start := bucket
+	end := bucket.Add(time.Hour)
+
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+	if len(analysis.APIKeyComposition) != 1 || analysis.APIKeyComposition[0].Key != "sk-active-key" || analysis.APIKeyComposition[0].TotalTokens != 30 {
+		t.Fatalf("expected only active CPA API key stats, got %+v", analysis.APIKeyComposition)
+	}
+	if len(analysis.ModelComposition) != 1 || analysis.ModelComposition[0].Key != "claude-sonnet" {
+		t.Fatalf("expected models from active CPA API key only, got %+v", analysis.ModelComposition)
+	}
+	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].APIKey != "sk-active-key" {
+		t.Fatalf("expected heatmap from active CPA API key only, got %+v", analysis.Heatmap)
+	}
+	if len(analysis.TokenUsage) != 1 || analysis.TokenUsage[0].TotalTokens != 30 || analysis.TokenUsage[0].Requests != 2 {
+		t.Fatalf("expected token usage from active CPA API key only, got %+v", analysis.TokenUsage)
+	}
+}
+
 func TestBuildAnalysisWithFilterFillsTodayAndYesterdayHourlyBucketsFromStats(t *testing.T) {
 	db := openUsageTestDatabase(t)
 	start := time.Date(2026, 5, 14, 0, 0, 0, 0, time.Local)
 	end := time.Date(2026, 5, 14, 23, 59, 59, 0, time.Local)
+	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
+		t.Fatalf("insert CPA API key: %v", err)
+	}
 	if err := db.Create([]entities.UsageOverviewHourlyStat{
 		{
 			BucketStart:  start.Add(22 * time.Hour),
