@@ -13,14 +13,16 @@ import (
 )
 
 type analysisResponse struct {
-	Granularity       string                    `json:"granularity"`
-	Timezone          string                    `json:"timezone"`
-	RangeStart        *time.Time                `json:"range_start,omitempty"`
-	RangeEnd          *time.Time                `json:"range_end,omitempty"`
-	TokenUsage        []analysisTokenUsage      `json:"token_usage"`
-	APIKeyComposition []analysisCompositionItem `json:"api_key_composition"`
-	ModelComposition  []analysisCompositionItem `json:"model_composition"`
-	Heatmap           analysisHeatmap           `json:"heatmap"`
+	Granularity           string                    `json:"granularity"`
+	Timezone              string                    `json:"timezone"`
+	RangeStart            *time.Time                `json:"range_start,omitempty"`
+	RangeEnd              *time.Time                `json:"range_end,omitempty"`
+	TokenUsage            []analysisTokenUsage      `json:"token_usage"`
+	APIKeyComposition     []analysisCompositionItem `json:"api_key_composition"`
+	ModelComposition      []analysisCompositionItem `json:"model_composition"`
+	AuthFilesComposition  []analysisCompositionItem `json:"auth_files_composition"`
+	AIProviderComposition []analysisCompositionItem `json:"ai_provider_composition"`
+	Heatmap               analysisHeatmap           `json:"heatmap"`
 }
 
 type analysisTokenUsage struct {
@@ -89,12 +91,14 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 
 func emptyAnalysisResponse() analysisResponse {
 	return analysisResponse{
-		Granularity:       string(servicedto.AnalysisGranularityHourly),
-		Timezone:          time.Local.String(),
-		TokenUsage:        []analysisTokenUsage{},
-		APIKeyComposition: []analysisCompositionItem{},
-		ModelComposition:  []analysisCompositionItem{},
-		Heatmap:           analysisHeatmap{APIKeys: []string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
+		Granularity:           string(servicedto.AnalysisGranularityHourly),
+		Timezone:              time.Local.String(),
+		TokenUsage:            []analysisTokenUsage{},
+		APIKeyComposition:     []analysisCompositionItem{},
+		ModelComposition:      []analysisCompositionItem{},
+		AuthFilesComposition:  []analysisCompositionItem{},
+		AIProviderComposition: []analysisCompositionItem{},
+		Heatmap:               analysisHeatmap{APIKeys: []string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
 	}
 }
 
@@ -132,15 +136,19 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 	}
 	apiComposition := buildAnalysisCompositionPayload(snapshot.APIKeyComposition, apiKeyInfos)
 	modelComposition := buildAnalysisCompositionPayload(snapshot.ModelComposition, nil)
+	authFilesComposition := buildAnalysisCompositionPayload(snapshot.AuthFilesComposition, nil)
+	aiProviderComposition := buildAnalysisCompositionPayload(snapshot.AIProviderComposition, nil)
 	return analysisResponse{
-		Granularity:       string(snapshot.Granularity),
-		Timezone:          time.Local.String(),
-		RangeStart:        snapshot.RangeStart,
-		RangeEnd:          snapshot.RangeEnd,
-		TokenUsage:        tokenUsage,
-		APIKeyComposition: apiComposition,
-		ModelComposition:  modelComposition,
-		Heatmap:           buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
+		Granularity:           string(snapshot.Granularity),
+		Timezone:              time.Local.String(),
+		RangeStart:            snapshot.RangeStart,
+		RangeEnd:              snapshot.RangeEnd,
+		TokenUsage:            tokenUsage,
+		APIKeyComposition:     apiComposition,
+		ModelComposition:      modelComposition,
+		AuthFilesComposition:  authFilesComposition,
+		AIProviderComposition: aiProviderComposition,
+		Heatmap:               buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
 	}
 }
 
@@ -155,6 +163,8 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		label := item.Key
 		if apiKeyInfos != nil {
 			label = analysisAPIKeyLabel(item.Key, apiKeyInfos)
+		} else if item.Label != "" {
+			label = item.Label
 		}
 		percent := 0.0
 		if total > 0 {

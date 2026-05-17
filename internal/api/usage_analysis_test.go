@@ -79,6 +79,18 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 			TotalTokens: 42,
 			Requests:    2,
 		}},
+		AuthFilesComposition: []servicedto.AnalysisCompositionItem{{
+			Key:         "auth-file-1",
+			Label:       "Auth File One",
+			TotalTokens: 30,
+			Requests:    1,
+		}},
+		AIProviderComposition: []servicedto.AnalysisCompositionItem{{
+			Key:         "provider-1",
+			Label:       "Provider One",
+			TotalTokens: 12,
+			Requests:    1,
+		}},
 		Heatmap: []servicedto.AnalysisHeatmapCell{{
 			APIKey:      "provider-a",
 			Model:       "claude-sonnet",
@@ -99,11 +111,17 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	if !contains(body, `"granularity":"hourly"`) || !contains(body, `"token_usage":[`) || !contains(body, `"heatmap":`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
-	if !contains(body, `"api_key_composition":[`) || !contains(body, `"model_composition":[`) {
+	if !contains(body, `"api_key_composition":[`) || !contains(body, `"model_composition":[`) || !contains(body, `"auth_files_composition":[`) || !contains(body, `"ai_provider_composition":[`) {
 		t.Fatalf("expected composition payloads in response body: %s", body)
 	}
 	if !contains(body, `"key":"prov**er-a"`) || !contains(body, `"label":"prov**er-a"`) {
 		t.Fatalf("expected redacted api key composition in response body: %s", body)
+	}
+	if !contains(body, `"key":"auth***le-1"`) || !contains(body, `"label":"Auth File One"`) || !contains(body, `"percent":100`) {
+		t.Fatalf("expected auth file composition in response body: %s", body)
+	}
+	if !contains(body, `"key":"prov**er-1"`) || !contains(body, `"label":"Provider One"`) {
+		t.Fatalf("expected ai provider composition in response body: %s", body)
 	}
 	if !contains(body, `"model":"claude-sonnet"`) || !contains(body, `"intensity":1`) {
 		t.Fatalf("expected heatmap cell in response body: %s", body)
