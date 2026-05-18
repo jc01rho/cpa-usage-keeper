@@ -22,7 +22,7 @@ func UsageIdentityDisplayName(item entities.UsageIdentity) string {
 	}
 
 	prefix := strings.TrimSpace(item.Prefix)
-	baseURL := formatBaseURLDisplay(item.BaseURL, !isOpenAICompatible)
+	baseURL := formatBaseURLDisplay(item.BaseURL)
 	qualifiers := displayQualifiers(prefix, baseURL)
 	qualifierSeparator := " @ "
 	switch {
@@ -60,7 +60,7 @@ func displayQualifiers(values ...string) []string {
 	return qualifiers
 }
 
-func formatBaseURLDisplay(raw string, trimV1 bool) string {
+func formatBaseURLDisplay(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return ""
@@ -73,7 +73,7 @@ func formatBaseURLDisplay(raw string, trimV1 bool) string {
 		}
 	}
 	trimmed = strings.TrimRight(trimmed, "/")
-	if trimV1 && strings.HasSuffix(strings.ToLower(trimmed), "/v1") {
+	if strings.HasSuffix(strings.ToLower(trimmed), "/v1") {
 		trimmed = trimmed[:len(trimmed)-len("/v1")]
 	}
 	return trimmed

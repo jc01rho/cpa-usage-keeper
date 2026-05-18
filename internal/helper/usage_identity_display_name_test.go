@@ -68,7 +68,7 @@ func TestDisplayNameFallsBackWhenOpenAICompatibilityNameIsMissing(t *testing.T) 
 		Identity: "openrouter-auth-index",
 	}
 
-	if got := UsageIdentityDisplayName(identity); got != "openrouter(openrouter.ai/api/v1)" {
+	if got := UsageIdentityDisplayName(identity); got != "openrouter(openrouter.ai/api)" {
 		t.Fatalf("expected unnamed openai compatibility displayName to fall back to provider qualifier rules, got %q", got)
 	}
 }
