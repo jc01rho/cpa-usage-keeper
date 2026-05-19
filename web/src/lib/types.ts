@@ -1,5 +1,14 @@
+export type AuthRole = 'admin' | 'api_key_viewer'
+
+export interface AuthSessionAPIKeySummary {
+  display_key: string
+  alias?: string
+}
+
 export interface AuthSessionResponse {
   authenticated: boolean
+  role?: AuthRole
+  api_key?: AuthSessionAPIKeySummary
 }
 
 export interface StatusResponse {
@@ -185,6 +194,10 @@ export interface UsageIdentity {
   identity: string
   type: string
   provider: string
+  prefix: string
+  priority?: number
+  disabled: boolean
+  note?: string
   plan_type?: string
   active_start?: string
   active_until?: string
@@ -319,6 +332,8 @@ export interface AnalysisResponse {
   token_usage: AnalysisTokenUsageBucket[]
   api_key_composition: AnalysisCompositionItem[]
   model_composition: AnalysisCompositionItem[]
+  auth_files_composition: AnalysisCompositionItem[]
+  ai_provider_composition: AnalysisCompositionItem[]
   heatmap: AnalysisHeatmapPayload
 }
 
@@ -358,7 +373,9 @@ export interface PricingResponse {
   pricing: PricingEntry[]
 }
 
-export type UsageTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d' | 'custom'
+export type KeyOverviewTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d'
+
+export type UsageTimeRange = KeyOverviewTimeRange | 'custom'
 
 export interface UsageFilterWindow {
   startMs?: number

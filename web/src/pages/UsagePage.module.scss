@@ -175,6 +175,7 @@
 }
 
 .updateCheckSwitcher,
+.signOutSwitcher,
 .refreshSwitcher {
   display: inline-flex;
   align-items: stretch;
@@ -187,6 +188,7 @@
 }
 
 .updateCheckPill,
+.signOutPill,
 .refreshPill {
   border: 0;
   background: transparent;
@@ -216,6 +218,7 @@
 
 .updateCheckPillLoading,
 .updateCheckPillActive,
+.signOutPillActive,
 .refreshPillActive,
 .refreshPillLoading {
   background: var(--bg-primary);
@@ -224,6 +227,7 @@
 }
 
 .updateCheckPillInner,
+.signOutPillInner,
 .refreshPillInner {
   display: inline-flex;
   align-items: center;
@@ -1646,8 +1650,16 @@
 
 .apiKeySettingsBody {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .apiKeySettingsList {
