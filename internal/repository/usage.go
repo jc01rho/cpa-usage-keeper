@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
@@ -276,20 +277,38 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	}
 	if bucketByDay {
 		fullDayStart, fullDayEnd := usageOverviewFullDayWindow(fullStart, fullEnd)
+		var dailyRows []entities.UsageOverviewDailyStat
 		if fullDayEnd.After(fullDayStart) {
-			rows, err := loadAnalysisOverviewDailyStatsWithFilter(db, filter, fullDayStart, fullDayEnd)
+			var err error
+			dailyRows, err = loadAnalysisOverviewDailyStatsWithFilter(db, filter, fullDayStart, fullDayEnd)
 			if err != nil {
 				return nil, err
 			}
-			applyAnalysisDailyRows(record, rows)
 		}
+		hourlyRows, err := loadAnalysisDailyBoundaryHourlyStatsWithFilter(db, filter, fullStart, fullDayStart, fullDayEnd, fullEnd)
+		if err != nil {
+			return nil, err
+		}
+		dailyIdentityLookup, err := loadAnalysisDailyIdentityLookup(db, dailyRows)
+		if err != nil {
+			return nil, err
+		}
+		hourlyIdentityLookup, err := loadAnalysisHourlyIdentityLookup(db, hourlyRows)
+		if err != nil {
+			return nil, err
+		}
+		applyAnalysisDailyAndBoundaryHourlyRows(record, dailyRows, dailyIdentityLookup, hourlyRows, hourlyIdentityLookup)
 		return record, nil
 	}
 	rows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd)
 	if err != nil {
 		return nil, err
 	}
-	applyAnalysisHourlyRows(record, rows)
+	identityLookup, err := loadAnalysisHourlyIdentityLookup(db, rows)
+	if err != nil {
+		return nil, err
+	}
+	applyAnalysisHourlyRows(record, rows, identityLookup)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return record, nil
 }
@@ -314,28 +333,105 @@ type analysisHeatmapKey struct {
 	model  string
 }
 
-func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewHourlyStat) {
+const analysisIdentityLookupBatchSize = 900
+
+type analysisIdentityInfo struct {
+	identity string
+	label    string
+	authType entities.UsageIdentityAuthType
+}
+
+type analysisIdentityLookup map[entities.UsageIdentityAuthType]map[string]analysisIdentityInfo
+
+func loadAnalysisHourlyIdentityLookup(db *gorm.DB, rows []entities.UsageOverviewHourlyStat) (analysisIdentityLookup, error) {
+	return loadAnalysisIdentityLookup(db, collectAnalysisAuthIndexes(len(rows), func(i int) string {
+		return rows[i].AuthIndex
+	}))
+}
+
+func loadAnalysisDailyIdentityLookup(db *gorm.DB, rows []entities.UsageOverviewDailyStat) (analysisIdentityLookup, error) {
+	return loadAnalysisIdentityLookup(db, collectAnalysisAuthIndexes(len(rows), func(i int) string {
+		return rows[i].AuthIndex
+	}))
+}
+
+func collectAnalysisAuthIndexes(count int, authIndexAt func(int) string) []string {
+	authIndexes := make([]string, 0, count)
+	seen := map[string]struct{}{}
+	for i := range count {
+		authIndex := strings.TrimSpace(authIndexAt(i))
+		if authIndex == "" {
+			continue
+		}
+		if _, ok := seen[authIndex]; ok {
+			continue
+		}
+		seen[authIndex] = struct{}{}
+		authIndexes = append(authIndexes, authIndex)
+	}
+	return authIndexes
+}
+
+func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIdentityLookup, error) {
+	lookup := analysisIdentityLookup{
+		entities.UsageIdentityAuthTypeAuthFile:   map[string]analysisIdentityInfo{},
+		entities.UsageIdentityAuthTypeAIProvider: map[string]analysisIdentityInfo{},
+	}
+	if len(authIndexes) == 0 {
+		return lookup, nil
+	}
+	for start := 0; start < len(authIndexes); start += analysisIdentityLookupBatchSize {
+		end := min(start+analysisIdentityLookupBatchSize, len(authIndexes))
+		var identities []entities.UsageIdentity
+		if err := db.Where("identity IN ? AND auth_type IN ? AND is_deleted = ?", authIndexes[start:end], []entities.UsageIdentityAuthType{entities.UsageIdentityAuthTypeAuthFile, entities.UsageIdentityAuthTypeAIProvider}, false).Find(&identities).Error; err != nil {
+			return nil, fmt.Errorf("load analysis usage identities: %w", err)
+		}
+		for _, identity := range identities {
+			label := helper.UsageIdentityDisplayName(identity)
+			lookup[identity.AuthType][identity.Identity] = analysisIdentityInfo{identity: identity.Identity, label: label, authType: identity.AuthType}
+		}
+	}
+	return lookup, nil
+}
+
+func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewHourlyStat, identityLookup analysisIdentityLookup) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
+	authFileTotals := map[string]*dto.AnalysisCompositionRecord{}
+	aiProviderTotals := map[string]*dto.AnalysisCompositionRecord{}
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
 		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
+		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
 	}
-	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, heatmapTotals)
+	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisDailyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewDailyStat) {
+func applyAnalysisDailyRows(record *dto.AnalysisRecord, rows []entities.UsageOverviewDailyStat, identityLookup analysisIdentityLookup) {
+	applyAnalysisDailyAndBoundaryHourlyRows(record, rows, identityLookup, nil, analysisIdentityLookup{})
+}
+
+func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRows []entities.UsageOverviewDailyStat, dailyIdentityLookup analysisIdentityLookup, hourlyRows []entities.UsageOverviewHourlyStat, hourlyIdentityLookup analysisIdentityLookup) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
+	authFileTotals := map[string]*dto.AnalysisCompositionRecord{}
+	aiProviderTotals := map[string]*dto.AnalysisCompositionRecord{}
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
-	for _, row := range rows {
+	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
 		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
+		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
 	}
-	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, heatmapTotals)
+	for _, row := range hourlyRows {
+		bucketStart := timeutil.NormalizeStorageTime(row.BucketStart)
+		bucket := time.Date(bucketStart.Year(), bucketStart.Month(), bucketStart.Day(), 0, 0, 0, 0, bucketStart.Location())
+		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
+		applyAnalysisIdentityComposition(hourlyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens)
+	}
+	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
 func applyAnalysisRow(_ *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord, bucket time.Time, apiGroupKey, model string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
@@ -386,6 +482,37 @@ func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, request
 	item.TotalTokens += totalTokens
 }
 
+func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, authIndex string, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
+	authIndex = strings.TrimSpace(authIndex)
+	if authIndex == "" {
+		return
+	}
+	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAuthFile, authIndex); ok {
+		applyAnalysisIdentityCompositionTotal(authFileTotals, identity, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
+	}
+	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAIProvider, authIndex); ok {
+		applyAnalysisIdentityCompositionTotal(aiProviderTotals, identity, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
+	}
+}
+
+func applyAnalysisIdentityCompositionTotal(totals map[string]*dto.AnalysisCompositionRecord, identity analysisIdentityInfo, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens int64) {
+	item := totals[identity.identity]
+	if item == nil {
+		item = &dto.AnalysisCompositionRecord{Key: identity.identity, Label: identity.label}
+		totals[identity.identity] = item
+	}
+	applyAnalysisCompositionTotals(item, requests, inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens)
+}
+
+func (lookup analysisIdentityLookup) find(authType entities.UsageIdentityAuthType, identity string) (analysisIdentityInfo, bool) {
+	byIdentity := lookup[authType]
+	if byIdentity == nil {
+		return analysisIdentityInfo{}, false
+	}
+	item, ok := byIdentity[identity]
+	return item, ok
+}
+
 func fillAnalysisFullDayHourlyBuckets(record *dto.AnalysisRecord, filter dto.UsageQueryFilter) {
 	if record == nil || record.Granularity != dto.AnalysisGranularityHourly || filter.StartTime == nil {
 		return
@@ -409,7 +536,7 @@ func fillAnalysisFullDayHourlyBuckets(record *dto.AnalysisRecord, filter dto.Usa
 	}
 }
 
-func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord) {
+func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, apiTotals, modelTotals, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord) {
 	for _, bucket := range bucketTotals {
 		record.TokenUsage = append(record.TokenUsage, *bucket)
 	}
@@ -422,6 +549,14 @@ func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Ti
 		record.ModelComposition = append(record.ModelComposition, *item)
 	}
 	sortAnalysisComposition(record.ModelComposition)
+	for _, item := range authFileTotals {
+		record.AuthFilesComposition = append(record.AuthFilesComposition, *item)
+	}
+	sortAnalysisComposition(record.AuthFilesComposition)
+	for _, item := range aiProviderTotals {
+		record.AIProviderComposition = append(record.AIProviderComposition, *item)
+	}
+	sortAnalysisComposition(record.AIProviderComposition)
 	for _, cell := range heatmapTotals {
 		record.Heatmap = append(record.Heatmap, *cell)
 	}
@@ -706,6 +841,38 @@ func loadUsageOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFi
 
 func loadAnalysisOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]entities.UsageOverviewHourlyStat, error) {
 	return loadUsageOverviewHourlyStats(db, filter, start, end, true)
+}
+
+func loadAnalysisDailyBoundaryHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, fullStart, fullDayStart, fullDayEnd, fullEnd time.Time) ([]entities.UsageOverviewHourlyStat, error) {
+	windows := analysisDailyBoundaryHourlyWindows(fullStart, fullDayStart, fullDayEnd, fullEnd)
+	rows := make([]entities.UsageOverviewHourlyStat, 0)
+	for _, window := range windows {
+		windowRows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, window.start, window.end)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, windowRows...)
+	}
+	return rows, nil
+}
+
+func analysisDailyBoundaryHourlyWindows(fullStart, fullDayStart, fullDayEnd, fullEnd time.Time) []usageOverviewRawEventWindow {
+	windows := make([]usageOverviewRawEventWindow, 0, 2)
+	leftEnd := fullDayStart
+	if fullEnd.Before(leftEnd) {
+		leftEnd = fullEnd
+	}
+	if fullStart.Before(leftEnd) {
+		windows = append(windows, usageOverviewRawEventWindow{start: fullStart, end: leftEnd})
+	}
+	rightStart := fullDayEnd
+	if rightStart.Before(fullStart) {
+		rightStart = fullStart
+	}
+	if rightStart.Before(fullEnd) {
+		windows = append(windows, usageOverviewRawEventWindow{start: rightStart, end: fullEnd})
+	}
+	return mergeUsageOverviewRawEventWindows(windows)
 }
 
 func loadUsageOverviewHourlyStats(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeCPAAPIKeysOnly bool) ([]entities.UsageOverviewHourlyStat, error) {
