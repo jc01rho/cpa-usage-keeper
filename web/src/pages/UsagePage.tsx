@@ -51,6 +51,7 @@ import {
   type UsageTimeRange
 } from '@/utils/usage';
 import type { Theme } from '@/types';
+import { BrandLink } from '@/components/BrandLink';
 import styles from './UsagePage.module.scss';
 
 ChartJS.register(
@@ -1215,7 +1216,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       <div className={styles.pageFrame}>
         <header className={styles.topBar}>
           <div className={styles.brandBlock}>
-            <span className={styles.eyebrow}>CPA Usage Keeper</span>
+            <BrandLink className={styles.eyebrow} />
           </div>
           <div className={styles.topBarActions}>
             <LanguageSwitcher />
