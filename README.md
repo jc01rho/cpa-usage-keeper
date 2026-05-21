@@ -1,10 +1,14 @@
 # CPA Usage Keeper
 
+> **This is a fork** of [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper) maintained by [jc01rho](https://github.com/jc01rho), intended for use with the [CLIProxyAPIPlus](https://github.com/jc01rho/CLIProxyAPIPlus) fork.
+> 
+> This fork tracks upstream closely and primarily differs in its integration target (CLIProxyAPIPlus instead of upstream CLIProxyAPI).
+
 [English README](./README.en.md)
 
 `CPA Usage Keeper` 是一个独立的 CPA 用量持久化与可视化服务。
 
-它依赖 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会从 CPA Redis usage 队列消费事件并写入 SQLite，定时拉取 CPA metadata，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
+它依赖 [CLIProxyAPIPlus（CPA）](https://github.com/jc01rho/CLIProxyAPIPlus) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会从 CPA Redis usage 队列消费事件并写入 SQLite，定时拉取 CPA metadata，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
 
 <p float="left">
   <img src="https://images.bitskyline.com/i/2026/05/govoah.png" width="49%" />
@@ -117,7 +121,7 @@ cp .env.example .env
 - Go 1.22+
 - Node.js 22+
 - npm
-- 已运行的 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI)
+- 已运行的 [CLIProxyAPIPlus（CPA）](https://github.com/jc01rho/CLIProxyAPIPlus)
 
 ### 本地启动
 
