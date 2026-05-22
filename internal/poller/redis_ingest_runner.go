@@ -238,34 +238,51 @@ func (r *RedisIngestRunner) backfillAfterSubscribe(ctx context.Context) error {
 	// 订阅刚连接时进入 backfill 状态，补偿订阅建立前已在队列中的数据。
 	r.recordState(RedisIngestSyncModeSubscribe, RedisIngestSubStateSubscribeBackfill, "subscribe_backfill", "", "")
 	// backfill 优先复用旧 Redis queue 拉取，速度快且不经过 HTTP 管理接口。
-	if count, err := r.serialPullAndWrite(ctx, RedisIngestSourceRedisPull, r.redisSource); err == nil {
+	redisCount, redisBatches, err := r.drainBackfillSource(ctx, RedisIngestSourceRedisPull, r.redisSource)
+	if err == nil {
 		// Redis backfill 成功即清退避，后续失败重新从 1s 开始。
 		r.failureBackoff.Reset()
-		// 订阅成功后的补拉是关键一次性动作，需要 info 告知使用了 Redis backfill。
-		logrus.WithField("message_count", count).Info("redis subscribe backfill used redis pull")
+		// 订阅成功后的补拉是关键一次性动作，info 只记录 drain 汇总，避免按批刷屏。
+		logrus.WithFields(logrus.Fields{"message_count": redisCount, "batch_count": redisBatches}).Info("redis subscribe backfill used redis pull")
 		return nil
-	} else {
-		if errors.Is(err, errRedisIngestInboxWrite) {
-			return err
-		}
-		// Redis backfill 失败不影响已建立的 subscribe，需要继续尝试 HTTP backfill。
-		r.recordWarning("subscribe_backfill_redis_failed", err)
 	}
-	// Redis backfill 失败时用 HTTP queue 做一次兜底 backfill。
-	if count, err := r.serialPullAndWrite(ctx, RedisIngestSourceHTTPPull, r.httpSource); err == nil {
+	if errors.Is(err, errRedisIngestInboxWrite) {
+		return err
+	}
+	// Redis backfill 失败不影响已建立的 subscribe，需要继续尝试 HTTP backfill。
+	r.recordWarning("subscribe_backfill_redis_failed", err)
+	// Redis backfill 失败时用 HTTP queue 做兜底 backfill，同样 drain 到空批次。
+	httpCount, httpBatches, err := r.drainBackfillSource(ctx, RedisIngestSourceHTTPPull, r.httpSource)
+	if err == nil {
 		// HTTP backfill 成功同样清退避，说明兜底链路健康。
 		r.failureBackoff.Reset()
-		// Redis backfill 失败后的 HTTP 补拉也是关键一次性动作，需要 info 告知 fallback 结果。
-		logrus.WithField("message_count", count).Info("redis subscribe backfill used http pull")
+		// Redis backfill 失败后的 HTTP 补拉也是关键动作，info 只记录最终汇总。
+		logrus.WithFields(logrus.Fields{"message_count": httpCount, "batch_count": httpBatches}).Info("redis subscribe backfill used http pull")
 		return nil
-	} else {
-		if errors.Is(err, errRedisIngestInboxWrite) {
-			return err
-		}
-		// 两种 backfill 都失败也不终止 subscribe，因为订阅连接已经能接收新消息。
-		r.recordWarning("subscribe_backfill_failed", err)
 	}
+	if errors.Is(err, errRedisIngestInboxWrite) {
+		return err
+	}
+	// 两种 backfill 都失败也不终止 subscribe，因为订阅连接已经能接收新消息。
+	r.recordWarning("subscribe_backfill_failed", err)
 	return nil
+}
+
+func (r *RedisIngestRunner) drainBackfillSource(ctx context.Context, sourceName string, source UsagePullSource) (int, int, error) {
+	// backfill 必须 drain 到空批次，但每批立即落 inbox，避免远端已消费数据停留在内存。
+	total := 0
+	batches := 0
+	for {
+		count, err := r.serialPullAndWrite(ctx, sourceName, source)
+		if err != nil {
+			return total, batches, err
+		}
+		if count == 0 {
+			return total, batches, nil
+		}
+		total += count
+		batches++
+	}
 }
 
 func (r *RedisIngestRunner) receiveSubscribeBatches(ctx context.Context, sub UsageSubscription) error {
@@ -295,7 +312,9 @@ func (r *RedisIngestRunner) receiveSubscribeBatches(ctx context.Context, sub Usa
 					return fmt.Errorf("%w: %v", errRedisIngestInboxWrite, writeErr)
 				}
 				// 订阅循环收到和写入的数量只放 debug，不能在 info 刷屏。
-				logrus.WithFields(logrus.Fields{"message_count": len(batch), "inserted_count": inserted}).Debug("redis subscribe messages received")
+				if logrus.IsLevelEnabled(logrus.DebugLevel) {
+					logrus.WithFields(logrus.Fields{"message_count": len(batch), "inserted_count": inserted}).Debug("redis subscribe messages received")
+				}
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
 				// 1s 聚合窗口正常结束，不视为订阅失败。
@@ -314,7 +333,9 @@ func (r *RedisIngestRunner) receiveSubscribeBatches(ctx context.Context, sub Usa
 		return fmt.Errorf("%w: %v", errRedisIngestInboxWrite, err)
 	}
 	// 订阅循环收到和写入的数量只放 debug，不能在 info 刷屏。
-	logrus.WithFields(logrus.Fields{"message_count": len(batch), "inserted_count": inserted}).Debug("redis subscribe messages received")
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		logrus.WithFields(logrus.Fields{"message_count": len(batch), "inserted_count": inserted}).Debug("redis subscribe messages received")
+	}
 	return nil
 }
 
@@ -601,7 +622,9 @@ func (r *RedisIngestRunner) serialPullAndWrite(ctx context.Context, sourceName s
 		return 0, err
 	}
 	// 每次拉取方式和拉取数量属于可刷屏排查信息，只写 debug。
-	logrus.WithFields(logrus.Fields{"source": sourceName, "message_count": len(messages)}).Debug("redis ingest pulled usage messages")
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		logrus.WithFields(logrus.Fields{"source": sourceName, "message_count": len(messages)}).Debug("redis ingest pulled usage messages")
+	}
 	if len(messages) == 0 {
 		// 空批次不调用 writer，避免无意义 DB 事务。
 		return 0, nil
@@ -613,7 +636,9 @@ func (r *RedisIngestRunner) serialPullAndWrite(ctx context.Context, sourceName s
 		return 0, fmt.Errorf("%w: %v", errRedisIngestInboxWrite, err)
 	}
 	// 每次写入数量也属于可刷屏排查信息，只写 debug。
-	logrus.WithFields(logrus.Fields{"source": sourceName, "message_count": len(messages), "inserted_count": inserted}).Debug("redis ingest wrote usage messages")
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		logrus.WithFields(logrus.Fields{"source": sourceName, "message_count": len(messages), "inserted_count": inserted}).Debug("redis ingest wrote usage messages")
+	}
 	// 返回实际插入行数，用于状态和日志。
 	return inserted, nil
 }

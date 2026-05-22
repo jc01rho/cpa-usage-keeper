@@ -55,6 +55,31 @@ func TestRedisIngestRunnerSubscribeBackfillsBeforeReceiving(t *testing.T) {
 	}
 }
 
+func TestRedisIngestRunnerSubscribeBackfillDrainsRedisBeforeReceiving(t *testing.T) {
+	writer := newFakeInboxWriter()
+	sub := &blockingSubscription{messages: make(chan string)}
+	runner := poller.NewRedisIngestRunner(
+		fakeSubscribeSource{sub: sub},
+		&fakePullSource{batches: [][]string{
+			{`{"request_id":"redis-backfill-1"}`},
+			{`{"request_id":"redis-backfill-2"}`},
+		}},
+		&fakePullSource{},
+		writer,
+		poller.RedisIngestRunnerConfig{IdleInterval: 10 * time.Millisecond, BatchSize: 1, HTTPBackoffInitial: 10 * time.Millisecond, HTTPBackoffMax: 10 * time.Millisecond},
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = runner.Run(ctx) }()
+
+	first := writer.waitForInsert(t)
+	second := writer.waitForInsert(t)
+	cancel()
+	if first.source != poller.RedisIngestSourceRedisPull || second.source != poller.RedisIngestSourceRedisPull {
+		t.Fatalf("expected Redis backfill source for both batches, got %q and %q", first.source, second.source)
+	}
+}
+
 func TestRedisIngestRunnerInfoLogsSubscribeBackfillOnce(t *testing.T) {
 	logs := capturePollerLogs(t, logrus.InfoLevel)
 	writer := newFakeInboxWriter()
@@ -237,7 +262,7 @@ func TestRedisIngestRunnerDebugLogsPullSourceAndCounts(t *testing.T) {
 	_ = writer.waitForInsert(t)
 	cancel()
 	output := logs.String()
-	if !strings.Contains(output, "redis ingest pulled usage messages") || !strings.Contains(output, `source="redis_pull:queue"`) || !strings.Contains(output, "message_count=1") {
+	if !strings.Contains(output, "redis ingest pulled usage messages") || !strings.Contains(output, `source="`+poller.RedisIngestSourceRedisPull+`"`) || !strings.Contains(output, "message_count=1") {
 		t.Fatalf("expected debug pull source and count logs, got logs: %s", output)
 	}
 }
