@@ -3,6 +3,7 @@
 .claude/
 .worktrees/
 plans/
+AGENTS.md
 
 # local environment files
 .env
