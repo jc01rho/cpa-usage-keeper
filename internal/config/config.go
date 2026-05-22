@@ -36,6 +36,8 @@ type Config struct {
 	AppPort string
 	// AppBasePath 是 Web 服务部署子路径，空值表示根路径。
 	AppBasePath string
+	// CPAPublicURL 是浏览器访问 CPA 的公开地址；为空时前端按同源根路径跳转。
+	CPAPublicURL string
 	// TLSEnabled 控制是否以 HTTPS 模式启动 HTTP 服务。
 	TLSEnabled bool
 	// TLSCertFile 是 HTTPS 证书文件路径。
@@ -208,6 +210,7 @@ func Load(options LoadOptions) (*Config, error) {
 	cfg := &Config{
 		AppPort:                getString("APP_PORT", "8080"),
 		AppBasePath:            appBasePath,
+		CPAPublicURL:           strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
 		TLSEnabled:             tlsEnabled,
 		TLSCertFile:            strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
 		TLSKeyFile:             strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
