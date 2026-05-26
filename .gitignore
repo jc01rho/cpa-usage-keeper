@@ -1,8 +1,10 @@
 # internal docs
 .dev-docs/
 .claude/
+.codex/
 .worktrees/
 plans/
+AGENTS.md
 
 # local environment files
 .env
