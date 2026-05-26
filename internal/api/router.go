@@ -26,14 +26,19 @@ type StatusProvider interface {
 	Status() poller.Status
 }
 
+type ActiveStatusRecorder interface {
+	RecordActiveStatus(time.Time)
+}
+
 type QuotaProvider interface {
 	GetCachedQuota(context.Context, quota.CacheRequest) (quota.CacheResponse, error)
 	Refresh(context.Context, quota.RefreshRequest) (quota.RefreshResponse, error)
-	GetRefreshTask(context.Context, string) (quota.RefreshTaskResponse, error)
+	GetRefreshTaskByAuthIndex(context.Context, string) (quota.RefreshTaskResponse, error)
 }
 
 type StatusRouteConfig struct {
-	CPAManagementURL string
+	CPAPublicURL   string
+	ActiveRecorder ActiveStatusRecorder
 }
 
 type OptionalProviders struct {
@@ -229,19 +234,11 @@ type statusResponse struct {
 	Timezone           string     `json:"timezone"`
 	Version            string     `json:"version"`
 	UpdateCheckEnabled bool       `json:"updateCheckEnabled"`
-	CPAManagementURL   string     `json:"cpa_management_url,omitempty"`
+	CPAPublicURL       string     `json:"cpa_public_url,omitempty"`
 	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
 	LastError          string     `json:"last_error,omitempty"`
 	LastWarning        string     `json:"last_warning,omitempty"`
 	LastStatus         string     `json:"last_status,omitempty"`
-}
-
-func BuildCPAManagementURL(baseURL string) string {
-	trimmed := strings.TrimSpace(baseURL)
-	if trimmed == "" {
-		return ""
-	}
-	return strings.TrimRight(trimmed, "/") + "/management.html"
 }
 
 func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider, config StatusRouteConfig) {
@@ -253,6 +250,13 @@ func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider, con
 
 		c.JSON(http.StatusOK, buildStatusResponse(statusProvider.Status(), config))
 	})
+	router.GET("/status/active", func(c *gin.Context) {
+		if config.ActiveRecorder != nil {
+			// 前端可见页面用这个轻量心跳续约，避免限额自动刷新在无人查看后台时持续扫库和请求上游。
+			config.ActiveRecorder.RecordActiveStatus(time.Now())
+		}
+		c.Status(http.StatusNoContent)
+	})
 }
 
 func buildStatusResponse(status poller.Status, config StatusRouteConfig) statusResponse {
@@ -262,7 +266,7 @@ func buildStatusResponse(status poller.Status, config StatusRouteConfig) statusR
 		Timezone:           time.Local.String(),
 		Version:            version.Version,
 		UpdateCheckEnabled: updatecheck.IsStableVersion(version.Version),
-		CPAManagementURL:   config.CPAManagementURL,
+		CPAPublicURL:       config.CPAPublicURL,
 		LastError:          status.LastError,
 		LastWarning:        status.LastWarning,
 		LastStatus:         status.LastStatus,

@@ -1045,8 +1045,8 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 	// 小时 stats 是完整小时事实，可直接累计到 snapshot totals。
 	applyUsageOverviewHourlyStatToSnapshot(overview.Usage, row)
 	// cost 不入 stats 表，必须在读取时按当前价格表重新计算。
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
-	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && usageOverviewStatRequiresPricing(row.InputTokens, row.OutputTokens, row.CachedTokens) {
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
+	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}) {
 		overview.Summary.CostAvailable = false
 	}
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.CachedTokens, row.ReasoningTokens, rowCost)
@@ -1069,7 +1069,7 @@ func applyUsageOverviewHourlyStatToHourlySeries(overview *dto.UsageOverviewRecor
 	if latestHourlyStart != nil && timeutil.NormalizeStorageTime(row.BucketStart).Before(*latestHourlyStart) {
 		return
 	}
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
 	hourKey, hourMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), false)
 	applyUsageOverviewStatToSeries(&overview.HourlySeries, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, rowCost, hourKey, hourMinutes)
 }
@@ -1078,8 +1078,8 @@ func applyUsageOverviewHourlyStatToHourlySeries(overview *dto.UsageOverviewRecor
 func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewDailyStat, bucketByDay bool, pricingByModel map[string]entities.ModelPriceSetting) {
 	// 天 stats 只覆盖完整本地天，不能用于非整天边界。
 	applyUsageOverviewDailyStatToSnapshot(overview.Usage, row)
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
-	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && usageOverviewStatRequiresPricing(row.InputTokens, row.OutputTokens, row.CachedTokens) {
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
+	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}) {
 		overview.Summary.CostAvailable = false
 	}
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.CachedTokens, row.ReasoningTokens, rowCost)
@@ -1293,32 +1293,6 @@ func usageOverviewHealthBlockIndex(blocks []dto.UsageOverviewHealthBlockRecord, 
 	return -1
 }
 
-// usageOverviewStatRequiresPricing 判断 stats row 是否需要价格表才能给出可信 cost。
-func usageOverviewStatRequiresPricing(inputTokens, outputTokens, cachedTokens int64) bool {
-	return inputTokens > 0 || outputTokens > 0 || cachedTokens > 0
-}
-
-// calculateUsageOverviewStatCost 按当前价格表计算聚合 row 成本，不读取历史价格快照。
-func calculateUsageOverviewStatCost(inputTokens, outputTokens, cachedTokens int64, pricing entities.ModelPriceSetting) float64 {
-	if inputTokens < 0 {
-		inputTokens = 0
-	}
-	if outputTokens < 0 {
-		outputTokens = 0
-	}
-	if cachedTokens < 0 {
-		cachedTokens = 0
-	}
-	// cached_tokens 已单独计价，prompt 费用只计算非缓存输入 token。
-	promptTokens := inputTokens - cachedTokens
-	if promptTokens < 0 {
-		promptTokens = 0
-	}
-	return (float64(promptTokens)/1_000_000.0)*pricing.PromptPricePer1M +
-		(float64(outputTokens)/1_000_000.0)*pricing.CompletionPricePer1M +
-		(float64(cachedTokens)/1_000_000.0)*pricing.CachePricePer1M
-}
-
 // Overview 第二步：按时间窗口读事件，再交给内存汇总。
 func loadUsageOverviewEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) ([]entities.UsageEvent, error) {
 	query := applyUsageOverviewQuery(db.Model(&entities.UsageEvent{}), filter).Select(usageEventProjectionColumns).Order("timestamp asc")
@@ -1478,11 +1452,6 @@ func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, even
 	series.Models[modelName] = modelSeries
 }
 
-// usageEventRequiresPricing 判断单条事件是否需要价格表才能给出可信 cost。
-func usageEventRequiresPricing(event entities.UsageEvent) bool {
-	return event.InputTokens > 0 || event.OutputTokens > 0 || event.CachedTokens > 0
-}
-
 // applyUsageEventToOverview 把边界 raw event 合并进 Overview，语义必须和 stats row 合并保持一致。
 func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]entities.ModelPriceSetting) {
 	overview.Summary.CachedTokens += event.CachedTokens
@@ -1494,10 +1463,10 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	}
 	// 边界事件也按当前价格表计算 cost；缺价格且有计费 token 时标记 cost 不完整。
 	pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
-	if !ok && usageEventRequiresPricing(event) {
+	if !ok && helper.UsageEventRequiresPricing(event) {
 		overview.Summary.CostAvailable = false
 	}
-	cost := calculateUsageEventCost(event, pricing)
+	cost := helper.CalculateUsageEventCost(event, pricing)
 	overview.Summary.TotalCost += cost
 
 	// 主序列使用页面当前粒度，hourly/daily 辅助序列固定按各自粒度累计。
@@ -1548,30 +1517,6 @@ func loadPriceSettingsByModel(db *gorm.DB) (map[string]entities.ModelPriceSettin
 		result[strings.TrimSpace(setting.Model)] = setting
 	}
 	return result, nil
-}
-
-// calculateUsageEventCost 按当前价格表计算单条事件成本。
-func calculateUsageEventCost(event entities.UsageEvent, pricing entities.ModelPriceSetting) float64 {
-	inputTokens := event.InputTokens
-	if inputTokens < 0 {
-		inputTokens = 0
-	}
-	completionTokens := event.OutputTokens
-	if completionTokens < 0 {
-		completionTokens = 0
-	}
-	cachedTokens := event.CachedTokens
-	if cachedTokens < 0 {
-		cachedTokens = 0
-	}
-	// cached_tokens 已单独计价，prompt 费用只计算非缓存输入 token。
-	promptTokens := inputTokens - cachedTokens
-	if promptTokens < 0 {
-		promptTokens = 0
-	}
-	return (float64(promptTokens)/1_000_000.0)*pricing.PromptPricePer1M +
-		(float64(completionTokens)/1_000_000.0)*pricing.CompletionPricePer1M +
-		(float64(cachedTokens)/1_000_000.0)*pricing.CachePricePer1M
 }
 
 const usageOverviewDailyBucketThresholdMinutes int64 = 7 * 24 * 60
