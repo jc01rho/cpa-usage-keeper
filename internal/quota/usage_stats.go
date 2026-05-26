@@ -82,7 +82,7 @@ func quotaRowUsageWindow(row QuotaRow, now time.Time) (time.Time, time.Time, boo
 		}
 		// reset_at 归一化成项目存储时间，保证与 usage_events.timestamp 比较一致。
 		resetAt = timeutil.NormalizeStorageTime(parsedResetAt)
-	} else if row.ResetAfterSeconds != nil {
+	} else if row.ResetAfterSeconds != nil && *row.ResetAfterSeconds >= 0 {
 		// 只有相对 reset_after_seconds 可用时，用当前刷新时间推导本轮 quota 的重置点。
 		resetAt = now.Add(time.Duration(*row.ResetAfterSeconds) * time.Second)
 	} else {

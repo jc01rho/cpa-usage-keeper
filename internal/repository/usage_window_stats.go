@@ -64,6 +64,11 @@ func SumUsageWindowStatsByAuthIndex(ctx context.Context, db *gorm.DB, authIndex 
 }
 
 func loadUsageWindowTokenStats(db *gorm.DB, authIndex string, start time.Time, end *time.Time) ([]usageWindowTokenStats, error) {
+	// 空时间无法表达有效 quota 窗口，提前返回避免误构造超宽时间范围。
+	if start.IsZero() || (end != nil && end.IsZero()) {
+		// 返回空结果而不是错误，调用方会把它当作“该窗口暂无用量”。
+		return nil, nil
+	}
 	// 没有结束时间时只能走 raw 查询，保持“从 start 到当前已有数据”的旧语义。
 	if end == nil {
 		// raw 查询本身会按 model group by，不再逐条读 usage_events。

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { ApiError, fetchUsageQuotaRefreshTask, refreshUsageQuotas } from '@/lib/api'
+import i18n from '@/i18n'
 import type { UsageQuotaRefreshResponse, UsageQuotaRow } from '@/lib/types'
 
 export interface QuotaState {
@@ -206,7 +207,7 @@ export function buildQuotaRefreshTaskErrorUpdate(authIndex: string, error: unkno
       settled: true,
       stateUpdate: {
         refreshStatus: 'failed',
-        error: 'Please sign in again to refresh quota.',
+        error: i18n.t('usage_stats.credentials_refresh_error_unauthorized', { defaultValue: 'Please sign in again to refresh quota.' }),
       },
     }
   }
@@ -245,19 +246,19 @@ function mergeQuotaStates(current: Record<string, QuotaState>, updates: Record<s
 export function quotaRefreshDisplayError(error?: string): string {
   switch (error) {
     case 'duplicate':
-      return 'Quota refresh is already running for this credential.'
+      return i18n.t('usage_stats.credentials_refresh_error_duplicate', { defaultValue: 'Quota refresh is already running for this credential.' })
     case 'duplicate_request':
-      return 'This credential was already included in the refresh request.'
+      return i18n.t('usage_stats.credentials_refresh_error_duplicate_request', { defaultValue: 'This credential was already included in the refresh request.' })
     case 'not_auth_file':
-      return 'Quota refresh only supports local auth files.'
+      return i18n.t('usage_stats.credentials_refresh_error_not_auth_file', { defaultValue: 'Quota refresh only supports local auth files.' })
     case 'unsupported':
-      return 'Quota refresh is not supported for this credential type.'
+      return i18n.t('usage_stats.credentials_refresh_error_unsupported', { defaultValue: 'Quota refresh is not supported for this credential type.' })
     case 'not_found':
-      return 'This credential is no longer available.'
+      return i18n.t('usage_stats.credentials_refresh_error_not_found', { defaultValue: 'This credential is no longer available.' })
     case 'invalid':
-      return 'This credential cannot be refreshed.'
+      return i18n.t('usage_stats.credentials_refresh_error_invalid', { defaultValue: 'This credential cannot be refreshed.' })
   }
-  return error || 'Quota refresh failed. Please try again later.'
+  return error || i18n.t('usage_stats.credentials_refresh_error_failed', { defaultValue: 'Quota refresh failed. Please try again later.' })
 }
 
 function quotaErrorMessage(error: unknown): string {

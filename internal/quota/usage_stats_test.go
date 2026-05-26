@@ -42,3 +42,18 @@ func TestQuotaRowUsageWindowUsesResetAfterSecondsWhenResetAtMissing(t *testing.T
 		t.Fatalf("expected window [%s, %s), got [%s, %s)", wantStart, wantEnd, windowStart, windowEnd)
 	}
 }
+
+func TestQuotaRowUsageWindowRejectsNegativeResetAfterSeconds(t *testing.T) {
+	windowSeconds := int64(5 * 60 * 60)
+	resetAfterSeconds := int64(-60)
+	now := time.Date(2026, 5, 26, 2, 0, 0, 0, time.UTC)
+
+	_, _, ok := quotaRowUsageWindow(QuotaRow{
+		Window:            &QuotaWindow{Seconds: &windowSeconds},
+		ResetAfterSeconds: &resetAfterSeconds,
+	}, now)
+
+	if ok {
+		t.Fatal("expected negative reset_after_seconds to be ignored")
+	}
+}

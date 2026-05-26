@@ -1,5 +1,5 @@
 import type { UsageIdentity, UsageQuotaRow } from '@/lib/types'
-import { calculateCacheRate, formatCompactTokenValue, formatUsd } from '@/utils/usage'
+import { calculateCacheRate, formatCompactTokenValue } from '@/utils/usage'
 
 export const CREDENTIALS_PAGE_SIZE = 10
 
@@ -209,8 +209,18 @@ function quotaWindowUsage(row: UsageQuotaRow): QuotaWindowUsageDisplay | undefin
   }
   return {
     tokens: formatCompactTokenValue(tokens),
-    cost: formatUsd(cost).replace(/^US\$/, '$'),
+    cost: formatQuotaWindowCost(cost),
   }
+}
+
+function formatQuotaWindowCost(cost: number): string {
+  // 限额条下方空间很紧，窗口成本统一展示两位小数，避免 0 显示成 0.0000。
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(cost || 0).replace(/^US\$/, '$')
 }
 
 function quotaLabel(row: UsageQuotaRow, windowSeconds?: number): string {

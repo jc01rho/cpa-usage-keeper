@@ -8,6 +8,8 @@ import type { AuthFileCredentialRow, DisplayQuota, PlanTypeTone } from './creden
 import type { UsageIdentityPageSort } from '@/lib/api'
 import { CredentialBadge, CredentialRowShell, CredentialSectionShell, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
 
+type Translate = (key: string, options?: Record<string, string>) => string
+
 interface AuthFileCredentialsSectionProps {
   rows: AuthFileCredentialRow[]
   total: number
@@ -199,7 +201,15 @@ export function formatQuotaResetDuration(resetAt: string): string {
   return days > 0 ? `${days}d${hours}h${minutes}m` : `${hours}h${minutes}m`
 }
 
+export function formatQuotaWindowUsageAriaLabel(t: Translate, windowUsage: NonNullable<DisplayQuota['windowUsage']>): string {
+  return t('usage_stats.credentials_quota_window_usage_aria', {
+    tokens: windowUsage.tokens,
+    cost: windowUsage.cost,
+  })
+}
+
 function QuotaBar({ quota }: { quota: DisplayQuota }) {
+  const { t } = useTranslation()
   // 条宽使用剩余额度百分比，颜色跟随剩余风险状态从绿到黄到红。
   const percent = quota.barPercent ?? 0
   const width = `${Math.max(0, Math.min(100, percent))}%`
@@ -225,7 +235,7 @@ function QuotaBar({ quota }: { quota: DisplayQuota }) {
       </div>
       <div className={styles.credentialQuotaMeta}>
         {quota.windowUsage && (
-          <strong className={styles.credentialQuotaWindowUsage}>
+          <strong className={styles.credentialQuotaWindowUsage} aria-label={formatQuotaWindowUsageAriaLabel(t, quota.windowUsage)}>
             <span className={styles.credentialQuotaUsageMetric}>
               <img src={quotaTokenIcon} alt="" aria-hidden="true" />
               <span>{quota.windowUsage.tokens}</span>

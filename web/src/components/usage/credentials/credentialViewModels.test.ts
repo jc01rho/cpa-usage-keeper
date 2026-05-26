@@ -167,6 +167,18 @@ describe('credentialViewModels', () => {
     expect(rows[0].extraQuota.map((quota) => quota.label)).toEqual(['Code Assist Credit'])
   })
 
+  it('formats zero quota window cost with two decimals', () => {
+    const quotas = new Map<string, UsageQuotaRow[]>([
+      ['auth-1', [
+        { key: 'rate_limit.primary_window', label: '5h', remainingFraction: 0.72, window_usage_tokens: 0, window_usage_cost: 0 },
+      ]],
+    ])
+
+    const rows = buildAuthFileCredentialRows([identity({ identity: 'auth-1' })], quotas)
+
+    expect(rows[0].primaryQuota?.windowUsage).toEqual({ tokens: '0', cost: '$0.00' })
+  })
+
   it('uses Claude token semantics for auth file cache rate', () => {
     const rows = buildAuthFileCredentialRows([
       identity({ identity: 'auth-claude', type: 'claude', input_tokens: 400, cached_tokens: 600 }),

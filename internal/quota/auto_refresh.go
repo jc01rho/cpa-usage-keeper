@@ -16,14 +16,14 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
+	// now 作为本轮调度时间，后续 active 判断、轮次互斥和缓存过期判断都复用它。
+	now := time.Now()
 	// 自动刷新必须依赖前端活跃心跳，避免无人打开后台时仍持续扫库和请求上游。
-	if !s.HasRecentActiveStatus(time.Now()) {
+	if !s.HasRecentActiveStatus(now) {
 		// inactive 是正常节流路径，用 debug 日志避免污染生产日志。
 		logrus.Debug("quota auto refresh skipped because backend page is inactive")
 		return nil
 	}
-	// now 作为本轮调度时间，后续轮次互斥和刷新间隔判断都复用它。
-	now := time.Now()
 	// 同一时间只允许一个自动刷新轮次存活，并且两轮整表入队之间必须满足配置间隔。
 	if !s.beginAutoRefreshRound(now) {
 		// 上一轮仍 active 或上一轮刚启动过时直接跳过，手动刷新仍可走共享任务队列。
@@ -43,7 +43,7 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 		}
 	}()
 	// 自动刷新每轮开始先清理过期任务，确保 401/402 过期后能重新进入队列，而不是被旧缓存一直拦住。
-	s.cleanupExpiredRefreshTasks(time.Now())
+	s.cleanupExpiredRefreshTasks(now)
 	identities, err := s.listAutoRefreshAuthFiles(ctx)
 	if err != nil {
 		return err
@@ -65,7 +65,7 @@ func (s *Service) RunAutoRefresh(ctx context.Context) error {
 			skippedUnsupported++
 			continue
 		}
-		if s.shouldSkipAutoRefreshForCachedHTTPError(authIndex, time.Now()) {
+		if s.shouldSkipAutoRefreshForCachedHTTPError(authIndex, now) {
 			// 这里跳过的是未过期的可缓存 HTTP 错误，避免后台持续打已知不可自动恢复的身份。
 			skippedCachedError++
 			continue

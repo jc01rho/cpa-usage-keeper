@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { formatQuotaResetDuration, formatQuotaResetLabel } from './AuthFileCredentialsSection'
+import { formatQuotaResetDuration, formatQuotaResetLabel, formatQuotaWindowUsageAriaLabel } from './AuthFileCredentialsSection'
 
 const formatLocalResetTime = (resetAt: string) => {
   const resetTime = new Date(resetAt)
@@ -31,5 +31,13 @@ describe('AuthFileCredentialsSection quota reset formatting', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('AuthFileCredentialsSection quota window usage accessibility', () => {
+  it('labels token and cost metrics for assistive technology', () => {
+    const t = (key: string, options?: Record<string, string>) => `${key}:${options?.tokens}:${options?.cost}`
+
+    expect(formatQuotaWindowUsageAriaLabel(t, { tokens: '1.2M', cost: '$0.42' })).toBe('usage_stats.credentials_quota_window_usage_aria:1.2M:$0.42')
   })
 })

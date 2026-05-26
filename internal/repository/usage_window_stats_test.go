@@ -112,6 +112,34 @@ func TestSumLongUsageWindowTokenStatsDoesNotDoubleCountWhenBoundaryClips(t *test
 	}
 }
 
+func TestSumUsageWindowStatsByAuthIndexIgnoresZeroWindowTimes(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-window-stats-zero-time.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	start := time.Date(2026, 5, 25, 10, 0, 0, 0, time.UTC)
+	zero := time.Time{}
+	if err := db.Create(&entities.UsageEvent{AuthIndex: "auth-1", Model: "priced", Timestamp: start, TotalTokens: 1_000_000}).Error; err != nil {
+		t.Fatalf("seed usage event: %v", err)
+	}
+
+	stats, err := SumUsageWindowStatsByAuthIndex(context.Background(), db, "auth-1", time.Time{}, nil)
+	if err != nil {
+		t.Fatalf("SumUsageWindowStatsByAuthIndex with zero start returned error: %v", err)
+	}
+	if stats.Tokens != 0 || stats.Cost != 0 {
+		t.Fatalf("expected zero start to return empty stats, got %+v", stats)
+	}
+	stats, err = SumUsageWindowStatsByAuthIndex(context.Background(), db, "auth-1", start, &zero)
+	if err != nil {
+		t.Fatalf("SumUsageWindowStatsByAuthIndex with zero end returned error: %v", err)
+	}
+	if stats.Tokens != 0 || stats.Cost != 0 {
+		t.Fatalf("expected zero end to return empty stats, got %+v", stats)
+	}
+}
+
 func TestSumUsageWindowStatsByAuthIndexTreatsMissingPriceAsZeroCost(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-window-stats-missing-price.db")})
 	if err != nil {
