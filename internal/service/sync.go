@@ -28,6 +28,7 @@ type MetadataFetcher interface {
 	FetchClaudeAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error)
 	FetchCodexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error)
 	FetchVertexAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error)
+	FetchCommandCodeAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error)
 	FetchOpenAICompatibility(ctx context.Context) (*response.OpenAICompatibilityResult, error)
 }
 
@@ -532,6 +533,14 @@ func fetchProviderMetadata(ctx context.Context, fetcher MetadataFetcher) (provid
 		fetchedProviderTypes = append(fetchedProviderTypes, "vertex")
 		cfg.VertexAPIKeys = result.Payload
 	}
+	if result, err := fetcher.FetchCommandCodeAPIKeys(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("fetch commandcode api keys: %w", err))
+	} else if result == nil {
+		errs = append(errs, fmt.Errorf("commandcode api keys response is nil"))
+	} else {
+		fetchedProviderTypes = append(fetchedProviderTypes, "commandcode")
+		cfg.CommandCodeAPIKeys = result.Payload
+	}
 	if result, err := fetcher.FetchOpenAICompatibility(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("fetch openai compatibility: %w", err))
 	} else if result == nil {
@@ -625,6 +634,7 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 	appendProviderEntries("claude", cfg.ClaudeAPIKeys)
 	appendProviderEntries("codex", cfg.CodexAPIKeys)
 	appendProviderEntries("vertex", cfg.VertexAPIKeys)
+	appendProviderEntries("commandcode", cfg.CommandCodeAPIKeys)
 
 	// OpenAI compatibility 的 prefix/baseURL 在 provider 层，API key/auth_index 在 entry 层，需要组合后再落库。
 	for _, provider := range cfg.OpenAICompatibility {

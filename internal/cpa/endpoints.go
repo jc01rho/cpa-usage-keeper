@@ -8,6 +8,7 @@ const (
 	cpaManagementCodexAPIKeyEndpoint         = "/v0/management/codex-api-key"
 	cpaManagementClaudeAPIKeyEndpoint        = "/v0/management/claude-api-key"
 	cpaManagementAmpcodeEndpoint             = "/v0/management/ampcode"
+	cpaManagementCommandCodeAPIKeyEndpoint   = "/v0/management/commandcode-api-key"
 	cpaManagementOpenAICompatibilityEndpoint = "/v0/management/openai-compatibility"
 	cpaManagementUsageQueueEndpoint          = "/v0/management/usage-queue"
 	cpaManagementAPICallEndpoint             = "/v0/management/api-call"

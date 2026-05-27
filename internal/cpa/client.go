@@ -193,6 +193,10 @@ func (c *Client) FetchVertexAPIKeys(ctx context.Context) (*response.ProviderKeyC
 	return c.fetchProviderKeyConfig(ctx, cpaManagementVertexAPIKeyEndpoint, "vertex-api-key", "vertex api keys")
 }
 
+func (c *Client) FetchCommandCodeAPIKeys(ctx context.Context) (*response.ProviderKeyConfigResult, error) {
+	return c.fetchProviderKeyConfig(ctx, cpaManagementCommandCodeAPIKeyEndpoint, "commandcode-api-key", "commandcode api keys")
+}
+
 func (c *Client) fetchProviderKeyConfig(ctx context.Context, path string, payloadKey string, kind string) (*response.ProviderKeyConfigResult, error) {
 	result := &response.ProviderKeyConfigResult{}
 	var raw json.RawMessage
