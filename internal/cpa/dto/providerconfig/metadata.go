@@ -11,6 +11,7 @@ type ProviderMetadataConfig struct {
 	ClaudeAPIKeys       []ProviderKeyConfig         `json:"claude-api-key"`
 	CodexAPIKeys        []ProviderKeyConfig         `json:"codex-api-key"`
 	VertexAPIKeys       []ProviderKeyConfig         `json:"vertex-api-key"`
+	CommandCodeAPIKeys  []ProviderKeyConfig         `json:"commandcode-api-key"`
 	OpenAICompatibility []OpenAICompatibilityConfig `json:"openai-compatibility"`
 }
 
