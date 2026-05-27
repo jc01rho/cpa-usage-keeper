@@ -85,6 +85,26 @@ networks:
     driver: bridge
 ```
 
+To manage Keeper settings with a `.env` file, replace `environment` in the `cpa-usage-keeper` service with `env_file`:
+
+```yaml
+    env_file:
+      - .env
+```
+
+Then create `.env` on the host in the same directory as `docker-compose.yml`, for example:
+
+```env
+TZ=Asia/Shanghai
+CPA_BASE_URL=http://cli-proxy-api:8317
+CPA_MANAGEMENT_KEY=replace-with-your-management-key
+REDIS_QUEUE_ADDR=cli-proxy-api:8317
+AUTH_ENABLED=true
+LOGIN_PASSWORD=replace-with-your-login-password
+```
+
+`env_file` paths are resolved relative to the `docker-compose.yml` directory; the `.env` above is injected into the Keeper container, equivalent to setting those environment variables for the container.
+
 Start:
 
 ```bash
@@ -225,7 +245,7 @@ For first-time deployments, start with "Minimum required" and "Web access and re
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `QUOTA_AUTO_REFRESH_ENABLED` | No | `true` | Enable Auth Files quota auto-refresh; it runs only while a backend page is visible and sending heartbeats |
+| `QUOTA_AUTO_REFRESH_ENABLED` | No | `false` | Enable Auth Files quota auto-refresh; it runs only while a backend page is visible and sending heartbeats |
 | `QUOTA_AUTO_REFRESH_INTERVAL` | No | `5m` | Auth Files quota auto-refresh interval, minimum `60s`, active only while a backend page is active |
 | `QUOTA_REFRESH_WORKER_LIMIT` | No | `10` | Maximum Auth Files quota refresh concurrency, capped at `100` |
 
