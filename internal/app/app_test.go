@@ -39,7 +39,7 @@ func TestAppCloseClosesDatabase(t *testing.T) {
 	}
 }
 
-func TestNewWithConfigBuildsQuotaAutoRefreshByDefault(t *testing.T) {
+func TestNewWithConfigBuildsQuotaAutoRefreshWhenEnabled(t *testing.T) {
 	app, err := NewWithConfig(testAppConfig(t))
 	if err != nil {
 		t.Fatalf("NewWithConfig returned error: %v", err)
