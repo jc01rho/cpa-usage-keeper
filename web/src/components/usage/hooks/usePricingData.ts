@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, deletePricing, fetchPricing, fetchUsedModels, updatePricing } from '@/lib/api';
+import type { ModelPrice, PricingEntry, PricingStyle } from '@/lib/types';
 import { useNotificationStore } from '@/stores';
-import { loadModelPrices as loadModelPricesFromStorage, saveModelPrices, type ModelPrice } from '@/utils/usage';
 
 export interface UsePricingDataOptions {
   onAuthRequired?: () => void;
@@ -16,19 +16,18 @@ export interface UsePricingDataReturn {
   error: string;
   lastRefreshedAt: Date | null;
   loadPricing: () => Promise<void>;
-  loadModelPrices: () => Promise<void>;
   setModelPrices: (prices: Record<string, ModelPrice>) => Promise<void>;
 }
 
-const pricingToModelPrice = (entry: {
-  model: string;
-  prompt_price_per_1m: number;
-  completion_price_per_1m: number;
-  cache_price_per_1m: number;
-}): ModelPrice => ({
+const normalizePricingStyle = (style: PricingStyle | string | undefined): PricingStyle =>
+  style === 'claude' ? 'claude' : 'openai';
+
+const pricingToModelPrice = (entry: PricingEntry): ModelPrice => ({
+  style: normalizePricingStyle(entry.pricing_style),
   prompt: entry.prompt_price_per_1m,
   completion: entry.completion_price_per_1m,
   cache: entry.cache_price_per_1m,
+  cacheCreation: entry.cache_creation_price_per_1m ?? 0,
 });
 
 export function usePricingData(options: UsePricingDataOptions = {}): UsePricingDataReturn {
@@ -36,7 +35,7 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
   const [modelNames, setModelNames] = useState<string[]>([]);
-  const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>(() => loadModelPricesFromStorage());
+  const [modelPrices, setModelPricesState] = useState<Record<string, ModelPrice>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
@@ -51,42 +50,9 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     const prices = Object.fromEntries(
       pricingResponse.pricing.map((entry) => [entry.model, pricingToModelPrice(entry)])
     );
-    saveModelPrices(prices);
     setModelPricesState(prices);
     setLastRefreshedAt(new Date());
   }, []);
-
-  const loadModelPrices = useCallback(async () => {
-    requestControllerRef.current?.abort();
-    const controller = new AbortController();
-    requestControllerRef.current = controller;
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const pricingResponse = await fetchPricing(controller.signal);
-      if (requestControllerRef.current !== controller) {
-        return;
-      }
-      applyPricingResponse(pricingResponse);
-    } catch (error) {
-      if (controller.signal.aborted) {
-        return;
-      }
-      if (error instanceof ApiError && error.status === 401) {
-        onAuthRequiredRef.current?.();
-        return;
-      }
-      setModelPricesState(loadModelPricesFromStorage());
-      setError(error instanceof Error ? error.message : 'Failed to load pricing');
-    } finally {
-      if (requestControllerRef.current === controller) {
-        setLoading(false);
-        requestControllerRef.current = null;
-      }
-    }
-  }, [applyPricingResponse]);
 
   const loadPricing = useCallback(async () => {
     requestControllerRef.current?.abort();
@@ -114,7 +80,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
         onAuthRequiredRef.current?.();
         return;
       }
-      setModelPricesState(loadModelPricesFromStorage());
       setError(error instanceof Error ? error.message : 'Failed to load pricing');
     } finally {
       if (requestControllerRef.current === controller) {
@@ -141,7 +106,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
   const setModelPrices = useCallback(async (prices: Record<string, ModelPrice>) => {
     const previousPrices = modelPrices;
     setModelPricesState(prices);
-    saveModelPrices(prices);
 
     try {
       const previousModels = new Set(Object.keys(previousPrices));
@@ -152,6 +116,8 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
             prompt_price_per_1m: pricing.prompt,
             completion_price_per_1m: pricing.completion,
             cache_price_per_1m: pricing.cache,
+            cache_creation_price_per_1m: pricing.cacheCreation,
+            pricing_style: pricing.style,
           })
         ),
         ...Array.from(previousModels)
@@ -161,7 +127,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
       setLastRefreshedAt(new Date());
     } catch (error) {
       setModelPricesState(previousPrices);
-      saveModelPrices(previousPrices);
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequiredRef.current?.();
         return;
@@ -181,7 +146,6 @@ export function usePricingData(options: UsePricingDataOptions = {}): UsePricingD
     error,
     lastRefreshedAt,
     loadPricing,
-    loadModelPrices,
     setModelPrices,
   };
 }
