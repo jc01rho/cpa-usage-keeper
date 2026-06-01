@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   RequestEventsDetailsCard,
+  resolveRequestEventColumnMenuFocusIndex,
   toggleRequestEventColumnId,
   type RequestEventColumnId,
 } from './RequestEventsDetailsCard';
@@ -303,5 +304,15 @@ describe('RequestEventsDetailsCard pagination', () => {
 
     expect(toggleRequestEventColumnId(selected, 'timestamp')).toEqual(['timestamp']);
     expect(toggleRequestEventColumnId(selected, 'model')).toEqual(['timestamp', 'model']);
+  });
+
+  it('cycles column menu focus for arrow and tab navigation', () => {
+    expect(resolveRequestEventColumnMenuFocusIndex(0, 3, 'ArrowDown')).toBe(1);
+    expect(resolveRequestEventColumnMenuFocusIndex(2, 3, 'ArrowDown')).toBe(0);
+    expect(resolveRequestEventColumnMenuFocusIndex(0, 3, 'ArrowUp')).toBe(2);
+    expect(resolveRequestEventColumnMenuFocusIndex(2, 3, 'Tab')).toBe(0);
+    expect(resolveRequestEventColumnMenuFocusIndex(0, 3, 'Tab', true)).toBe(2);
+    expect(resolveRequestEventColumnMenuFocusIndex(1, 3, 'Escape')).toBeNull();
+    expect(resolveRequestEventColumnMenuFocusIndex(0, 0, 'ArrowDown')).toBeNull();
   });
 });

@@ -203,6 +203,32 @@ const COLUMN_DROPDOWN_Z_INDEX = 2010;
 
 const clampDropdownPosition = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+type RequestEventColumnMenuNavigationKey = 'ArrowDown' | 'ArrowUp' | 'Home' | 'End' | 'Tab' | 'Escape';
+
+export const resolveRequestEventColumnMenuFocusIndex = (
+  currentIndex: number,
+  optionCount: number,
+  key: RequestEventColumnMenuNavigationKey,
+  shiftKey = false
+): number | null => {
+  if (optionCount <= 0 || key === 'Escape') {
+    return null;
+  }
+
+  const safeCurrentIndex = currentIndex >= 0 && currentIndex < optionCount ? currentIndex : 0;
+  if (key === 'Home') return 0;
+  if (key === 'End') return optionCount - 1;
+  if (key === 'ArrowDown') return (safeCurrentIndex + 1) % optionCount;
+  if (key === 'ArrowUp') return (safeCurrentIndex - 1 + optionCount) % optionCount;
+  if (key === 'Tab') {
+    return shiftKey
+      ? (safeCurrentIndex - 1 + optionCount) % optionCount
+      : (safeCurrentIndex + 1) % optionCount;
+  }
+
+  return null;
+};
+
 const resolveColumnDropdownStyle = (element: HTMLElement): CSSProperties => {
   const rect = element.getBoundingClientRect();
   const viewportWidth = window.innerWidth;
@@ -258,6 +284,7 @@ function RequestEventsColumnSelector({
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
@@ -273,6 +300,12 @@ function RequestEventsColumnSelector({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !dropdownStyle) return;
+    const firstOption = dropdownRef.current?.querySelector<HTMLButtonElement>('button');
+    firstOption?.focus();
+  }, [dropdownStyle, open]);
 
   const updateDropdownStyle = useCallback(() => {
     if (!wrapRef.current) return;
@@ -314,8 +347,40 @@ function RequestEventsColumnSelector({
   }, [open, scheduleDropdownStyleUpdate, updateDropdownStyle]);
 
   const handleTriggerKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== 'Escape') return;
-    setOpen(false);
+    if (event.key !== 'ArrowDown' && event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    setOpen(true);
+  }, []);
+
+  const handleDropdownKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+
+    if (
+      event.key !== 'ArrowDown' &&
+      event.key !== 'ArrowUp' &&
+      event.key !== 'Home' &&
+      event.key !== 'End' &&
+      event.key !== 'Tab'
+    ) {
+      return;
+    }
+
+    const optionButtons = Array.from(dropdownRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? []);
+    const currentIndex = optionButtons.findIndex((button) => button === document.activeElement);
+    const nextIndex = resolveRequestEventColumnMenuFocusIndex(
+      currentIndex,
+      optionButtons.length,
+      event.key,
+      event.shiftKey
+    );
+    if (nextIndex === null) return;
+    event.preventDefault();
+    optionButtons[nextIndex]?.focus();
   }, []);
 
   const dropdown = open && dropdownStyle
@@ -326,6 +391,7 @@ function RequestEventsColumnSelector({
           role="menu"
           aria-label={ariaLabel}
           style={dropdownStyle}
+          onKeyDown={handleDropdownKeyDown}
         >
           {options.map((option) => {
             const selected = selectedIdSet.has(option.id);
@@ -358,6 +424,7 @@ function RequestEventsColumnSelector({
       <span>{label}</span>
       <div className={styles.requestEventsColumnPicker} ref={wrapRef}>
         <button
+          ref={triggerRef}
           type="button"
           className={styles.requestEventsColumnTrigger}
           aria-haspopup="menu"
