@@ -35,14 +35,6 @@ func (s *usageService) resolveAPIGroupKey(apiKeyID string) (string, error) {
 	return apiKey.APIKey, nil
 }
 
-func (s *usageService) GetUsageWithFilter(_ context.Context, filter servicedto.UsageFilter) (*repodto.StatisticsSnapshot, error) {
-	return repository.BuildUsageSnapshotWithFilter(s.db, repodto.UsageQueryFilter{
-		Range:     filter.Range,
-		StartTime: filter.StartTime,
-		EndTime:   filter.EndTime,
-	})
-}
-
 // Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
 func (s *usageService) GetUsageOverview(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
@@ -233,12 +225,15 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 			APIGroupKey:         row.APIGroupKey,
 			Model:               row.Model,
 			ReasoningEffort:     row.ReasoningEffort,
+			ExecutorType:        row.ExecutorType,
+			Endpoint:            row.Endpoint,
 			AuthType:            row.AuthType,
 			Provider:            row.Provider,
 			Source:              row.Source,
 			AuthIndex:           row.AuthIndex,
 			Failed:              row.Failed,
 			LatencyMS:           row.LatencyMS,
+			TTFTMS:              row.TTFTMS,
 			InputTokens:         row.InputTokens,
 			OutputTokens:        row.OutputTokens,
 			ReasoningTokens:     row.ReasoningTokens,
@@ -246,6 +241,9 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 			CacheReadTokens:     row.CacheReadTokens,
 			CacheCreationTokens: row.CacheCreationTokens,
 			TotalTokens:         row.TotalTokens,
+			CostUSD:             row.CostUSD,
+			CostAvailable:       row.CostAvailable,
+			PricingStyle:        row.PricingStyle,
 		})
 	}
 	return &servicedto.UsageEventsPage{Events: result, Models: page.Models, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
