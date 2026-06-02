@@ -97,6 +97,10 @@ func (s stubMetadataFetcher) FetchOpenAICompatibility(context.Context) (*respons
 	return openAICompatibilityResult(s.providerConfig.OpenAICompatibility, s.openAIErr)
 }
 
+func (s stubMetadataFetcher) FetchCommandCodeAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
+	return providerKeyConfigResult(nil, nil)
+}
+
 func providerKeyConfigResult(payload []providerconfig.ProviderKeyConfig, err error) (*response.ProviderKeyConfigResult, error) {
 	if err != nil {
 		return nil, err
@@ -152,6 +156,10 @@ func (s *trackingMetadataFetcher) FetchOpenAICompatibility(context.Context) (*re
 	return openAICompatibilityResult(nil, s.providerErr)
 }
 
+func (s *trackingMetadataFetcher) FetchCommandCodeAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
+	return providerKeyConfigResult(nil, s.providerErr)
+}
+
 func (s *observingMetadataFetcher) FetchAuthFiles(context.Context) (*response.AuthFilesResult, error) {
 	if err := s.db.Model(&entities.UsageEvent{}).Count(&s.usageEventsBeforeMetadataSync).Error; err != nil {
 		return nil, err
@@ -181,6 +189,10 @@ func (s *observingMetadataFetcher) FetchVertexAPIKeys(context.Context) (*respons
 
 func (s *observingMetadataFetcher) FetchOpenAICompatibility(context.Context) (*response.OpenAICompatibilityResult, error) {
 	return openAICompatibilityResult(nil, nil)
+}
+
+func (s *observingMetadataFetcher) FetchCommandCodeAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
+	return providerKeyConfigResult(nil, nil)
 }
 
 func (s *trackingMetadataFetcher) providerCalls() int {
