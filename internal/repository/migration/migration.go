@@ -39,6 +39,10 @@ const (
 	migrationUsageOverviewRollupDimensions          = "20260518_usage_overview_rollup_dimensions"
 	migrationAddUsageEventReasoningEffort           = "20260519_add_usage_event_reasoning_effort"
 	migrationAddUsageEventQuotaWindowIndexes        = "20260525_add_usage_event_quota_window_indexes"
+	migrationAddUsageEventCPAResponseFields         = "20260528_add_usage_event_cpa_response_fields"
+	migrationModelPricePricingStyle                 = "20260531_model_price_pricing_style"
+	migrationBackfillClaudeUsageTokens              = "20260601_backfill_claude_usage_tokens"
+	migrationAddUsageEventExecutorType              = "20260602_add_usage_event_executor_type"
 )
 
 type schemaMigration struct {
@@ -122,6 +126,10 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationUsageOverviewRollupDimensions, run: usageOverviewRollupDimensionsMigration, disableTransaction: true},
 		{version: migrationAddUsageEventReasoningEffort, run: addUsageEventReasoningEffortMigration},
 		{version: migrationAddUsageEventQuotaWindowIndexes, run: addUsageEventQuotaWindowIndexesMigration},
+		{version: migrationAddUsageEventCPAResponseFields, run: addUsageEventCPAResponseFieldsMigration},
+		{version: migrationModelPricePricingStyle, run: addModelPricePricingStyleMigration},
+		{version: migrationBackfillClaudeUsageTokens, run: backfillClaudeUsageTokensMigration},
+		{version: migrationAddUsageEventExecutorType, run: addUsageEventExecutorTypeMigration},
 	}
 }
 

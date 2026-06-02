@@ -33,6 +33,7 @@ func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (entities.Usag
 type queuedUsageDetail struct {
 	Timestamp       time.Time      `json:"timestamp"`
 	LatencyMS       int64          `json:"latency_ms"`
+	TTFTMS          *int64         `json:"ttft_ms"`
 	Source          string         `json:"source"`
 	AuthIndex       string         `json:"auth_index"`
 	Tokens          dto.TokenStats `json:"tokens"`
@@ -41,6 +42,8 @@ type queuedUsageDetail struct {
 	Model           string         `json:"model"`
 	Alias           *string        `json:"alias"`
 	ReasoningEffort string         `json:"reasoning_effort"`
+	ServiceTier     string         `json:"service_tier"`
+	ExecutorType    string         `json:"executor_type"`
 	Endpoint        string         `json:"endpoint"`
 	AuthType        string         `json:"auth_type"`
 	APIKey          string         `json:"api_key"`
@@ -68,7 +71,6 @@ func trimRedisOptionalString(value *string) *string {
 
 // toUsageEvent 保持 Redis payload 的 model/request_id 语义，缺失时间才用本地拉取时间兜底。
 func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent {
-	tokens := normalizeTokens(d.Tokens)
 	apiGroupKey := firstNonEmpty(d.APIKey, d.Provider, d.Endpoint, "unknown")
 	model := firstNonEmpty(d.Model, "unknown")
 	timestamp := timeutil.NormalizeStorageTime(d.Timestamp)
@@ -88,17 +90,20 @@ func (d queuedUsageDetail) toUsageEvent(fetchedAt time.Time) entities.UsageEvent
 		Model:               model,
 		ModelAlias:          trimRedisOptionalString(d.Alias),
 		ReasoningEffort:     strings.TrimSpace(d.ReasoningEffort),
+		ServiceTier:         strings.TrimSpace(d.ServiceTier),
+		ExecutorType:        strings.TrimSpace(d.ExecutorType),
 		Timestamp:           timestamp,
 		Source:              source,
 		AuthIndex:           authIndex,
 		Failed:              d.Failed,
 		LatencyMS:           max(d.LatencyMS, 0),
-		InputTokens:         tokens.InputTokens,
-		OutputTokens:        tokens.OutputTokens,
-		ReasoningTokens:     tokens.ReasoningTokens,
-		CachedTokens:        tokens.CachedTokens,
-		CacheReadTokens:     tokens.CacheReadTokens,
-		CacheCreationTokens: tokens.CacheCreationTokens,
-		TotalTokens:         tokens.TotalTokens,
+		TTFTMS:              d.TTFTMS,
+		InputTokens:         d.Tokens.InputTokens,
+		OutputTokens:        d.Tokens.OutputTokens,
+		ReasoningTokens:     d.Tokens.ReasoningTokens,
+		CachedTokens:        d.Tokens.CachedTokens,
+		CacheReadTokens:     d.Tokens.CacheReadTokens,
+		CacheCreationTokens: d.Tokens.CacheCreationTokens,
+		TotalTokens:         d.Tokens.TotalTokens,
 	}
 }
