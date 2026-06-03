@@ -615,6 +615,8 @@ func baseAuthFileUsageIdentity(file authfiles.AuthFile) entities.UsageIdentity {
 		Type:         file.Type,
 		Provider:     file.Provider,
 		Prefix:       file.Prefix,
+		FileName:     stringValue(file.Name),
+		FilePath:     stringValue(file.Path),
 		Priority:     file.Priority,
 		Disabled:     file.Disabled,
 		Note:         file.Note,
