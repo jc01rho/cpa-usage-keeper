@@ -25,10 +25,9 @@ export interface PriceSettingsCardProps {
   onRefreshPricing?: () => Promise<void> | void;
 }
 
-function PriceSettingsTitle({ title, subtitle, eyebrow }: { title: string; subtitle: string; eyebrow: string }) {
+function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
-      <span className={styles.sectionEyebrow}>{eyebrow}</span>
       <h3 className={styles.sectionTitle}>{title}</h3>
       <p className={styles.sectionSubtitle}>{subtitle}</p>
     </div>
@@ -197,13 +196,12 @@ export function PriceSettingsCard({
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', gap: '16px' }}>
             <PriceSettingsTitle
-              eyebrow={t('usage_stats.model_price_settings_eyebrow')}
               title={t('usage_stats.model_price_settings_title')}
               subtitle={t('usage_stats.model_price_settings_subtitle')}
             />
-            <Button 
-              variant="secondary" 
-              onClick={handleFetchOpenRouter} 
+            <Button
+              variant="secondary"
+              onClick={handleFetchOpenRouter}
               disabled={isFetchingOpenRouter || loading}
               style={{ flexShrink: 0 }}
             >

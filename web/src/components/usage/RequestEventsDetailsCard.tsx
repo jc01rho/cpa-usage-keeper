@@ -36,10 +36,11 @@ export const REQUEST_EVENT_COLUMN_IDS = [
   'model',
   'reasoning_effort',
   'result',
-  'ttft',
-  'latency',
   'request_type',
   'endpoint',
+  'ttft',
+  'latency',
+  'speed',
   'input_tokens',
   'output_tokens',
   'reasoning_tokens',
@@ -85,6 +86,11 @@ export const toggleRequestEventColumnId = (
   return availableColumnIds.filter((currentColumnId) => normalized.includes(currentColumnId) || currentColumnId === columnId);
 };
 
+export const isRequestEventColumnSelectionControlled = (
+  visibleColumnIds: readonly RequestEventColumnId[] | undefined,
+  onVisibleColumnIdsChange: ((columnIds: RequestEventColumnId[]) => void) | undefined,
+) => visibleColumnIds !== undefined && onVisibleColumnIdsChange !== undefined;
+
 const appendSelectedOption = (
   options: SelectOption[],
   selectedValue: string,
@@ -114,6 +120,7 @@ type RequestEventRow = {
   failed: boolean;
   latencyMs: number | null;
   ttftMs: number | null;
+  speedTPS: number | null;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -145,11 +152,13 @@ export interface RequestEventsDetailsCardProps {
   sourceFilter: string;
   resultFilter: string;
   initialVisibleColumnIds?: readonly RequestEventColumnId[];
+  visibleColumnIds?: readonly RequestEventColumnId[];
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onModelFilterChange: (model: string) => void;
   onSourceFilterChange: (source: string) => void;
   onResultFilterChange: (result: string) => void;
+  onVisibleColumnIdsChange?: (columnIds: RequestEventColumnId[]) => void;
 }
 
 const toNumber = (value: unknown): number => {
@@ -174,6 +183,13 @@ const formatTTFTMs = (ttftMs: number | null): string => {
     return '-';
   }
   return formatDurationMs(ttftMs);
+};
+
+const formatSpeedTPS = (speedTPS: number | null): string => {
+  if (speedTPS === null || speedTPS <= 0) {
+    return '-';
+  }
+  return `${speedTPS.toFixed(1)} t/s`;
 };
 
 const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
@@ -444,10 +460,9 @@ function RequestEventsColumnSelector({
   );
 }
 
-function RequestEventsTitle({ title, subtitle, eyebrow, totalLabel }: { title: string; subtitle: string; eyebrow: string; totalLabel: string }) {
+function RequestEventsTitle({ title, subtitle, totalLabel }: { title: string; subtitle: string; totalLabel: string }) {
   return (
     <div className={styles.sectionTitleBlock}>
-      <span className={styles.sectionEyebrow}>{eyebrow}</span>
       <div className={styles.requestEventsTitleRow}>
         <h3 className={styles.sectionTitle}>{title}</h3>
         <span className={styles.requestEventsCountBadge}>{totalLabel}</span>
@@ -471,11 +486,13 @@ export function RequestEventsDetailsCard({
   sourceFilter,
   resultFilter,
   initialVisibleColumnIds,
+  visibleColumnIds,
   onPageChange,
   onPageSizeChange,
   onModelFilterChange,
   onSourceFilterChange,
   onResultFilterChange,
+  onVisibleColumnIdsChange,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
   const latencyHint = t('usage_stats.latency_unit_hint', {
@@ -483,6 +500,7 @@ export function RequestEventsDetailsCard({
     unit: t('usage_stats.duration_unit_ms'),
   });
   const ttftHint = t('usage_stats.ttft_hint');
+  const speedHint = t('usage_stats.speed_hint');
 
   const rows = useMemo<RequestEventRow[]>(() => {
     return events.map((event, index) => {
@@ -507,6 +525,7 @@ export function RequestEventsDetailsCard({
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
       const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null;
+      const speedTPS = Number.isFinite(event.speed_tps) ? event.speed_tps as number : null;
       // 费用由后端按当前价格配置运行时计算，前端只负责展示可用/不可用状态。
       const costAvailable = event.cost_available === true;
       const cost = costAvailable ? Math.max(toNumber(event.cost_usd), 0) : null;
@@ -529,6 +548,7 @@ export function RequestEventsDetailsCard({
         failed: event.failed === true,
         latencyMs,
         ttftMs,
+        speedTPS,
         inputTokens,
         outputTokens,
         reasoningTokens,
@@ -541,26 +561,29 @@ export function RequestEventsDetailsCard({
     });
   }, [events]);
 
-  const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
-  const [visibleColumnIds, setVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
-    normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
+  const [internalVisibleColumnIds, setInternalVisibleColumnIds] = useState<RequestEventColumnId[]>(() => (
+    normalizeRequestEventVisibleColumnIds(initialVisibleColumnIds ?? visibleColumnIds ?? REQUEST_EVENT_COLUMN_IDS)
   ));
+  const isColumnSelectionControlled = isRequestEventColumnSelectionControlled(visibleColumnIds, onVisibleColumnIdsChange);
+  const selectedVisibleColumnIds = isColumnSelectionControlled && visibleColumnIds !== undefined
+    ? visibleColumnIds
+    : internalVisibleColumnIds;
 
-  const availableColumnIds = useMemo(
-    () => REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'latency' || hasLatencyData),
-    [hasLatencyData]
-  );
   const effectiveVisibleColumnIds = useMemo(
-    () => normalizeRequestEventVisibleColumnIds(visibleColumnIds, availableColumnIds),
-    [availableColumnIds, visibleColumnIds]
+    () => normalizeRequestEventVisibleColumnIds(selectedVisibleColumnIds),
+    [selectedVisibleColumnIds]
   );
   const effectiveVisibleColumnIdSet = useMemo(
     () => new Set<RequestEventColumnId>(effectiveVisibleColumnIds),
     [effectiveVisibleColumnIds]
   );
   const handleColumnToggle = useCallback((columnId: RequestEventColumnId) => {
-    setVisibleColumnIds((currentColumnIds) => toggleRequestEventColumnId(currentColumnIds, columnId, availableColumnIds));
-  }, [availableColumnIds]);
+    const nextColumnIds = toggleRequestEventColumnId(selectedVisibleColumnIds, columnId);
+    if (!isColumnSelectionControlled) {
+      setInternalVisibleColumnIds(nextColumnIds);
+    }
+    onVisibleColumnIdsChange?.(nextColumnIds);
+  }, [isColumnSelectionControlled, onVisibleColumnIdsChange, selectedVisibleColumnIds]);
 
   const modelOptions = useMemo(() => {
     const options = [
@@ -611,9 +634,9 @@ export function RequestEventsDetailsCard({
       {
         id: 'timestamp',
         label: t('usage_stats.request_events_timestamp'),
-        header: <th>{t('usage_stats.request_events_timestamp')}</th>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_timestamp')}</th>,
         renderCell: (row) => (
-          <td title={row.timestamp} className={styles.requestEventsTimestamp}>
+          <td title={row.timestamp} className={styles.requestEventsNoWrapCell}>
             {row.timestampLabel}
           </td>
         ),
@@ -655,15 +678,15 @@ export function RequestEventsDetailsCard({
       {
         id: 'reasoning_effort',
         label: t('usage_stats.reasoning_effort'),
-        header: <th title={t('usage_stats.reasoning_effort_hint')}>{t('usage_stats.reasoning_effort')}</th>,
-        renderCell: (row) => <td>{row.reasoningEffort}</td>,
+        header: <th className={styles.requestEventsNoWrapCell} title={t('usage_stats.reasoning_effort_hint')}>{t('usage_stats.reasoning_effort')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningEffort}</td>,
       },
       {
         id: 'result',
         label: t('usage_stats.request_events_result'),
-        header: <th>{t('usage_stats.request_events_result')}</th>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_result')}</th>,
         renderCell: (row) => (
-          <td>
+          <td className={styles.requestEventsNoWrapCell}>
             <span
               className={
                 row.failed
@@ -677,79 +700,85 @@ export function RequestEventsDetailsCard({
         ),
       },
       {
-        id: 'ttft',
-        label: t('usage_stats.ttft'),
-        header: <th title={ttftHint}>{t('usage_stats.ttft')}</th>,
-        renderCell: (row) => <td className={styles.durationCell}>{formatTTFTMs(row.ttftMs)}</td>,
-      },
-      {
-        id: 'latency',
-        label: t('usage_stats.latency'),
-        header: <th title={latencyHint}>{t('usage_stats.latency')}</th>,
-        renderCell: (row) => <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>,
-      },
-      {
         id: 'request_type',
         label: t('usage_stats.request_type'),
-        header: <th>{t('usage_stats.request_type')}</th>,
-        renderCell: (row) => <td>{row.requestType}</td>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_type')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.requestType}</td>,
       },
       {
         id: 'endpoint',
         label: t('usage_stats.request_endpoint'),
-        header: <th>{t('usage_stats.request_endpoint')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsEndpointCell} title={row.endpoint}>{row.endpoint}</td>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_endpoint')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell} title={row.endpoint}>{row.endpoint}</td>,
+      },
+      {
+        id: 'ttft',
+        label: t('usage_stats.ttft'),
+        header: <th className={styles.requestEventsNoWrapCell} title={ttftHint}>{t('usage_stats.ttft')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatTTFTMs(row.ttftMs)}</td>,
+      },
+      {
+        id: 'latency',
+        label: t('usage_stats.latency'),
+        header: <th className={styles.requestEventsNoWrapCell} title={latencyHint}>{t('usage_stats.latency')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatDurationMs(row.latencyMs)}</td>,
+      },
+      {
+        id: 'speed',
+        label: t('usage_stats.speed'),
+        header: <th className={styles.requestEventsNoWrapCell} title={speedHint}>{t('usage_stats.speed')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{formatSpeedTPS(row.speedTPS)}</td>,
       },
       {
         id: 'input_tokens',
         label: t('usage_stats.input_tokens'),
-        header: <th>{t('usage_stats.input_tokens')}</th>,
-        renderCell: (row) => <td>{row.inputTokens.toLocaleString()}</td>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.input_tokens')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.inputTokens.toLocaleString()}</td>,
       },
       {
         id: 'output_tokens',
         label: t('usage_stats.output_tokens'),
-        header: <th>{t('usage_stats.output_tokens')}</th>,
-        renderCell: (row) => <td>{row.outputTokens.toLocaleString()}</td>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.output_tokens')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.outputTokens.toLocaleString()}</td>,
       },
       {
         id: 'reasoning_tokens',
         label: t('usage_stats.reasoning_tokens'),
-        header: <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>,
-        renderCell: (row) => <td>{row.reasoningTokens.toLocaleString()}</td>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.reasoning_tokens')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningTokens.toLocaleString()}</td>,
       },
       {
         id: 'cached_tokens',
         label: t('usage_stats.cached_tokens'),
-        header: <th>{t('usage_stats.cached_tokens')}</th>,
-        renderCell: (row) => <td>{row.cachedTokens.toLocaleString()}</td>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cached_tokens')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cachedTokens.toLocaleString()}</td>,
       },
       {
         id: 'cache_rate',
         label: t('usage_stats.cache_rate'),
-        header: <th>{t('usage_stats.cache_rate')}</th>,
-        renderCell: (row) => <td>{row.cacheRate}</td>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_rate')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheRate}</td>,
       },
       {
         id: 'total_tokens',
         label: t('usage_stats.total_tokens'),
-        header: <th>{t('usage_stats.total_tokens')}</th>,
-        renderCell: (row) => <td>{row.totalTokens.toLocaleString()}</td>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.total_tokens')}</th>,
+        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.totalTokens.toLocaleString()}</td>,
       },
       {
         id: 'total_cost',
         label: t('usage_stats.total_cost'),
-        header: <th>{t('usage_stats.total_cost')}</th>,
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.total_cost')}</th>,
         renderCell: (row) => (
-          <td title={row.costAvailable ? undefined : t('usage_stats.cost_need_price')}>
+          <td className={styles.requestEventsNoWrapCell} title={row.costAvailable ? undefined : t('usage_stats.cost_need_price')}>
             {row.costAvailable && row.cost !== null ? formatUsd(row.cost) : '-'}
           </td>
         ),
       },
     ];
 
-    return definitions.filter((definition) => definition.id !== 'latency' || hasLatencyData);
-  }, [hasLatencyData, latencyHint, t, ttftHint]);
+    return definitions;
+  }, [latencyHint, speedHint, t, ttftHint]);
 
   const visibleColumns = useMemo(
     () => columnDefinitions.filter((definition) => effectiveVisibleColumnIdSet.has(definition.id)),
@@ -759,11 +788,11 @@ export function RequestEventsDetailsCard({
     () => columnDefinitions.map((definition) => ({ id: definition.id, label: definition.label })),
     [columnDefinitions]
   );
-  const visibleColumnSummary = effectiveVisibleColumnIds.length === availableColumnIds.length
+  const visibleColumnSummary = effectiveVisibleColumnIds.length === REQUEST_EVENT_COLUMN_IDS.length
     ? t('usage_stats.request_events_columns_all')
     : t('usage_stats.request_events_columns_count', {
         selected: effectiveVisibleColumnIds.length,
-        total: availableColumnIds.length,
+        total: REQUEST_EVENT_COLUMN_IDS.length,
       });
 
   const hasActiveFilters =
@@ -787,7 +816,6 @@ export function RequestEventsDetailsCard({
       className={styles.requestEventsCard}
       title={
         <RequestEventsTitle
-          eyebrow={t('usage_stats.request_events_eyebrow')}
           title={t('usage_stats.request_events_title')}
           subtitle={t('usage_stats.request_events_subtitle')}
           totalLabel={t('usage_stats.request_events_total_count', { count: totalCount })}
