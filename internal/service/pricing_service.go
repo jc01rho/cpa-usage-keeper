@@ -166,6 +166,17 @@ func (s *pricingService) FetchFromOpenRouter(ctx context.Context) ([]entities.Mo
 		completionPrice *= 1_000_000
 		cachePrice *= 1_000_000
 
+		// Clamp negative prices to 0 (OpenRouter returns negative values for free models)
+		if promptPrice < 0 {
+			promptPrice = 0
+		}
+		if completionPrice < 0 {
+			completionPrice = 0
+		}
+		if cachePrice < 0 {
+			cachePrice = 0
+		}
+
 		setting, err := repository.UpsertModelPriceSetting(s.db, repodto.ModelPriceSettingInput{
 			Model:                model,
 			PromptPricePer1M:     promptPrice,
