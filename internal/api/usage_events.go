@@ -201,8 +201,11 @@ func usageEventSpeedTPS(row servicedto.UsageEventRecord) *float64 {
 	if row.TTFTMS == nil || *row.TTFTMS <= 0 || row.LatencyMS <= *row.TTFTMS || visibleOutputTokens <= 1 {
 		return nil
 	}
-	// Speed 只衡量首字后可见输出 token 的平均生成速度，避免把等待首字的时间重复计入。
-	speed := float64(visibleOutputTokens-1) / (float64(row.LatencyMS-*row.TTFTMS) / 1000)
+	postTTFTMS := row.LatencyMS - *row.TTFTMS
+	if postTTFTMS < 100 {
+		return nil
+	}
+	speed := float64(visibleOutputTokens-1) / (float64(postTTFTMS) / 1000)
 	return &speed
 }
 
