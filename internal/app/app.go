@@ -58,11 +58,15 @@ type App struct {
 	QuotaService      QuotaRunner
 	QuotaAutoRefresh  QuotaRunner
 	BackupMaintenance *DatabaseBackupRunner
+	RecentUsageCache  *repository.UsageRecentEventCache
 	LogCloser         io.Closer
 
 	backgroundCancel context.CancelFunc
 	backgroundWG     sync.WaitGroup
 }
+
+// newUsageRecentEventCache 是最近事件缓存构造入口，测试可替换它来覆盖缓存初始化失败路径。
+var newUsageRecentEventCache = repository.NewUsageRecentEventCache
 
 func New() (*App, error) {
 	return NewWithOptions(Options{})
@@ -97,17 +101,29 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	}
 	logrus.Info("completed usage overview aggregation catch-up")
 
+	// 最近事件缓存只在增量表追平后创建，确保启动时能加载完整的最近 70 分钟事件投影。
+	recentUsageCache, err := newUsageRecentEventCache(db, repository.UsageRecentEventCacheOptions{})
+	if err != nil {
+		// 缓存初始化失败会让 realtime/最近边界降级到 DB，但不影响核心写入和查询能力。
+		logrus.WithError(err).Error("recent usage event cache initialization failed; falling back to database queries")
+		recentUsageCache = nil
+	}
+
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
-	syncService := service.NewSyncService(db, cfg)
+	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
+		BaseURL: cfg.CPABaseURL,
+		Client:  cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
+		// usage_events 事务提交后通过这个缓存做非阻塞增量追加，供 Overview realtime 和右边界补偿复用。
+		RecentUsageEvents: recentUsageCache,
+	})
 	// metadataSyncRunner 提前创建，保证控制消息和后台任务使用同一个调度器实例。
 	metadataSyncRunner := NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval)
-	// redisPullSource 保持旧 Redis queue 拉取路径不变。
+	// redisPullSource 负责 Redis batch pull，并在 usage/queue 两个 key 间做一次兼容探测。
 	redisPullSource := poller.NewRedisPullSource(cpa.RedisQueueOptions{
 		BaseURL:       cfg.CPABaseURL,
 		RedisAddr:     cfg.RedisQueueAddr,
 		ManagementKey: cfg.CPAManagementKey,
 		Timeout:       cfg.RequestTimeout,
-		QueueKey:      cfg.RedisQueueKey,
 		BatchSize:     cfg.RedisQueueBatchSize,
 		TLS:           cfg.RedisQueueTLS,
 		TLSSkipVerify: cfg.TLSSkipVerify,
@@ -124,7 +140,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		TLSSkipVerify: cfg.TLSSkipVerify,
 	})
 	// usage 通道可能混入 metadata 控制消息，落 inbox 前先过滤并转交 metadata runner。
-	redisInboxWriter := poller.NewControlAwareRedisInboxWriter(poller.NewRedisInboxWriter(db, cfg.RedisQueueKey), metadataSyncRunner)
+	// inbox writer 不再接收 queue key，来源由 runner 传入并写入 redis_usage_inboxes.source。
+	redisInboxWriter := poller.NewControlAwareRedisInboxWriter(poller.NewRedisInboxWriter(db), metadataSyncRunner)
 	// redisIngestRunner 继续负责三种 usage 拉取方式的选择和降级。
 	redisIngestRunner := poller.NewRedisIngestRunner(redisSubscribeSource, redisPullSource, httpPullSource, redisInboxWriter, poller.RedisIngestRunnerConfig{
 		IdleInterval:       cfg.RedisQueueIdleInterval,
@@ -142,6 +159,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	if cfg.BackupEnabled {
 		sqlDB, err := db.DB()
 		if err != nil {
+			recentUsageCache.Close()
 			_ = closeGormDB(db)
 			_ = logCloser.Close()
 			return nil, err
@@ -150,7 +168,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		backupMaintenance = NewDatabaseBackupRunner(backupStore, backupStore, cfg.BackupInterval, cfg.BackupRetentionDays)
 	}
 
-	usageService := service.NewUsageService(db)
+	usageService := service.NewUsageServiceWithRecentCache(db, recentUsageCache)
 	usageIdentityService := service.NewUsageIdentityService(db)
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
@@ -181,6 +199,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		QuotaService:      quotaService,
 		QuotaAutoRefresh:  quotaAutoRefreshService(cfg, quotaService),
 		BackupMaintenance: backupMaintenance,
+		RecentUsageCache:  recentUsageCache,
 		LogCloser:         logCloser,
 		Router: api.NewRouter(
 			webui.Static,
@@ -239,6 +258,10 @@ func (a *App) Close() error {
 	a.stopBackgroundTasks()
 	if a.QuotaService != nil {
 		a.QuotaService.StopRefreshTasks()
+	}
+	if a.RecentUsageCache != nil {
+		a.RecentUsageCache.Close()
+		a.RecentUsageCache = nil
 	}
 
 	var closeErr error
