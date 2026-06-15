@@ -540,6 +540,17 @@ export interface ModelPrice {
   cacheCreation: number
 }
 
+export interface PricingSaveFailure {
+  model: string
+  message: string
+  error?: unknown
+}
+
+export interface PricingSaveResult {
+  successModels: string[]
+  failures: PricingSaveFailure[]
+}
+
 export interface PricingEntry {
   model: string
   pricing_style: PricingStyle
@@ -555,6 +566,27 @@ export interface UsedModelsResponse {
 
 export interface PricingResponse {
   pricing: PricingEntry[]
+}
+
+export interface PricingSyncMatch {
+  model: string
+  matched_model: string
+  match_type: string
+  source_provider_id: string
+  source_provider_name: string
+  pricing_style: PricingStyle
+  prompt_price_per_1m: number
+  completion_price_per_1m: number
+  cache_price_per_1m: number
+  cache_creation_price_per_1m: number
+}
+
+export interface PricingSyncPreviewResponse {
+  source: string
+  source_url: string
+  metadata_models: number
+  matches: PricingSyncMatch[]
+  unmatched_models: string[]
 }
 
 export type KeyOverviewTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d'

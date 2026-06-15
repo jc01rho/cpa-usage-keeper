@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthFilesManagementResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type KeyOverviewTimeRange, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingSyncPreviewResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -517,6 +517,14 @@ export async function fetchPricing(signal?: AbortSignal): Promise<PricingRespons
   const response = await apiFetch(apiPath('/pricing'), { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load pricing: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchPricingSyncPreview(signal?: AbortSignal): Promise<PricingSyncPreviewResponse> {
+  const response = await apiFetch(apiPath('/pricing/sync/preview'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to preview pricing sync: ${response.status}`)
   }
   return response.json()
 }
