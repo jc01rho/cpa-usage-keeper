@@ -79,6 +79,7 @@ const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
+export const CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS = 60_000;
 export const STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS = 30_000;
 const CPA_MANAGEMENT_PAGE = 'management.html';
 const ABSOLUTE_HTTP_URL_PATTERN = /^https?:\/\//i;
@@ -290,6 +291,21 @@ type OverviewAutoRefreshOptions = {
   intervalMs?: number;
 };
 
+type CustomDateRangeBoundsRefreshDocument = Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
+
+type CustomDateRangeBoundsRefreshTimerTarget = {
+  setInterval: (handler: () => void, timeout: number) => number;
+  clearInterval: (handle: number) => void;
+};
+
+type CustomDateRangeBoundsRefreshOptions = {
+  enabled: boolean;
+  refreshBoundsAnchor: () => void;
+  documentRef?: CustomDateRangeBoundsRefreshDocument;
+  timerTarget?: CustomDateRangeBoundsRefreshTimerTarget;
+  intervalMs?: number;
+};
+
 type StatusActiveHeartbeatDocument = Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
 
 type StatusActiveHeartbeatTimerTarget = {
@@ -370,6 +386,46 @@ export const scheduleOverviewAutoRefresh = ({
   return () => {
     stopTimer();
     targetDocument.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+};
+
+export const scheduleCustomDateRangeBoundsRefresh = ({
+  enabled,
+  refreshBoundsAnchor,
+  documentRef,
+  timerTarget,
+  intervalMs = CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS,
+}: CustomDateRangeBoundsRefreshOptions) => {
+  if (!enabled) {
+    return () => undefined;
+  }
+
+  const targetDocument = documentRef ?? (typeof document === 'undefined' ? undefined : document);
+  const timers = timerTarget ?? (typeof window === 'undefined' ? undefined : {
+    setInterval: window.setInterval.bind(window),
+    clearInterval: window.clearInterval.bind(window),
+  });
+  if (!timers) {
+    return () => undefined;
+  }
+
+  let active = true;
+  const refreshIfVisible = () => {
+    if (!active || !isUsagePageVisible(targetDocument)) return;
+    refreshBoundsAnchor();
+  };
+  const handleVisibilityChange = () => {
+    refreshIfVisible();
+  };
+
+  refreshIfVisible();
+  const timer = timers.setInterval(refreshIfVisible, intervalMs);
+  targetDocument?.addEventListener('visibilitychange', handleVisibilityChange);
+
+  return () => {
+    active = false;
+    timers.clearInterval(timer);
+    targetDocument?.removeEventListener('visibilitychange', handleVisibilityChange);
   };
 };
 
@@ -540,6 +596,21 @@ export const isCustomDateWithinBounds = (value: string, bounds: { min: string; m
   value === '' || (value >= bounds.min && value <= bounds.max)
 );
 
+const clampCustomDateValueToBounds = (value: string, bounds: { min: string; max: string }) => {
+  if (value === '') return value;
+  if (value < bounds.min) return bounds.min;
+  if (value > bounds.max) return bounds.max;
+  return value;
+};
+
+export const clampCustomDateRangeToBounds = (
+  range: { start: string; end: string },
+  bounds: { min: string; max: string },
+) => ({
+  start: clampCustomDateValueToBounds(range.start, bounds),
+  end: clampCustomDateValueToBounds(range.end, bounds),
+});
+
 export const openDateInputPicker = (input: HTMLInputElement) => {
   try {
     input.showPicker?.();
@@ -682,8 +753,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [customTimeRange, setCustomTimeRange] = useState<{ start: string; end: string }>(loadCustomTimeRange);
   const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [customDateRangeAnchorMs, setCustomDateRangeAnchorMs] = useState(() => Date.now());
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
+  const customDateRangeBounds = useMemo(() => getCustomDateRangeBounds(customDateRangeAnchorMs, status?.timezone), [customDateRangeAnchorMs, status?.timezone]);
+  const effectiveCustomTimeRange = useMemo(
+    () => clampCustomDateRangeToBounds(customTimeRange, customDateRangeBounds),
+    [customDateRangeBounds, customTimeRange],
+  );
 
   const {
     usage,
@@ -694,8 +772,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   } = useUsageData({
     onAuthRequired,
     range: timeRange,
-    customStart: customTimeRange.start,
-    customEnd: customTimeRange.end,
+    customStart: effectiveCustomTimeRange.start,
+    customEnd: effectiveCustomTimeRange.end,
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
   });
@@ -728,7 +806,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [apiKeySettingsError, setApiKeySettingsError] = useState('');
   const [apiKeySettingsSavingId, setApiKeySettingsSavingId] = useState<string | null>(null);
   const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
-  const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
   const [topNotice, setTopNotice] = useState<{ kind: TopNoticeKind; message: string } | null>(null);
@@ -915,7 +992,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, showTopNotice, t]);
 
   const loadAnalysis = useCallback(async () => {
-    const queryWindow = buildUsageRangeQuery({ range: timeRange, customStart: customTimeRange.start, customEnd: customTimeRange.end });
+    const queryWindow = buildUsageRangeQuery({
+      range: timeRange,
+      customStart: effectiveCustomTimeRange.start,
+      customEnd: effectiveCustomTimeRange.end,
+    });
     if (!queryWindow.valid) {
       analysisRequestControllerRef.current?.abort();
       analysisRequestControllerRef.current = null;
@@ -957,9 +1038,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         analysisRequestControllerRef.current = null;
       }
     }
-  }, [customTimeRange.end, customTimeRange.start, onAuthRequired, selectedApiKeyId, timeRange]);
+  }, [effectiveCustomTimeRange.end, effectiveCustomTimeRange.start, onAuthRequired, selectedApiKeyId, timeRange]);
   const isCustomRange = timeRange === 'custom';
-  const customDateRangeBounds = useMemo(() => getCustomDateRangeBounds(Date.now(), status?.timezone), [status?.timezone]);
   const handleCustomDateInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Tab') return;
     event.preventDefault();
@@ -968,6 +1048,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const handleCustomDateInputActivate = useCallback((event: SyntheticEvent<HTMLInputElement>) => {
     openDateInputPicker(event.currentTarget);
   }, []);
+
+  useEffect(() => {
+    setCustomTimeRange((current) => {
+      const next = clampCustomDateRangeToBounds(current, customDateRangeBounds);
+      if (next.start === current.start && next.end === current.end) return current;
+      return next;
+    });
+  }, [customDateRangeBounds]);
 
   useEffect(() => {
     try {
@@ -1037,6 +1125,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setCustomTimeRange(buildDefaultCustomRange(anchorMs));
   }, [customTimeRange.end, customTimeRange.start, lastRefreshedAt, timeRange]);
 
+  useEffect(() => scheduleCustomDateRangeBoundsRefresh({
+    enabled: timeRange === 'custom',
+    refreshBoundsAnchor: () => setCustomDateRangeAnchorMs(Date.now()),
+  }), [timeRange]);
+
   useEffect(() => {
     // Credentials 列表、quota cache 和 task polling 都跟页面可见性绑定，隐藏页不保持续约或轮询。
     const syncPageVisible = () => setPageVisible(isUsagePageVisible());
@@ -1089,9 +1182,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, []);
 
   const getEventQueryWindow = useCallback(() => {
-    const query = buildUsageRangeQuery({ range: timeRange, customStart: customTimeRange.start, customEnd: customTimeRange.end });
+    const query = buildUsageRangeQuery({
+      range: timeRange,
+      customStart: effectiveCustomTimeRange.start,
+      customEnd: effectiveCustomTimeRange.end,
+    });
     return { valid: query.valid, start: query.start, end: query.end };
-  }, [customTimeRange.end, customTimeRange.start, timeRange]);
+  }, [effectiveCustomTimeRange.end, effectiveCustomTimeRange.start, timeRange]);
 
   const loadEventFilterOptions = useCallback(async () => {
     eventsFilterOptionsRequestControllerRef.current?.abort();

@@ -19,6 +19,7 @@ type usageIdentitiesStub struct {
 	pagedActiveItems []entities.UsageIdentity
 	pagedActiveTotal int64
 	pagedTypeCounts  []service.UsageIdentityTypeCount
+	pagedHealth      []service.UsageCredentialHealthSnapshot
 	pagedActiveReq   *service.ListUsageIdentitiesRequest
 	err              error
 }
@@ -39,7 +40,7 @@ func (s usageIdentitiesStub) ListActiveUsageIdentitiesPage(_ context.Context, re
 		*s.pagedActiveReq = request
 	}
 	if s.pagedActiveItems != nil || s.pagedActiveTotal != 0 {
-		return service.ListUsageIdentitiesResponse{Items: s.pagedActiveItems, Total: s.pagedActiveTotal, TypeCounts: s.pagedTypeCounts}, s.err
+		return service.ListUsageIdentitiesResponse{Items: s.pagedActiveItems, Total: s.pagedActiveTotal, TypeCounts: s.pagedTypeCounts, CredentialHealth: s.pagedHealth}, s.err
 	}
 	return service.ListUsageIdentitiesResponse{Items: s.items, Total: int64(len(s.items)), TypeCounts: s.pagedTypeCounts}, s.err
 }
@@ -298,6 +299,64 @@ func TestUsageIdentitiesPageRouteAcceptsRepeatedTypesAndReturnsTypeCounts(t *tes
 		t.Fatalf("expected auth_type and repeated type filters, got %+v", captured)
 	}
 	for _, expected := range []string{`"type_counts":[`, `"type":"claude"`, `"count":2`, `"type":"anthropic"`, `"count":1`, `"type":"openai"`, `"count":4`} {
+		if !contains(body, expected) {
+			t.Fatalf("expected %s in response body: %s", expected, body)
+		}
+	}
+}
+
+func TestUsageIdentitiesPageRouteReturnsCredentialHealthSnapshot(t *testing.T) {
+	windowStart := time.Date(2026, 6, 15, 8, 0, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, 6, 15, 13, 0, 0, 0, time.UTC)
+	bucketStart := time.Date(2026, 6, 15, 12, 40, 0, 0, time.UTC)
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{
+		pagedActiveTotal: 1,
+		pagedActiveItems: []entities.UsageIdentity{{
+			ID:           12,
+			Name:         "Claude Team",
+			AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+			AuthTypeName: "apikey",
+			Identity:     "claude-auth",
+			Type:         "claude",
+			Provider:     "Claude Team",
+		}},
+		pagedHealth: []service.UsageCredentialHealthSnapshot{{
+			WindowSeconds: 5 * 60 * 60,
+			BucketSeconds: 10 * 60,
+			WindowStart:   windowStart,
+			WindowEnd:     windowEnd,
+			TotalSuccess:  2,
+			TotalFailure:  1,
+			SuccessRate:   66.6666666667,
+			Buckets: []service.UsageCredentialHealthBucket{{
+				StartTime: bucketStart,
+				EndTime:   bucketStart.Add(10 * time.Minute),
+				Success:   2,
+				Failure:   1,
+				Rate:      0.6666666667,
+			}},
+		}},
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/page?auth_type=2&page=1&page_size=10", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
+	}
+	for _, expected := range []string{
+		`"credential_health":{`,
+		`"window_seconds":18000`,
+		`"bucket_seconds":600`,
+		`"window_start":"2026-06-15T08:00:00Z"`,
+		`"window_end":"2026-06-15T13:00:00Z"`,
+		`"total_success":2`,
+		`"total_failure":1`,
+		`"success_rate":66.6666666667`,
+		`"buckets":[{"start_time":"2026-06-15T12:40:00Z","end_time":"2026-06-15T12:50:00Z","success":2,"failure":1,"rate":0.6666666667}]`,
+	} {
 		if !contains(body, expected) {
 			t.Fatalf("expected %s in response body: %s", expected, body)
 		}
