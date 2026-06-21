@@ -43,7 +43,8 @@ Recommended deployment path:
 
 - First-time CPA + Keeper deployment: use [Docker Compose](#docker-compose-recommended).
 - CPA already runs on the host: use [Docker](#docker-cpa-already-runs-on-the-host).
-- No containers: use the [Linux binary](#linux-binary).
+- macOS: use [Homebrew](#macos-homebrew).
+- Linux without containers: use the [Linux binary](#linux-binary).
 
 For public deployments, enable `AUTH_ENABLED=true` and configure `LOGIN_PASSWORD` to protect your data.
 
@@ -161,6 +162,40 @@ docker run -d \
   -v "$(pwd)/keeper:/data" \
   --env-file .env \
   ghcr.io/willxup/cpa-usage-keeper:latest
+```
+
+### macOS Homebrew
+
+Homebrew is the recommended binary install path for macOS. It installs the macOS package from the CPA Usage Keeper tap, and future releases can be upgraded with normal Homebrew commands.
+
+Install:
+
+```bash
+brew tap Willxup/cpa-usage-keeper
+brew install cpa-usage-keeper
+```
+
+Edit the generated config file. At minimum, set `CPA_BASE_URL` and `CPA_MANAGEMENT_KEY`. For public deployments, also set `AUTH_ENABLED=true` and `LOGIN_PASSWORD`:
+
+```bash
+vim "$(brew --prefix)/etc/cpa-usage-keeper.env"
+```
+
+Start the background service:
+
+```bash
+brew services start cpa-usage-keeper
+```
+
+Homebrew stores Keeper data under `$(brew --prefix)/var/cpa-usage-keeper`, stdout logs at `$(brew --prefix)/var/log/cpa-usage-keeper.log`, and stderr logs at `$(brew --prefix)/var/log/cpa-usage-keeper.err.log`.
+
+Useful commands:
+
+```bash
+brew services list
+brew services restart cpa-usage-keeper
+brew update
+brew upgrade cpa-usage-keeper
 ```
 
 ### Linux Binary
@@ -300,7 +335,7 @@ Security and data notes:
 - SQLite database backups store original data from the application database, and backup files are not encrypted.
 - Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but raw database values are unchanged.
 - For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.
-- Login sessions are stored in process memory and become invalid after restart.
+- Login session hashes are stored in SQLite and remain valid across service restarts until logout or `AUTH_SESSION_TTL` expiry.
 - Redis inbox raw messages are cleaned up automatically: successful rows are kept until the end of the current day, and failed rows are kept for 7 days.
 
 ## Nginx reverse proxy
@@ -330,7 +365,7 @@ CPA_PUBLIC_URL=https://cpa.example.com
 cmd/server/              Application entrypoint
 internal/api/            HTTP routes and handlers
 internal/app/            App wiring and startup
-internal/auth/           In-memory session auth
+internal/auth/           Session auth and persistence
 internal/backup/         SQLite database backup management
 internal/benchmark/      Aggregation benchmark helpers
 internal/config/         Environment config loading
