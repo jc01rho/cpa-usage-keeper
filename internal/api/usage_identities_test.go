@@ -383,8 +383,8 @@ func TestUsageIdentitiesRouteReturnsProviderDisplayName(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if !contains(body, `"displayName":"Provider Name(Team Prefix)"`) {
-		t.Fatalf("expected displayName with name and prefix, got %s", body)
+	if !contains(body, `"displayName":"Team Prefix"`) {
+		t.Fatalf("expected displayName with prefix, got %s", body)
 	}
 	if !contains(body, `"prefix":"Team Prefix"`) {
 		t.Fatalf("expected published prefix field, got %s", body)
@@ -412,7 +412,7 @@ func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
 	if !contains(body, `"identity":"`+maskedLookupKey+`"`) {
 		t.Fatalf("expected masked AI provider identity %q in response body: %s", maskedLookupKey, body)
 	}
-	if !contains(body, `"name":"Provider Name"`) || !contains(body, `"provider":"OpenAI"`) || !contains(body, `"displayName":"Provider Name(Team Prefix)"`) {
+	if !contains(body, `"name":"Provider Name"`) || !contains(body, `"provider":"OpenAI"`) || !contains(body, `"displayName":"Team Prefix"`) {
 		t.Fatalf("expected AI provider display fields to use usage_identities values directly, got %s", body)
 	}
 }
