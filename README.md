@@ -35,6 +35,11 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 - Automatically sync CPA Auth Files, API Keys, AI Providers, and other metadata changes
 - Optional password login protection, SQLite backups, Docker/Docker Compose, and systemd deployment
 
+## Sponsors and Special Thanks
+
+- Thanks to [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) for providing the upstream CPA foundation and data source this project builds on.
+- Thanks to [@YouShouldBetOnMe](https://github.com/YouShouldBetOnMe) for supporting CPA Usage Keeper.
+
 ## Quick Start
 
 > Before using CPA Usage Keeper, make sure CPA usage statistics are enabled: `usage-statistics-enabled: true`.
