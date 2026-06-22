@@ -75,16 +75,20 @@ type UsageEventRecord struct {
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。
 type UsageOverviewSummary struct {
-	RequestCount    int64
-	TokenCount      int64
-	WindowMinutes   int64
-	RPM             float64
-	TPM             float64
-	TotalCost       float64
-	CostAvailable   bool
-	InputTokens     int64
-	CachedTokens    int64
-	ReasoningTokens int64
+	RequestCount          int64
+	TokenCount            int64
+	WindowMinutes         int64
+	RPM                   float64
+	TPM                   float64
+	TotalCost             float64
+	CostAvailable         bool
+	InputTokens           int64
+	CachedTokens          int64
+	ReasoningTokens       int64
+	DailyAverageRequests  *float64
+	DailyAverageTokens    *float64
+	DailyAverageCost      *float64
+	DailyAverageRangeDays *float64
 }
 
 // UsageOverviewSeries 是 overview series 的服务层结果。

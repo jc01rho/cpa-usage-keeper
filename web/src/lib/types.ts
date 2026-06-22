@@ -69,6 +69,10 @@ export interface UsageOverviewSummary {
   input_tokens: number
   cached_tokens: number
   reasoning_tokens: number
+  daily_average_requests?: number
+  daily_average_tokens?: number
+  daily_average_cost?: number
+  daily_average_range_days?: number
 }
 
 export interface UsageOverviewSeries {

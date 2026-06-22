@@ -29,6 +29,11 @@
 - 自动同步 CPA Auth Files、API Keys、AI Providers 等 metadata 变化
 - 可选密码登录保护、SQLite 备份、Docker/Docker Compose 和 systemd 部署
 
+## 赞助与特别感谢
+
+- 感谢 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 提供本项目所依赖的上游 CPA 基础与数据来源。
+- 感谢 [@YouShouldBetOnMe](https://github.com/YouShouldBetOnMe) 对 CPA Usage Keeper 的支持。
+
 ## 快速开始
 
 > 使用前请确认 CPA 配置已开启 usage 统计：`usage-statistics-enabled: true`。
