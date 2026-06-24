@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, type KeyboardEvent, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, markStatusActive, revokeAuthSession, updateCpaApiKeyAlias } from '@/lib/api';
-import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import { ApiError, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, logout, markStatusActive, revokeAuthSession, updateCpaApiKeyAlias } from '@/lib/api';
+import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageEvent, UsageSourceFilterOption, VersionResponse } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -102,7 +102,7 @@ export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && 
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
-export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
+export const shouldShowUpdateCheckButton = (versionInfo: Pick<VersionResponse, 'updateCheckEnabled'> | null) => versionInfo?.updateCheckEnabled === true;
 
 export const isUsagePageVisible = (documentRef?: Pick<Document, 'visibilityState'>) => {
   const targetDocument = documentRef ?? (typeof document === 'undefined' ? undefined : document);
@@ -342,6 +342,35 @@ type StatusActiveHeartbeatOptions = {
   documentRef?: StatusActiveHeartbeatDocument;
   timerTarget?: StatusActiveHeartbeatTimerTarget;
   intervalMs?: number;
+};
+
+type VersionInfoLoader = (signal: AbortSignal) => Promise<VersionResponse>;
+
+type UsagePageVersionInfoOptions = {
+  loadVersion: VersionInfoLoader;
+  signal: AbortSignal;
+  setVersionInfo: (versionInfo: VersionResponse | null) => void;
+  onAuthRequired?: () => void;
+};
+
+export const loadUsagePageVersionInfo = async ({
+  loadVersion,
+  signal,
+  setVersionInfo,
+  onAuthRequired,
+}: UsagePageVersionInfoOptions) => {
+  try {
+    const nextVersionInfo = await loadVersion(signal);
+    if (signal.aborted) return;
+    setVersionInfo(nextVersionInfo);
+  } catch (error) {
+    if (signal.aborted) return;
+    if (error instanceof ApiError && error.status === 401) {
+      onAuthRequired?.();
+      return;
+    }
+    setVersionInfo(null);
+  }
 };
 
 export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptions) => {
@@ -774,6 +803,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
   const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [versionInfo, setVersionInfo] = useState<VersionResponse | null>(null);
   const [customDateRangeAnchorMs, setCustomDateRangeAnchorMs] = useState(() => Date.now());
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
@@ -1238,6 +1268,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired]);
 
   useEffect(() => {
+    const requestController = new AbortController();
+    void loadUsagePageVersionInfo({
+      loadVersion: fetchVersion,
+      signal: requestController.signal,
+      setVersionInfo,
+      onAuthRequired,
+    });
+    return () => {
+      requestController.abort();
+    };
+  }, [onAuthRequired]);
+
+  useEffect(() => {
     void loadApiKeyOptions();
     return () => {
       apiKeyOptionsRequestControllerRef.current?.abort();
@@ -1252,10 +1295,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [apiKeyOptions, selectedApiKeyId]);
 
   useEffect(() => {
-    if (!shouldShowUpdateCheckButton(status)) {
+    if (!shouldShowUpdateCheckButton(versionInfo)) {
       setHasNewVersion(false);
     }
-  }, [status]);
+  }, [versionInfo]);
 
   useEffect(() => () => {
     if (topNoticeTimerRef.current !== null) {
@@ -1641,7 +1684,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 );
               })}
             </div>
-            {shouldShowUpdateCheckButton(status) && (
+            {shouldShowUpdateCheckButton(versionInfo) && (
               <div className={styles.updateCheckSwitcher} role="group" aria-label={t('usage_stats.check_updates')}>
                 <button
                   type="button"
