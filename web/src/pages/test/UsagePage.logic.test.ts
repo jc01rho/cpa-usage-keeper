@@ -1,11 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, clampCustomDateRangeToBounds, CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS, getBackToCPALinkURL, getCredentialSectionVisibility, getCustomDateRangeBounds, getOverviewDisplayLoading, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, isUsagePageVisible, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, openDateInputPicker, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleCustomDateRangeBoundsRefresh, scheduleOverviewAutoRefresh, scheduleStatusActiveHeartbeat, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS, getUpdateCheckToastDuration } from './UsagePage';
+import { buildCustomDateRangeQuery, clampCustomDateRangeToBounds, CUSTOM_DATE_RANGE_BOUNDS_REFRESH_INTERVAL_MS, getBackToCPALinkURL, getCredentialSectionVisibility, getCustomDateRangeBounds, getOverviewDisplayLoading, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, isUsagePageVisible, loadRequestEventsPreferences, loadUsagePageVersionInfo, normalizeRequestEventsPreferences, normalizeUsageTabValue, openDateInputPicker, refreshPageData, REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, sanitizeRequestEventFilters, saveRequestEventsPreferences, scheduleCustomDateRangeBoundsRefresh, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration } from '../UsagePage';
 import { REQUEST_EVENT_COLUMN_IDS } from '@/components/usage/RequestEventsDetailsCard';
 import { ApiError } from '@/lib/api';
-import type { StatusResponse, UsageFilterWindow, VersionResponse } from '@/lib/types';
-
-const usagePageSource = readFileSync(new URL('./UsagePage.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+import type { UsageFilterWindow, VersionResponse } from '@/lib/types';
 
 const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState = 'visible') => {
   const target = new EventTarget();
@@ -21,14 +18,6 @@ const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState 
     dispatchEvent: target.dispatchEvent.bind(target),
   };
 };
-
-const createStatusResponse = (lastError = '', quotaAutoRefreshEnabled = true): StatusResponse => ({
-  running: true,
-  sync_running: false,
-  timezone: 'UTC',
-  last_error: lastError,
-  quotaAutoRefreshEnabled,
-});
 
 const flushPromises = async () => {
   await Promise.resolve();
@@ -163,13 +152,6 @@ describe('UsagePage update check controls', () => {
   });
 });
 
-describe('UsagePage credential reset notice wiring', () => {
-  it('passes the top notice handler into the credentials hook', () => {
-    expect(usagePageSource).toContain('onNotice: showTopNotice')
-    expect(usagePageSource).toMatch(/const showTopNotice = useCallback\([\s\S]*const credentialsData = useCredentialsTabData/)
-  })
-});
-
 describe('UsagePage Overview auto-refresh', () => {
   it('refreshes the Overview tab every 10 seconds', () => {
     vi.useFakeTimers();
@@ -284,144 +266,6 @@ describe('UsagePage visibility guard', () => {
   it('treats hidden documents as inactive for credentials polling', () => {
     expect(isUsagePageVisible({ visibilityState: 'visible' })).toBe(true);
     expect(isUsagePageVisible({ visibilityState: 'hidden' })).toBe(false);
-  });
-});
-
-describe('UsagePage status active heartbeat', () => {
-  it('loads status and marks the page active immediately and on the 30s cadence', async () => {
-    let intervalHandler: (() => void) | undefined;
-    const testDocument = createAutoRefreshTestDocument();
-    const timerTarget = {
-      setInterval: vi.fn((handler: () => void, timeout: number) => {
-        intervalHandler = handler;
-        expect(timeout).toBe(STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS);
-        return 7;
-      }),
-      clearInterval: vi.fn(),
-    };
-    const status = createStatusResponse('last problem');
-    const loadStatus = vi.fn(async () => status);
-    const markActive = vi.fn(async () => undefined);
-    const setStatus = vi.fn();
-    const setStatusError = vi.fn();
-
-    const cleanup = scheduleStatusActiveHeartbeat({
-      loadStatus,
-      markActive,
-      setStatus,
-      setStatusError,
-      documentRef: testDocument,
-      timerTarget,
-    });
-    await flushPromises();
-
-    expect(loadStatus).toHaveBeenCalledTimes(1);
-    expect(markActive).toHaveBeenCalledTimes(1);
-    expect(setStatus).toHaveBeenCalledWith(status);
-    expect(setStatusError).toHaveBeenCalledWith('last problem');
-
-    intervalHandler?.();
-    await flushPromises();
-
-    expect(loadStatus).toHaveBeenCalledTimes(2);
-    expect(markActive).toHaveBeenCalledTimes(2);
-
-    cleanup();
-  });
-
-  it('loads status once without active heartbeat when quota auto refresh is disabled', async () => {
-    const testDocument = createAutoRefreshTestDocument();
-    const timerTarget = {
-      setInterval: vi.fn(() => 7),
-      clearInterval: vi.fn(),
-    };
-    const status = createStatusResponse('', false);
-    const loadStatus = vi.fn(async () => status);
-    const markActive = vi.fn(async () => undefined);
-    const setStatus = vi.fn();
-    const setStatusError = vi.fn();
-
-    const cleanup = scheduleStatusActiveHeartbeat({
-      loadStatus,
-      markActive,
-      setStatus,
-      setStatusError,
-      documentRef: testDocument,
-      timerTarget,
-    });
-    await flushPromises();
-
-    expect(loadStatus).toHaveBeenCalledTimes(1);
-    expect(markActive).not.toHaveBeenCalled();
-    expect(timerTarget.setInterval).not.toHaveBeenCalled();
-    expect(setStatus).toHaveBeenCalledWith(status);
-
-    cleanup();
-  });
-
-  it('does not start while hidden and starts immediately when visible again', async () => {
-    const testDocument = createAutoRefreshTestDocument('hidden');
-    const timerTarget = {
-      setInterval: vi.fn(() => 8),
-      clearInterval: vi.fn(),
-    };
-    const loadStatus = vi.fn(async () => createStatusResponse());
-    const markActive = vi.fn(async () => undefined);
-
-    const cleanup = scheduleStatusActiveHeartbeat({
-      loadStatus,
-      markActive,
-      setStatus: vi.fn(),
-      setStatusError: vi.fn(),
-      documentRef: testDocument,
-      timerTarget,
-    });
-    await flushPromises();
-
-    expect(loadStatus).not.toHaveBeenCalled();
-
-    testDocument.setVisibilityState('visible');
-    testDocument.dispatchEvent(new Event('visibilitychange'));
-    await flushPromises();
-
-    expect(loadStatus).toHaveBeenCalledTimes(1);
-    expect(markActive).toHaveBeenCalledTimes(1);
-
-    cleanup();
-  });
-
-  it('aborts the in-flight heartbeat before creating an interval when hidden', () => {
-    let capturedSignal: AbortSignal | undefined;
-    const testDocument = createAutoRefreshTestDocument();
-    const timerTarget = {
-      setInterval: vi.fn(() => 9),
-      clearInterval: vi.fn(),
-    };
-    const loadStatus = vi.fn((signal: AbortSignal) => {
-      capturedSignal = signal;
-      return new Promise<StatusResponse>(() => undefined);
-    });
-
-    const cleanup = scheduleStatusActiveHeartbeat({
-      loadStatus,
-      markActive: vi.fn(async () => undefined),
-      setStatus: vi.fn(),
-      setStatusError: vi.fn(),
-      documentRef: testDocument,
-      timerTarget,
-    });
-
-    expect(loadStatus).toHaveBeenCalledTimes(1);
-    expect(capturedSignal?.aborted).toBe(false);
-
-    testDocument.setVisibilityState('hidden');
-    testDocument.dispatchEvent(new Event('visibilitychange'));
-
-    expect(capturedSignal?.aborted).toBe(true);
-    expect(timerTarget.setInterval).not.toHaveBeenCalled();
-    expect(timerTarget.clearInterval).not.toHaveBeenCalled();
-
-    cleanup();
   });
 });
 
@@ -597,7 +441,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     expect(preferences).toEqual({
-      version: 2,
+      version: 3,
       pageSize: 500,
       filters: {
         model: 'claude-opus',
@@ -658,7 +502,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
 
     saveRequestEventsPreferences({
-      version: 2,
+      version: 3,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -670,7 +514,7 @@ describe('UsagePage request event preferences', () => {
 
     const stored = JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '');
     expect(stored).toEqual({
-      version: 2,
+      version: 3,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -682,12 +526,12 @@ describe('UsagePage request event preferences', () => {
     expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenSpeedColumnIds);
   });
 
-  it('preserves a v2 saved preference that intentionally hides Speed Mode', () => {
+  it('preserves a saved preference that intentionally hides Speed Mode', () => {
     const storage = createMemoryStorage();
     const hiddenSpeedModeColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
 
     saveRequestEventsPreferences({
-      version: 2,
+      version: 3,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -708,7 +552,7 @@ describe('UsagePage request event preferences', () => {
     expect(loadRequestEventsPreferences(storage).pageSize).toBe(100);
 
     saveRequestEventsPreferences({
-      version: 2,
+      version: 3,
       pageSize: 50,
       filters: {
         model: 'gpt-4.1',
@@ -720,7 +564,7 @@ describe('UsagePage request event preferences', () => {
 
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
-      version: 2,
+      version: 3,
       pageSize: 50,
       filters: {
         model: 'gpt-4.1',

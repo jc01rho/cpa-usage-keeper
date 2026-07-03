@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, markStatusActive, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias } from './api';
+import { appPath, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, startUsageQuotaInspection, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
+
+const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -26,7 +28,7 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/auth/api-key-login');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST' });
-    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(headerValue(init, 'Content-Type')).toBe('application/json');
     expect(init?.body).toBe(JSON.stringify({ apiKey: 'sk-cpa-viewer' }));
   });
 
@@ -157,18 +159,37 @@ describe('fetchUsageEvents', () => {
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ credentials: 'include', method: 'DELETE' });
   });
 
-  it('marks backend page activity with the status active endpoint', async () => {
+  it('loads quota auto refresh settings from the typed quota endpoint', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
+      json: async () => ({ enabled: true, schedule: { unit: 'hour', value: 6 } }),
     } as Response);
     const signal = new AbortController().signal;
 
-    await markStatusActive(signal);
+    const response = await fetchQuotaAutoRefreshSettings(signal);
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/status/active');
-    expect(init).toMatchObject({ credentials: 'include', signal });
+    expect(response.schedule).toEqual({ unit: 'hour', value: 6 });
+    expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/quota/auto-refresh/settings');
+    expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+  });
+
+  it('updates quota auto refresh settings through the typed quota endpoint', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ enabled: true, schedule: { unit: 'week', value: 2 } }),
+    } as Response);
+
+    const response = await updateQuotaAutoRefreshSettings({ enabled: true, schedule: { unit: 'week', value: 2 } });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(response.schedule).toEqual({ unit: 'week', value: 2 });
+    expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/quota/auto-refresh/settings');
+    expect(init).toMatchObject({ credentials: 'include', method: 'PUT' });
+    expect(headerValue(init, 'Content-Type')).toBe('application/json');
+    expect(init?.body).toBe(JSON.stringify({ enabled: true, schedule: { unit: 'week', value: 2 } }));
   });
 
   it('loads app version from the dedicated version endpoint', async () => {
@@ -543,7 +564,7 @@ describe('fetchUsageEvents', () => {
     expect(response.items[0].quota?.quota[0].remaining).toBe(12);
     expect(parsed.pathname).toBe('/api/v1/quota/cache');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
-    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(headerValue(init, 'Content-Type')).toBe('application/json');
     expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
   });
 
@@ -570,7 +591,7 @@ describe('fetchUsageEvents', () => {
     expect(response.limit).toBe(1);
     expect(parsed.pathname).toBe('/api/v1/quota/refresh');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
-    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(headerValue(init, 'Content-Type')).toBe('application/json');
     expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
   });
 
@@ -595,7 +616,7 @@ describe('fetchUsageEvents', () => {
     const parsed = new URL(String(url), 'http://localhost');
     expect(parsed.pathname).toBe('/api/v1/quota/reset');
     expect(init).toMatchObject({ credentials: 'include', method: 'POST' });
-    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(headerValue(init, 'Content-Type')).toBe('application/json');
     expect(init?.body).toBe(JSON.stringify({ auth_index: 'auth-1' }));
   });
 
@@ -679,7 +700,7 @@ describe('fetchUsageEvents', () => {
     expect(response.affected).toBe(1);
     expect(parsed.pathname).toBe('/api/v1/auth-files/status');
     expect(init).toMatchObject({ credentials: 'include', method: 'PATCH' });
-    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(headerValue(init, 'Content-Type')).toBe('application/json');
     expect(init?.body).toBe(JSON.stringify({ names: ['a.json'], disabled: true }));
   });
 
@@ -698,7 +719,7 @@ describe('fetchUsageEvents', () => {
     expect(response.names).toEqual(['a.json', 'b.json']);
     expect(parsed.pathname).toBe('/api/v1/auth-files');
     expect(init).toMatchObject({ credentials: 'include', method: 'DELETE' });
-    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(headerValue(init, 'Content-Type')).toBe('application/json');
     expect(init?.body).toBe(JSON.stringify({ names: ['a.json', 'b.json'] }));
   });
 
