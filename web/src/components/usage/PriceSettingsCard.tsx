@@ -20,7 +20,8 @@ const formatDisplayName = (value: string): string => {
 export interface PriceSettingsCardProps {
   modelNames: string[];
   modelPrices: Record<string, ModelPrice>;
-  onPricesChange: (prices: Record<string, ModelPrice>) => void | Promise<void>;
+  onPriceSave: (model: string, price: ModelPrice) => void | Promise<void>;
+  onPriceDelete: (model: string) => void | Promise<void>;
   onSyncPricesChange?: (prices: Record<string, ModelPrice>) => Promise<PricingSaveResult>;
   onSyncPreview?: () => Promise<PricingSyncPreviewResponse>;
   onNotice?: (kind: 'success' | 'info' | 'error', message: string) => void;
@@ -40,8 +41,18 @@ export interface PricingSyncDraft {
   completion: string;
   cache: string;
   cacheCreation: string;
+  multiplier: string;
   saveStatus?: 'failed';
   saveError?: string;
+}
+
+export interface PricingDraftInput {
+  style: PricingStyle;
+  prompt: string;
+  completion: string;
+  cache: string;
+  cacheCreation: string;
+  multiplier: string;
 }
 
 function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
@@ -54,6 +65,12 @@ function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: stri
 }
 
 const parsePriceValue = (value: string): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const parseMultiplierValue = (value: string): number | null => {
+  if (value.trim() === '') return 1;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
@@ -76,7 +93,7 @@ const normalizePricingStyle = (style: PricingStyle | string | undefined): Pricin
   style === 'claude' ? 'claude' : 'openai'
 );
 
-const syncMatchToDraft = (match: PricingSyncMatch): PricingSyncDraft => ({
+export const syncMatchToDraft = (match: PricingSyncMatch, existingPrice?: ModelPrice): PricingSyncDraft => ({
   model: match.model,
   matchedModel: match.matched_model,
   matchType: match.match_type,
@@ -88,23 +105,30 @@ const syncMatchToDraft = (match: PricingSyncMatch): PricingSyncDraft => ({
   completion: priceToInputValue(match.completion_price_per_1m),
   cache: priceToInputValue(match.cache_price_per_1m),
   cacheCreation: priceToInputValue(match.cache_creation_price_per_1m),
+  multiplier: priceToInputValue(existingPrice?.multiplier ?? 1),
 });
 
-const syncDraftToModelPrice = (draft: PricingSyncDraft): ModelPrice | null => {
+export const pricingDraftToModelPrice = (draft: PricingDraftInput): ModelPrice | null => {
   const prompt = parsePriceValue(draft.prompt);
   const completion = parsePriceValue(draft.completion);
   if (prompt === null || completion === null) return null;
   const cache = parseCachePriceValue(draft.cache, draft.style, prompt);
   const cacheCreation = parseCacheCreationPriceValue(draft.cacheCreation, draft.style);
-  if (cache === null || cacheCreation === null) return null;
+  const multiplier = parseMultiplierValue(draft.multiplier);
+  if (cache === null || cacheCreation === null || multiplier === null) return null;
   return {
     style: draft.style,
     prompt,
     completion,
     cache,
     cacheCreation,
+    multiplier,
   };
 };
+
+export const syncDraftToModelPrice = (draft: PricingSyncDraft): ModelPrice | null => (
+  pricingDraftToModelPrice(draft)
+);
 
 export const markPricingSyncFailures = (
   drafts: PricingSyncDraft[],
@@ -150,6 +174,63 @@ export const notifyPricingSyncUnexpectedError = (
   );
 };
 
+export interface SelectedSyncPrices {
+  selectedDrafts: PricingSyncDraft[];
+  prices: Record<string, ModelPrice>;
+  invalidModel: string | null;
+}
+
+export const buildSelectedSyncPrices = (drafts: PricingSyncDraft[]): SelectedSyncPrices => {
+  const selectedDrafts = drafts.filter((draft) => draft.selected);
+  const prices: Record<string, ModelPrice> = {};
+  for (const draft of selectedDrafts) {
+    const price = syncDraftToModelPrice(draft);
+    if (!price) {
+      return { selectedDrafts, prices: {}, invalidModel: draft.model };
+    }
+    prices[draft.model] = price;
+  }
+  return { selectedDrafts, prices, invalidModel: null };
+};
+
+export const saveSyncDraftsWithSingleModelCallback = async (
+  selectedDrafts: PricingSyncDraft[],
+  prices: Record<string, ModelPrice>,
+  onPriceSave: PriceSettingsCardProps['onPriceSave'],
+): Promise<PricingSaveResult> => {
+  const settled = await Promise.all(selectedDrafts.map(async (draft) => {
+    try {
+      await Promise.resolve(onPriceSave(draft.model, prices[draft.model]));
+      return { model: draft.model, ok: true as const };
+    } catch (error) {
+      return {
+        model: draft.model,
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error),
+        error,
+      };
+    }
+  }));
+
+  return settled.reduce<PricingSaveResult>((result, item) => {
+    if (item.ok) {
+      result.successModels.push(item.model);
+    } else {
+      result.failures.push({ model: item.model, message: item.message, error: item.error });
+    }
+    return result;
+  }, { successModels: [], failures: [] });
+};
+
+const notifyPricingPersistenceError = (
+  error: unknown,
+  fallbackMessage: string,
+  onNotice: PriceSettingsCardProps['onNotice'],
+) => {
+  const message = error instanceof Error ? error.message : '';
+  onNotice?.('error', `${fallbackMessage}${message ? `: ${message}` : ''}`);
+};
+
 const pricingStyleOptions = (t: (key: string) => string): SelectOption[] => [
   { value: 'openai', label: t('usage_stats.model_price_style_openai') },
   { value: 'claude', label: t('usage_stats.model_price_style_claude') },
@@ -183,7 +264,8 @@ export const buildPricingModelOptions = (
 export function PriceSettingsCard({
   modelNames,
   modelPrices,
-  onPricesChange,
+  onPriceSave,
+  onPriceDelete,
   onSyncPricesChange,
   onSyncPreview,
   onNotice,
@@ -195,13 +277,15 @@ export function PriceSettingsCard({
   const { showNotification } = useNotificationStore();
   const [isFetchingOpenRouter, setIsFetchingOpenRouter] = useState(false);
 
-  // 新增价格表单先暂存输入值，保存成功后再一次性同步到父级配置。
+  // 新增价格表单先暂存输入值，保存成功后再合并当前模型的价格。
   const [selectedModel, setSelectedModel] = useState('');
   const [pricingStyle, setPricingStyle] = useState<PricingStyle>('openai');
   const [promptPrice, setPromptPrice] = useState('');
   const [completionPrice, setCompletionPrice] = useState('');
   const [cachePrice, setCachePrice] = useState('');
   const [cacheCreationPrice, setCacheCreationPrice] = useState('');
+  const [priceMultiplier, setPriceMultiplier] = useState('1');
+  const [priceSaving, setPriceSaving] = useState(false);
 
   // 编辑弹窗独立保存草稿值，避免用户取消时污染已保存价格。
   const [editModel, setEditModel] = useState<string | null>(null);
@@ -210,6 +294,10 @@ export function PriceSettingsCard({
   const [editCompletion, setEditCompletion] = useState('');
   const [editCache, setEditCache] = useState('');
   const [editCacheCreation, setEditCacheCreation] = useState('');
+  const [editMultiplier, setEditMultiplier] = useState('1');
+  const [editSaving, setEditSaving] = useState(false);
+  const [deleteModel, setDeleteModel] = useState<string | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
 
   const [syncOpen, setSyncOpen] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
@@ -217,36 +305,62 @@ export function PriceSettingsCard({
   const [syncPreview, setSyncPreview] = useState<PricingSyncPreviewResponse | null>(null);
   const [syncDrafts, setSyncDrafts] = useState<PricingSyncDraft[]>([]);
 
-  const handleSavePrice = () => {
-    if (!selectedModel) return;
-    const prompt = parsePriceValue(promptPrice);
-    const completion = parsePriceValue(completionPrice);
-    if (prompt === null || completion === null) {
-      onNotice?.('error', t('usage_stats.model_price_save_failed'));
-      return;
+  const closeEditModal = () => {
+    if (!editSaving) {
+      setEditModel(null);
     }
-    const cache = parseCachePriceValue(cachePrice, pricingStyle, prompt);
-    const cacheCreation = parseCacheCreationPriceValue(cacheCreationPrice, pricingStyle);
-    if (cache === null || cacheCreation === null) {
-      onNotice?.('error', t('usage_stats.model_price_save_failed'));
-      return;
-    }
-    const newPrices = { ...modelPrices, [selectedModel]: { style: pricingStyle, prompt, completion, cache, cacheCreation } };
-    onPricesChange(newPrices);
-    onNotice?.('success', t('usage_stats.model_price_save_success'));
-    setSelectedModel('');
-    setPricingStyle('openai');
-    setPromptPrice('');
-    setCompletionPrice('');
-    setCachePrice('');
-    setCacheCreationPrice('');
   };
 
-  const handleDeletePrice = (model: string) => {
-    const newPrices = { ...modelPrices };
-    delete newPrices[model];
-    onPricesChange(newPrices);
-    onNotice?.('success', t('usage_stats.model_price_delete_success'));
+  const closeDeleteModal = () => {
+    if (!deleteSaving) {
+      setDeleteModel(null);
+    }
+  };
+
+  const handleSavePrice = async () => {
+    if (!selectedModel || priceSaving) return;
+    const price = pricingDraftToModelPrice({
+      style: pricingStyle,
+      prompt: promptPrice,
+      completion: completionPrice,
+      cache: cachePrice,
+      cacheCreation: cacheCreationPrice,
+      multiplier: priceMultiplier,
+    });
+    if (!price) {
+      onNotice?.('error', t('usage_stats.model_price_save_failed'));
+      return;
+    }
+    setPriceSaving(true);
+    try {
+      await Promise.resolve(onPriceSave(selectedModel, price));
+      onNotice?.('success', t('usage_stats.model_price_save_success'));
+      setSelectedModel('');
+      setPricingStyle('openai');
+      setPromptPrice('');
+      setCompletionPrice('');
+      setCachePrice('');
+      setCacheCreationPrice('');
+      setPriceMultiplier('1');
+    } catch (error) {
+      notifyPricingPersistenceError(error, t('usage_stats.model_price_save_failed'), onNotice);
+    } finally {
+      setPriceSaving(false);
+    }
+  };
+
+  const confirmDeleteModel = async () => {
+    if (!deleteModel || deleteSaving) return;
+    setDeleteSaving(true);
+    try {
+      await Promise.resolve(onPriceDelete(deleteModel));
+      onNotice?.('success', t('usage_stats.model_price_delete_success'));
+      setDeleteModel(null);
+    } catch (error) {
+      notifyPricingPersistenceError(error, t('usage_stats.model_price_delete_failed'), onNotice);
+    } finally {
+      setDeleteSaving(false);
+    }
   };
 
   const handleOpenEdit = (model: string) => {
@@ -257,30 +371,37 @@ export function PriceSettingsCard({
     setEditCompletion(price?.completion?.toString() || '');
     setEditCache(price?.cache?.toString() || '');
     setEditCacheCreation(price?.cacheCreation?.toString() || '');
-    onNotice?.('info', t('usage_stats.model_price_edit_notice', { model: formatDisplayName(model) }));
+    setEditMultiplier(priceToInputValue(price?.multiplier ?? 1));
   };
 
-  const handleSaveEdit = () => {
-    if (!editModel) return;
-    const prompt = parsePriceValue(editPrompt);
-    const completion = parsePriceValue(editCompletion);
-    if (prompt === null || completion === null) {
+  const handleSaveEdit = async () => {
+    if (!editModel || editSaving) return;
+    const price = pricingDraftToModelPrice({
+      style: editStyle,
+      prompt: editPrompt,
+      completion: editCompletion,
+      cache: editCache,
+      cacheCreation: editCacheCreation,
+      multiplier: editMultiplier,
+    });
+    if (!price) {
       onNotice?.('error', t('usage_stats.model_price_edit_failed'));
       return;
     }
-    const cache = parseCachePriceValue(editCache, editStyle, prompt);
-    const cacheCreation = parseCacheCreationPriceValue(editCacheCreation, editStyle);
-    if (cache === null || cacheCreation === null) {
-      onNotice?.('error', t('usage_stats.model_price_edit_failed'));
-      return;
+    setEditSaving(true);
+    try {
+      await Promise.resolve(onPriceSave(editModel, price));
+      onNotice?.('success', t('usage_stats.model_price_edit_success'));
+      setEditModel(null);
+    } catch (error) {
+      notifyPricingPersistenceError(error, t('usage_stats.model_price_edit_failed'), onNotice);
+    } finally {
+      setEditSaving(false);
     }
-    const newPrices = { ...modelPrices, [editModel]: { style: editStyle, prompt, completion, cache, cacheCreation } };
-    onPricesChange(newPrices);
-    onNotice?.('success', t('usage_stats.model_price_edit_success'));
-    setEditModel(null);
   };
 
   const handleModelSelect = (value: string) => {
+    if (priceSaving) return;
     setSelectedModel(value);
     const price = modelPrices[value];
     if (price) {
@@ -289,12 +410,14 @@ export function PriceSettingsCard({
       setCompletionPrice(price.completion.toString());
       setCachePrice(price.cache.toString());
       setCacheCreationPrice(price.cacheCreation.toString());
+      setPriceMultiplier(priceToInputValue(price.multiplier ?? 1));
     } else {
       setPricingStyle('openai');
       setPromptPrice('');
       setCompletionPrice('');
       setCachePrice('');
       setCacheCreationPrice('');
+      setPriceMultiplier('1');
     }
   };
 
@@ -318,7 +441,7 @@ export function PriceSettingsCard({
     setSyncLoading(true);
     try {
       const preview = await onSyncPreview();
-      const drafts = (preview.matches ?? []).map(syncMatchToDraft);
+      const drafts = (preview.matches ?? []).map((match) => syncMatchToDraft(match, modelPrices[match.model]));
       setSyncPreview({
         ...preview,
         matches: preview.matches ?? [],
@@ -355,28 +478,34 @@ export function PriceSettingsCard({
   };
 
   const handleApplySyncDrafts = async () => {
-    const selectedDrafts = syncDrafts.filter((draft) => draft.selected);
+    const { selectedDrafts, prices: syncPrices, invalidModel } = buildSelectedSyncPrices(syncDrafts);
     if (selectedDrafts.length === 0) {
       onNotice?.('error', t('usage_stats.model_price_sync_none_selected'));
       return;
     }
-
-    const syncPrices: Record<string, ModelPrice> = {};
-    for (const draft of selectedDrafts) {
-      const price = syncDraftToModelPrice(draft);
-      if (!price) {
-        onNotice?.('error', t('usage_stats.model_price_sync_invalid', { model: formatDisplayName(draft.model) }));
-        return;
-      }
-      syncPrices[draft.model] = price;
+    if (invalidModel !== null) {
+      onNotice?.('error', t('usage_stats.model_price_sync_invalid', { model: formatDisplayName(invalidModel) }));
+      return;
     }
 
     setSyncApplying(true);
     try {
       if (!onSyncPricesChange) {
-        await Promise.resolve(onPricesChange({ ...modelPrices, ...syncPrices }));
-        onNotice?.('success', t('usage_stats.model_price_sync_apply_success', { count: selectedDrafts.length }));
-        setSyncOpen(false);
+        const result = await saveSyncDraftsWithSingleModelCallback(selectedDrafts, syncPrices, onPriceSave);
+        setSyncDrafts((current) => markPricingSyncFailures(current, result));
+        if (result.failures.length === 0) {
+          onNotice?.('success', t('usage_stats.model_price_sync_apply_success', { count: result.successModels.length }));
+          setSyncOpen(false);
+          return;
+        }
+
+        onNotice?.(
+          result.successModels.length > 0 ? 'info' : 'error',
+          t('usage_stats.model_price_sync_apply_partial', {
+            success: result.successModels.length,
+            failed: result.failures.length,
+          }),
+        );
         return;
       }
 
@@ -468,6 +597,7 @@ export function PriceSettingsCard({
                       options={options}
                       onChange={handleModelSelect}
                       placeholder={t('usage_stats.model_price_select_placeholder')}
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -477,6 +607,7 @@ export function PriceSettingsCard({
                       value={pricingStyle}
                       options={styleOptions}
                       onChange={(value) => setPricingStyle(value === 'claude' ? 'claude' : 'openai')}
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -488,6 +619,7 @@ export function PriceSettingsCard({
                       onChange={(e) => setPromptPrice(e.target.value)}
                       placeholder="0.00"
                       step="0.0001"
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -499,6 +631,7 @@ export function PriceSettingsCard({
                       onChange={(e) => setCompletionPrice(e.target.value)}
                       placeholder="0.00"
                       step="0.0001"
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -510,6 +643,7 @@ export function PriceSettingsCard({
                       onChange={(e) => setCachePrice(e.target.value)}
                       placeholder="0.00"
                       step="0.0001"
+                      disabled={priceSaving}
                       className={styles.usagePillControl}
                     />
                   </div>
@@ -522,11 +656,25 @@ export function PriceSettingsCard({
                         onChange={(e) => setCacheCreationPrice(e.target.value)}
                         placeholder="0.00"
                         step="0.0001"
+                        disabled={priceSaving}
                         className={styles.usagePillControl}
                       />
                     </div>
                   )}
-                  <Button variant="primary" className={styles.usagePillAction} onClick={handleSavePrice} disabled={!selectedModel}>
+                  <div className={styles.formField}>
+                    <label>{t('usage_stats.model_price_multiplier')}</label>
+                    <Input
+                      type="number"
+                      value={priceMultiplier}
+                      onChange={(e) => setPriceMultiplier(e.target.value)}
+                      placeholder="1"
+                      step="0.0001"
+                      min="0"
+                      disabled={priceSaving}
+                      className={styles.usagePillControl}
+                    />
+                  </div>
+                  <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSavePrice()} disabled={!selectedModel || priceSaving} loading={priceSaving}>
                     {t('common.save')}
                   </Button>
                 </div>
@@ -558,13 +706,16 @@ export function PriceSettingsCard({
                                 {t('usage_stats.model_price_cache_write')}: ${price.cacheCreation.toFixed(4)}/1M
                               </span>
                             )}
+                            <span>
+                              {t('usage_stats.model_price_multiplier')}: {priceToInputValue(price.multiplier ?? 1)}
+                            </span>
                           </div>
                         </div>
                         <div className={styles.priceActions}>
                           <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={() => handleOpenEdit(model)}>
                             {t('common.edit')}
                           </Button>
-                          <Button variant="danger" size="sm" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => handleDeletePrice(model)}>
+                          <Button variant="danger" size="sm" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => setDeleteModel(model)}>
                             {t('common.delete')}
                           </Button>
                         </div>
@@ -584,13 +735,14 @@ export function PriceSettingsCard({
       <Modal
         open={editModel !== null}
         title={formatDisplayName(editModel ?? '')}
-        onClose={() => setEditModel(null)}
+        onClose={closeEditModal}
+        closeDisabled={editSaving}
         footer={
           <div className={styles.priceActions}>
-            <Button variant="secondary" className={styles.usagePillAction} onClick={() => setEditModel(null)}>
+            <Button variant="secondary" className={styles.usagePillAction} onClick={closeEditModal} disabled={editSaving}>
               {t('common.cancel')}
             </Button>
-            <Button variant="primary" className={styles.usagePillAction} onClick={handleSaveEdit}>
+            <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSaveEdit()} loading={editSaving}>
               {t('common.save')}
             </Button>
           </div>
@@ -604,6 +756,7 @@ export function PriceSettingsCard({
               value={editStyle}
               options={styleOptions}
               onChange={(value) => setEditStyle(value === 'claude' ? 'claude' : 'openai')}
+              disabled={editSaving}
               className={styles.usagePillControl}
             />
           </div>
@@ -615,6 +768,7 @@ export function PriceSettingsCard({
               onChange={(e) => setEditPrompt(e.target.value)}
               placeholder="0.00"
               step="0.0001"
+              disabled={editSaving}
               className={styles.usagePillControl}
             />
           </div>
@@ -626,6 +780,7 @@ export function PriceSettingsCard({
               onChange={(e) => setEditCompletion(e.target.value)}
               placeholder="0.00"
               step="0.0001"
+              disabled={editSaving}
               className={styles.usagePillControl}
             />
           </div>
@@ -637,6 +792,7 @@ export function PriceSettingsCard({
               onChange={(e) => setEditCache(e.target.value)}
               placeholder="0.00"
               step="0.0001"
+              disabled={editSaving}
               className={styles.usagePillControl}
             />
           </div>
@@ -649,11 +805,47 @@ export function PriceSettingsCard({
                 onChange={(e) => setEditCacheCreation(e.target.value)}
                 placeholder="0.00"
                 step="0.0001"
+                disabled={editSaving}
                 className={styles.usagePillControl}
               />
             </div>
           )}
+          <div className={styles.formField}>
+            <label>{t('usage_stats.model_price_multiplier')}</label>
+            <Input
+              type="number"
+              value={editMultiplier}
+              onChange={(e) => setEditMultiplier(e.target.value)}
+              placeholder="1"
+              step="0.0001"
+              min="0"
+              disabled={editSaving}
+              className={styles.usagePillControl}
+            />
+          </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={deleteModel !== null}
+        title={t('usage_stats.model_price_delete_confirm_title')}
+        onClose={closeDeleteModal}
+        closeDisabled={deleteSaving}
+        footer={
+          <div className={styles.priceActions}>
+            <Button variant="secondary" className={styles.usagePillAction} onClick={closeDeleteModal} disabled={deleteSaving}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="danger" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => void confirmDeleteModel()} loading={deleteSaving}>
+              {t('usage_stats.model_price_delete_confirm_action')}
+            </Button>
+          </div>
+        }
+        width={420}
+      >
+        <p className={styles.modelPriceDeleteConfirmText}>
+          {t('usage_stats.model_price_delete_confirm_body', { model: formatDisplayName(deleteModel ?? '') })}
+        </p>
       </Modal>
 
       <Modal
@@ -779,6 +971,7 @@ export function PriceSettingsCard({
                               value={draft.style}
                               options={styleOptions}
                               onChange={(value) => handleUpdateSyncDraft(index, { style: value === 'claude' ? 'claude' : 'openai' })}
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
@@ -790,6 +983,7 @@ export function PriceSettingsCard({
                               onChange={(event) => handleUpdateSyncDraft(index, { prompt: event.target.value })}
                               placeholder="0.00"
                               step="0.0001"
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
@@ -801,6 +995,7 @@ export function PriceSettingsCard({
                               onChange={(event) => handleUpdateSyncDraft(index, { completion: event.target.value })}
                               placeholder="0.00"
                               step="0.0001"
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
@@ -812,6 +1007,7 @@ export function PriceSettingsCard({
                               onChange={(event) => handleUpdateSyncDraft(index, { cache: event.target.value })}
                               placeholder="0.00"
                               step="0.0001"
+                              disabled={syncApplying}
                               className={styles.usagePillControl}
                             />
                           </div>
@@ -824,10 +1020,24 @@ export function PriceSettingsCard({
                                 onChange={(event) => handleUpdateSyncDraft(index, { cacheCreation: event.target.value })}
                                 placeholder="0.00"
                                 step="0.0001"
+                                disabled={syncApplying}
                                 className={styles.usagePillControl}
                               />
                             </div>
                           )}
+                          <div className={styles.formField}>
+                            <label>{t('usage_stats.model_price_multiplier')}</label>
+                            <Input
+                              type="number"
+                              value={draft.multiplier}
+                              onChange={(event) => handleUpdateSyncDraft(index, { multiplier: event.target.value })}
+                              placeholder="1"
+                              step="0.0001"
+                              min="0"
+                              disabled={syncApplying}
+                              className={styles.usagePillControl}
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>

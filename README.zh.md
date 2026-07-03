@@ -28,11 +28,13 @@
 - 可维护模型价格，用于成本估算和统计展示
 - 自动同步 CPA Auth Files、API Keys、AI Providers 等 metadata 变化
 - 可选密码登录保护、SQLite 备份、Docker/Docker Compose 和 systemd 部署
+- 可通过 CPA 插件将 Keeper Dashboard 内嵌到 CPAMC 中使用
 
 ## 赞助与特别感谢
 
 - 感谢 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 提供本项目所依赖的上游 CPA 基础与数据来源。
 - 感谢 [@YouShouldBetOnMe](https://github.com/YouShouldBetOnMe) 对 CPA Usage Keeper 的支持。
+- 感谢 CPA 讨论组（QQ群组）的讨论与反馈。
 
 ## 快速开始
 
@@ -262,13 +264,15 @@ cp .env.example .env
 | --- | --- | --- | --- |
 | `APP_PORT` | 否 | `8080` | Keeper HTTP 监听端口 |
 | `APP_BASE_PATH` | 否 | 根路径 | Keeper 子路径部署前缀，例如 `/keeper`；留空表示部署在 `/` |
-| `CPA_PUBLIC_URL` | 否 | 当前浏览器同源根路径 | 浏览器访问 CPA 的公开地址，用于“返回 CPA”跳转 |
+| `CPA_PUBLIC_URL` | 否 | 当前浏览器同源根路径 | 浏览器访问 CPA 的公开地址，用于“返回 CPA”跳转和 CPAMC frame 信任来源 |
 
 `APP_BASE_PATH` 必须为空或以 `/` 开头；例如 `/cpa`，`/cpa/` 会规范为 `/cpa`。
 
 `CPA_PUBLIC_URL` 可填写域名、带协议的完整地址或相对路径，例如 `https://cpa.example.com`、`https://cpa.example.com/cpa/` 或 `/cpa/`。前端会自动追加 `management.html`，并兼容末尾已有 `/` 或已经填写到 `management.html` 的情况。未配置时，“返回 CPA”默认跳转到当前浏览器同源根路径下的 `/management.html`；如果 CPA 和 Keeper 的外部域名、端口或路径不一致，请显式设置 `CPA_PUBLIC_URL`。
 
-`CPA_BASE_URL` 只用于服务端访问 CPA，可以是 Docker 内部服务名或内网地址；不要把它当作浏览器跳转地址使用。
+用于 CPAMC frame 信任时，`CPA_PUBLIC_URL` 必须是带 host 的显式 `http://` 或 `https://` URL。相对路径只影响同源“返回 CPA”跳转，不会增加外部 `frame-ancestors` 来源。
+
+`CPA_BASE_URL` 只用于服务端访问 CPA，可以是 Docker 内部服务名或内网地址；不会用于浏览器跳转或 frame 信任判断。
 
 ### 登录保护
 
@@ -288,11 +292,11 @@ cp .env.example .env
 
 ### Auth Files 限额刷新
 
+Auth Files 定时限额刷新在 Auth Files 巡检弹窗的小齿轮中配置。设置保存在本地 SQLite，不依赖页面保持打开。
+
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `QUOTA_AUTO_REFRESH_ENABLED` | 否 | `false` | 是否启用 Auth Files 限额自动刷新；仅在后台页面可见并持续心跳时执行 |
-| `QUOTA_AUTO_REFRESH_INTERVAL` | 否 | `5m` | Auth Files 限额自动刷新间隔，最低 `60s`，仅在后台页面活跃时生效 |
-| `QUOTA_REFRESH_WORKER_LIMIT` | 否 | `10` | Auth Files 限额刷新队列最大并发数，最大 `100` |
+| `QUOTA_REFRESH_WORKER_LIMIT` | 否 | `10` | 手动刷新和定时刷新共用的 Auth Files 限额刷新队列最大并发数，最大 `100` |
 
 ### Redis 队列高级配置
 
@@ -311,6 +315,7 @@ cp .env.example .env
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
 | `LOG_RETENTION_DAYS` | 否 | `7` | 日志保留天数；`0` 表示不自动清理 |
+| `CLEANUP_USAGE_EVENTS_ENABLED` | 否 | `false` | 是否在每日维护中删除过期 `usage_events` 原始事件；启用后会删除上个月 1 日 00:00 之前的数据 |
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用 SQLite 数据库备份 |
 | `BACKUP_INTERVAL` | 否 | `24h` | 数据库备份间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
@@ -331,6 +336,9 @@ cp .env.example .env
 - 面向浏览器的 API 会对 key-like source/lookup 字段做脱敏或稳定公开标识映射，但不会修改数据库原始值。
 - 公开部署建议开启 `AUTH_ENABLED=true`，并在反向代理层配置 HTTPS。
 - 登录 session hash 存在 SQLite 中，服务重启后仍会保持有效，直到用户退出登录或超过 `AUTH_SESSION_TTL`。
+- CPAMC 嵌入模式使用独立的 embed session。Keeper 会先尝试 `HttpOnly` 的 `cpa_usage_keeper_embed_session` cookie；如果浏览器无法保存嵌入 cookie，则回退到仅 embed 模式使用的请求头。普通 Dashboard session 仍保持 `SameSite=Lax`，不会被嵌入视图复用。
+- 同源 CPAMC 嵌入使用默认的 `frame-ancestors 'self'` 即可。跨源 CPAMC 嵌入时，请将 `CPA_PUBLIC_URL` 设置为公开的 CPA/CPAMC origin；Keeper 只使用 `CPA_PUBLIC_URL` 作为外部 `frame-ancestors` 来源，不使用 `CPA_BASE_URL`。
+- 跨站点嵌入登录在 HTTPS 且浏览器支持第三方 cookie 或分区 cookie 时体验最好。如果 cookie 路径不可用，CPAMC 嵌入模式会回退到按标签页保存在浏览器 session storage 中的 header token。
 - Redis inbox 原始消息会自动清理：成功数据保留到当天结束后清理，失败数据保留 7 天。
 
 ## Nginx反代

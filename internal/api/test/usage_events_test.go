@@ -1,4 +1,4 @@
-package api
+package test
 
 import (
 	"context"
@@ -7,10 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
+	_ "unsafe"
 
+	. "cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
@@ -71,6 +75,50 @@ func (s *usageEventsStub) GetAnalysis(context.Context, servicedto.UsageFilter) (
 	return nil, s.err
 }
 
+type authCPAAPIKeyStub struct {
+	row entities.CPAAPIKey
+}
+
+func (s *authCPAAPIKeyStub) ListCPAAPIKeys(context.Context) ([]entities.CPAAPIKey, error) {
+	return []entities.CPAAPIKey{s.row}, nil
+}
+
+func (s *authCPAAPIKeyStub) FindActiveCPAAPIKeyByValue(context.Context, string) (entities.CPAAPIKey, error) {
+	return s.row, nil
+}
+
+func (s *authCPAAPIKeyStub) FindActiveCPAAPIKeyByID(context.Context, int64) (entities.CPAAPIKey, error) {
+	return s.row, nil
+}
+
+func (s *authCPAAPIKeyStub) UpdateCPAAPIKeyAlias(context.Context, int64, string) (entities.CPAAPIKey, error) {
+	return s.row, nil
+}
+
+type usageIdentitiesStub struct {
+	items []entities.UsageIdentity
+	err   error
+}
+
+func (s usageIdentitiesStub) ListUsageIdentities(context.Context) ([]entities.UsageIdentity, error) {
+	return s.items, s.err
+}
+
+func (s usageIdentitiesStub) ListActiveUsageIdentities(context.Context) ([]entities.UsageIdentity, error) {
+	return s.items, s.err
+}
+
+func (s usageIdentitiesStub) ListActiveUsageIdentitiesPage(context.Context, service.ListUsageIdentitiesRequest) (service.ListUsageIdentitiesResponse, error) {
+	return service.ListUsageIdentitiesResponse{Items: s.items, Total: int64(len(s.items))}, s.err
+}
+
+func (s usageIdentitiesStub) UpdateUsageIdentityAlias(context.Context, int64, string) (entities.UsageIdentity, error) {
+	if len(s.items) == 0 {
+		return entities.UsageIdentity{}, s.err
+	}
+	return s.items[0], s.err
+}
+
 func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
@@ -84,6 +132,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		ID:                  42,
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		Model:               "claude-sonnet",
+		ModelAlias:          "sonnet-business",
 		ReasoningEffort:     "medium",
 		ServiceTier:         "priority",
 		ExecutorType:        "responses",
@@ -118,6 +167,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	body := resp.Body.String()
 	if !contains(body, `"events":[`) || !contains(body, `"model":"claude-sonnet"`) {
 		t.Fatalf("unexpected response body: %s", body)
+	}
+	if !contains(body, `"model_alias":"sonnet-business"`) {
+		t.Fatalf("expected model alias in response body: %s", body)
 	}
 	if !contains(body, `"id":"42"`) || !contains(body, `"total_count":1`) || !contains(body, `"page":1`) || !contains(body, `"page_size":100`) || !contains(body, `"total_pages":1`) {
 		t.Fatalf("expected pagination metadata and event id in response body: %s", body)
@@ -181,6 +233,7 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		APIGroupKey:         "sk-export123456",
 		Model:               "claude-sonnet",
+		ModelAlias:          "sonnet-export",
 		ReasoningEffort:     "medium",
 		ServiceTier:         "priority",
 		ExecutorType:        "responses",
@@ -243,8 +296,11 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !regexp.MustCompile(`filename="usage-events-\d{8}-\d{6}\.csv"`).MatchString(resp.Header().Get("Content-Disposition")) {
 		t.Fatalf("expected timestamped csv filename, got %q", resp.Header().Get("Content-Disposition"))
 	}
-	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
-		t.Fatalf("expected cpa_api_key_id, auth_index, executor_type, and is_identity_deleted columns, got %s", body)
+	if !contains(body, "cpa_api_key_id") || !contains(body, "auth_index") || !contains(body, "model_alias") || !contains(body, "executor_type") || !contains(body, "is_identity_deleted") {
+		t.Fatalf("expected cpa_api_key_id, auth_index, model_alias, executor_type, and is_identity_deleted columns, got %s", body)
+	}
+	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,reasoning_effort,`).MatchString(body) {
+		t.Fatalf("expected model_alias to follow model in csv header, got %s", body)
 	}
 	if contains(body, "is_deleted") {
 		t.Fatalf("expected export to use is_identity_deleted instead of is_deleted, got %s", body)
@@ -252,7 +308,7 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if contains(body, "cost_available") || contains(body, "pricing_style") {
 		t.Fatalf("expected csv export to omit cost availability metadata, got %s", body)
 	}
-	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "responses") || !contains(body, "failed") {
+	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "sonnet-export") || !contains(body, "responses") || !contains(body, "failed") {
 		t.Fatalf("expected exported row values, got %s", body)
 	}
 }
@@ -263,6 +319,7 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 		Timestamp:     time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		APIGroupKey:   "sk-json-export",
 		Model:         "gpt-5",
+		ModelAlias:    "gpt-json-alias",
 		ServiceTier:   "default",
 		ExecutorType:  "chat_completions",
 		Endpoint:      "GET /v1/responses",
@@ -302,7 +359,7 @@ func TestUsageEventsExportJSONIncludesAllExportFields(t *testing.T) {
 	if !contains(body, `"total_count":1`) || contains(body, `"page"`) || contains(body, `"page_size"`) {
 		t.Fatalf("expected export metadata without pagination, got %s", body)
 	}
-	if !contains(body, `"auth_index":"auth-file-export"`) || !contains(body, `"executor_type":"chat_completions"`) || !contains(body, `"endpoint":"GET /v1/responses"`) || !contains(body, `"is_identity_deleted":true`) {
+	if !contains(body, `"auth_index":"auth-file-export"`) || !contains(body, `"model_alias":"gpt-json-alias"`) || !contains(body, `"executor_type":"chat_completions"`) || !contains(body, `"endpoint":"GET /v1/responses"`) || !contains(body, `"is_identity_deleted":true`) {
 		t.Fatalf("expected raw export fields in json body, got %s", body)
 	}
 	if !contains(body, `"api_key":"Team <Ops> & Co"`) || contains(body, `\u003c`) || contains(body, `\u0026`) || contains(body, `\u003e`) {
@@ -790,7 +847,7 @@ func TestUsageEventSpeedTPS(t *testing.T) {
 
 func TestUsageEventSourceFilterOptionsReturnsIdentitySources(t *testing.T) {
 	provider := &usageEventsStub{}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, Name: "Claude Main", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-a", Type: "openai", Provider: "Provider A", TotalRequests: 3}, {ID: 2, Name: "Provider A", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude", TotalRequests: 2}, {ID: 4, Name: "Zero Request User", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-zero", Type: "claude", Provider: "Claude"}, {ID: 5, Name: "Zero Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-zero", Type: "openai", Provider: "Zero Provider"}, {ID: 6, Name: "Deleted Source", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-deleted", Type: "openai", Provider: "Deleted Provider", TotalRequests: 5, IsDeleted: true}}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, Name: "Claude Main", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-a", Type: "openai", Provider: "Provider A", TotalRequests: 3}, {ID: 2, Name: "Provider A", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-b", Type: "openai", Provider: "Provider A"}, {ID: 3, Name: "Auth User", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude", TotalRequests: 2}, {ID: 4, Name: "Zero Request User", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-zero", Type: "claude", Provider: "Claude"}, {ID: 5, Name: "Zero Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-source-zero", Type: "openai", Provider: "Zero Provider"}, {ID: 6, Name: "Deleted Source", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "authidx-deleted", Type: "openai", Provider: "Deleted Provider", TotalRequests: 5, IsDeleted: true}, {ID: 7, Name: "   ", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-display", Type: "claude", Provider: "Claude Display", TotalRequests: 1}}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/filters/sources?range=24h&model=ignored&source=ignored&result=failed&page=3&page_size=20", nil)
 	resp := httptest.NewRecorder()
 
@@ -803,7 +860,7 @@ func TestUsageEventSourceFilterOptionsReturnsIdentitySources(t *testing.T) {
 		t.Fatalf("expected source filter options endpoint to use identities only, events=%d filterOptions=%d", provider.filterCalls, provider.filterOptionCalls)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"sources":[`) || !contains(body, `"value":"authidx-source-a"`) || !contains(body, `"label":"Claude Main"`) || !contains(body, `"displayName":"Claude Main"`) || !contains(body, `"value":"auth-1"`) || !contains(body, `"label":"Auth User"`) {
+	if !contains(body, `"sources":[`) || !contains(body, `"value":"authidx-source-a"`) || !contains(body, `"label":"Claude Main"`) || !contains(body, `"displayName":"Claude Main"`) || !contains(body, `"value":"auth-1"`) || !contains(body, `"label":"Auth User"`) || !contains(body, `"value":"auth-display"`) || !contains(body, `"label":"Claude Display"`) || !contains(body, `"displayName":"Claude Display"`) {
 		t.Fatalf("expected stable identity source filter options with display names, got %s", body)
 	}
 	if contains(body, `"models"`) {
@@ -826,4 +883,11 @@ func usageEventInt64Ptr(value int64) *int64 {
 
 func usageEventFloat64Ptr(value float64) *float64 {
 	return &value
+}
+
+//go:linkname usageEventSpeedTPS cpa-usage-keeper/internal/api.usageEventSpeedTPS
+func usageEventSpeedTPS(row servicedto.UsageEventRecord) *float64
+
+func contains(s string, sub string) bool {
+	return strings.Contains(s, sub)
 }
