@@ -29,6 +29,7 @@ type UsageEventRecord struct {
 	ExecutorType        string
 	Endpoint            string
 	AuthType            string
+	RequestID           string
 	Provider            string
 	Source              string
 	AuthIndex           string

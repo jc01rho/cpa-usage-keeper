@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -13,9 +14,10 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
-import { IconCheck, IconChevronDown, IconDownload } from '@/components/ui/icons';
-import type { UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import { IconCheck, IconChevronDown, IconDownload, IconScrollText } from '@/components/ui/icons';
+import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import {
   calculateCacheRate,
   formatDurationMs,
@@ -112,7 +114,9 @@ const appendSelectedOption = (
 };
 
 type RequestEventRow = {
+  event: UsageEvent;
   id: string;
+  requestId: string;
   timestamp: string;
   timestampMs: number;
   timestampLabel: string;
@@ -149,6 +153,30 @@ type RequestEventColumnDefinition = {
   renderCell: (row: RequestEventRow) => ReactNode;
 };
 
+const REQUEST_LOG_SECTION_TITLE_KEYS: Record<string, string> = {
+  'REQUEST INFO': 'usage_stats.request_events_log_section_request_info',
+  HEADERS: 'usage_stats.request_events_log_section_headers',
+  'API REQUEST': 'usage_stats.request_events_log_section_api_request',
+  'API RESPONSE': 'usage_stats.request_events_log_section_api_response',
+  'API RESPONSE ERROR': 'usage_stats.request_events_log_section_api_response_error',
+  RESPONSE: 'usage_stats.request_events_log_section_response',
+  'WEBSOCKET TIMELINE': 'usage_stats.request_events_log_section_websocket_timeline',
+  'API WEBSOCKET TIMELINE': 'usage_stats.request_events_log_section_api_websocket_timeline',
+  'RAW LOG': 'usage_stats.request_events_log_section_raw_log',
+};
+
+const formatRequestLogSectionTitle = (
+  title: string,
+  translate: (key: string) => string
+) => {
+  const normalizedTitle = title.trim().toUpperCase();
+  const translationKey = REQUEST_LOG_SECTION_TITLE_KEYS[normalizedTitle];
+  if (translationKey) {
+    return translate(translationKey);
+  }
+  return title.trim() || translate('usage_stats.request_events_log_section');
+};
+
 export interface RequestEventsDetailsCardProps {
   events: UsageEvent[];
   loading: boolean;
@@ -172,6 +200,13 @@ export interface RequestEventsDetailsCardProps {
   onResultFilterChange: (result: string) => void;
   onExport?: (format: RequestEventExportFormat) => void;
   onVisibleColumnIdsChange?: (columnIds: RequestEventColumnId[]) => void;
+  onRequestLogOpen?: (event: UsageEvent) => void;
+  requestLogLoadingEventId?: string | null;
+  requestLogResponse?: UsageEventRequestLogResponse | null;
+  requestLogError?: string;
+  onRequestLogClose?: () => void;
+  onRequestLogDownload?: (eventId: string) => void;
+  requestLogDownloading?: boolean;
 }
 
 const toNumber = (value: unknown): number => {
@@ -499,6 +534,47 @@ function RequestEventsTitle({ title, subtitle, totalLabel }: { title: string; su
   );
 }
 
+function RequestLogSectionDisclosure({
+  title,
+  content,
+  defaultOpen,
+}: {
+  title: string;
+  content: string;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const panelId = useId();
+
+  return (
+    <section
+      className={`${styles.requestEventsLogSection} ${open ? styles.requestEventsLogSectionOpen : ''}`.trim()}
+    >
+      <button
+        type="button"
+        className={styles.requestEventsLogSectionTrigger}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((currentOpen) => !currentOpen)}
+      >
+        <span className={styles.requestEventsLogSectionTitle}>{title}</span>
+        <span className={styles.requestEventsLogSectionChevron} aria-hidden="true">
+          <IconChevronDown size={14} />
+        </span>
+      </button>
+      <div
+        id={panelId}
+        className={styles.requestEventsLogSectionPanel}
+        aria-hidden={!open}
+      >
+        <div className={styles.requestEventsLogSectionPanelInner}>
+          <pre>{content}</pre>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function RequestEventsExportMenu({
   label,
   csvLabel,
@@ -601,8 +677,16 @@ export function RequestEventsDetailsCard({
   onResultFilterChange,
   onExport,
   onVisibleColumnIdsChange,
+  onRequestLogOpen,
+  requestLogLoadingEventId = null,
+  requestLogResponse = null,
+  requestLogError = '',
+  onRequestLogClose,
+  onRequestLogDownload,
+  requestLogDownloading = false,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
+  const resultLocale = t('usage_stats.success') === 'Success' ? 'en' : 'zh';
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
@@ -643,7 +727,9 @@ export function RequestEventsDetailsCard({
       const cost = costAvailable ? Math.max(toNumber(event.cost_usd), 0) : null;
 
       return {
+        event,
         id: event.id ? String(event.id) : `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
+        requestId: String(event.request_id ?? '').trim(),
         timestamp,
         timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
         timestampLabel: formatRequestEventTimestamp(timestamp),
@@ -698,6 +784,17 @@ export function RequestEventsDetailsCard({
     }
     onVisibleColumnIdsChange?.(nextColumnIds);
   }, [isColumnSelectionControlled, onVisibleColumnIdsChange, selectedVisibleColumnIds]);
+  const requestLogOpen = Boolean(requestLogResponse || requestLogError || requestLogLoadingEventId);
+  const requestLogTooLarge = requestLogResponse?.too_large === true || (requestLogResponse?.previewable === false && requestLogResponse?.downloadable === true);
+  const requestLogTitle = requestLogTooLarge ? t('usage_stats.request_events_log_too_large_title') : t('usage_stats.request_events_log_title');
+  const requestLogSections = requestLogResponse?.sections ?? [];
+  const requestLogDownloadable = Boolean(requestLogResponse?.downloadable && String(requestLogResponse?.event_id ?? '').trim() && onRequestLogDownload);
+  const handleRequestLogDownloadAction = useCallback(() => {
+    const eventId = String(requestLogResponse?.event_id ?? '').trim();
+    if (eventId && onRequestLogDownload) {
+      onRequestLogDownload(eventId);
+    }
+  }, [onRequestLogDownload, requestLogResponse?.event_id]);
 
   const modelOptions = useMemo(() => {
     const options = [
@@ -811,19 +908,37 @@ export function RequestEventsDetailsCard({
         id: 'result',
         label: t('usage_stats.request_events_result'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_result')}</th>,
-        renderCell: (row) => (
-          <td className={styles.requestEventsNoWrapCell}>
-            <span
-              className={
-                row.failed
-                  ? styles.requestEventsResultFailed
-                  : styles.requestEventsResultSuccess
-              }
-            >
-              {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
-            </span>
-          </td>
-        ),
+        renderCell: (row) => {
+          const resultLabel = row.failed ? t('usage_stats.failure') : t('usage_stats.success');
+          const loading = requestLogLoadingEventId === row.id;
+          const resultClassName = row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess;
+          const canOpenLog = Boolean(row.requestId && onRequestLogOpen);
+          return (
+            <td className={styles.requestEventsNoWrapCell}>
+              {canOpenLog ? (
+                <button
+                  type="button"
+                  className={`${resultClassName} ${styles.requestEventsResultLogButton}`.trim()}
+                  data-result-locale={resultLocale}
+                  onClick={() => {
+                    onRequestLogOpen?.(row.event);
+                  }}
+                  title={t('usage_stats.request_events_log_hint')}
+                  aria-label={loading ? t('usage_stats.request_events_log_loading_aria', { result: resultLabel }) : t('usage_stats.request_events_log_open_aria', { result: resultLabel })}
+                  aria-busy={loading}
+                  disabled={loading}
+                >
+                  <span>{resultLabel}</span>
+                  <span className={styles.requestEventsResultLogIcon} aria-hidden="true">
+                    <IconScrollText size={9} />
+                  </span>
+                </button>
+              ) : (
+                <span className={resultClassName} data-result-locale={resultLocale}>{resultLabel}</span>
+              )}
+            </td>
+          );
+        },
       },
       {
         id: 'request_type',
@@ -904,7 +1019,7 @@ export function RequestEventsDetailsCard({
     ];
 
     return definitions;
-  }, [latencyHint, speedHint, t, ttftHint]);
+  }, [latencyHint, onRequestLogOpen, requestLogLoadingEventId, resultLocale, speedHint, t, ttftHint]);
 
   const visibleColumns = useMemo(
     () => columnDefinitions.filter((definition) => effectiveVisibleColumnIdSet.has(definition.id)),
@@ -938,139 +1053,191 @@ export function RequestEventsDetailsCard({
   };
 
   return (
-    <Card
-      className={styles.requestEventsCard}
-      title={
-        <RequestEventsTitle
-          title={t('usage_stats.request_events_title')}
-          subtitle={t('usage_stats.request_events_subtitle')}
-          totalLabel={t('usage_stats.request_events_total_count', { count: totalCount })}
-        />
-      }
-      extra={
-        <div className={styles.requestEventsActions}>
-          <RequestEventsExportMenu
-            label={t('usage_stats.export')}
-            csvLabel={t('usage_stats.export_csv')}
-            jsonLabel={t('usage_stats.export_json')}
-            exportingFormat={exportingFormat}
-            onExport={onExport}
+    <>
+      <Card
+        className={styles.requestEventsCard}
+        title={
+          <RequestEventsTitle
+            title={t('usage_stats.request_events_title')}
+            subtitle={t('usage_stats.request_events_subtitle')}
+            totalLabel={t('usage_stats.request_events_total_count', { count: totalCount })}
           />
-        </div>
-      }
-    >
-      <div className={styles.requestEventsToolbar}>
-        <div className={styles.requestEventsFiltersGroup}>
-          <label className={styles.requestEventsFilterItem}>
-            <span className={styles.requestEventsFilterLabel}>
-              {t('usage_stats.request_events_filter_model')}
-            </span>
-            <Select
-              value={effectiveModelFilter}
-              options={modelOptions}
-              onChange={onModelFilterChange}
-              className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
-              ariaLabel={t('usage_stats.request_events_filter_model')}
-              fullWidth={false}
+        }
+        extra={
+          <div className={styles.requestEventsActions}>
+            <RequestEventsExportMenu
+              label={t('usage_stats.export')}
+              csvLabel={t('usage_stats.export_csv')}
+              jsonLabel={t('usage_stats.export_json')}
+              exportingFormat={exportingFormat}
+              onExport={onExport}
             />
-          </label>
-          <label className={styles.requestEventsFilterItem}>
-            <span className={styles.requestEventsFilterLabel}>
-              {t('usage_stats.request_events_filter_source')}
-            </span>
-            <Select
-              value={effectiveSourceFilter}
-              options={sourceOptions}
-              onChange={onSourceFilterChange}
-              className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
-              ariaLabel={t('usage_stats.request_events_filter_source')}
-              fullWidth={false}
-            />
-          </label>
-          <label className={styles.requestEventsFilterItem}>
-            <span className={styles.requestEventsFilterLabel}>
-              {t('usage_stats.request_events_filter_result')}
-            </span>
-            <Select
-              value={effectiveResultFilter}
-              options={resultOptions}
-              onChange={onResultFilterChange}
-              className={`${styles.requestEventsResultSelect} ${styles.usagePillControl}`}
-              ariaLabel={t('usage_stats.request_events_filter_result')}
-              fullWidth={false}
-            />
-          </label>
-          <div className={styles.requestEventsFilterActionSlot}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`${styles.usagePillAction} ${styles.requestEventsClearFiltersButton}`.trim()}
-              onClick={handleClearFilters}
-              disabled={!hasActiveFilters}
-            >
-              {t('usage_stats.clear_filters')}
-            </Button>
           </div>
-        </div>
-      </div>
-
-      {loading && rows.length === 0 ? (
-        <div className={styles.hint}>{t('common.loading')}</div>
-      ) : rows.length === 0 ? (
-        <EmptyState
-          title={t('usage_stats.request_events_empty_title')}
-          description={t('usage_stats.request_events_empty_desc')}
-        />
-      ) : (
-        <>
-          <div className={styles.requestEventsTableWrapper}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  {visibleColumns.map((column) => (
-                    <React.Fragment key={column.id}>{column.header}</React.Fragment>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id}>
-                    {visibleColumns.map((column) => (
-                      <React.Fragment key={column.id}>{column.renderCell(row)}</React.Fragment>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className={styles.requestEventsPaginationFooter}>
-            <div className={styles.requestEventsPaginationControls}>
-              <RequestEventsColumnSelector
-                label={t('usage_stats.request_events_columns')}
-                summary={visibleColumnSummary}
-                ariaLabel={t('usage_stats.request_events_columns')}
-                options={columnOptions}
-                selectedIds={effectiveVisibleColumnIds}
-                onToggle={handleColumnToggle}
+        }
+      >
+        <div className={styles.requestEventsToolbar}>
+          <div className={styles.requestEventsFiltersGroup}>
+            <label className={styles.requestEventsFilterItem}>
+              <span className={styles.requestEventsFilterLabel}>
+                {t('usage_stats.request_events_filter_model')}
+              </span>
+              <Select
+                value={effectiveModelFilter}
+                options={modelOptions}
+                onChange={onModelFilterChange}
+                className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
+                ariaLabel={t('usage_stats.request_events_filter_model')}
+                fullWidth={false}
               />
-              <label className={styles.requestEventsPageSizeControl}>
-                <span>{t('usage_stats.request_events_rows_per_page')}</span>
-                <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} disabled={loading}>
-                  {pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                </select>
-              </label>
-              <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page - 1)} disabled={loading || safePage <= 1}>
-                {t('usage_stats.request_events_previous_page')}
-              </button>
-              <span className={styles.requestEventsPaginationPage}>{pageLabel}</span>
-              <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page + 1)} disabled={loading || safeTotalPages === 0 || safePage >= safeTotalPages}>
-                {t('usage_stats.request_events_next_page')}
-              </button>
+            </label>
+            <label className={styles.requestEventsFilterItem}>
+              <span className={styles.requestEventsFilterLabel}>
+                {t('usage_stats.request_events_filter_source')}
+              </span>
+              <Select
+                value={effectiveSourceFilter}
+                options={sourceOptions}
+                onChange={onSourceFilterChange}
+                className={`${styles.requestEventsSelect} ${styles.usagePillControl}`}
+                ariaLabel={t('usage_stats.request_events_filter_source')}
+                fullWidth={false}
+              />
+            </label>
+            <label className={styles.requestEventsFilterItem}>
+              <span className={styles.requestEventsFilterLabel}>
+                {t('usage_stats.request_events_filter_result')}
+              </span>
+              <Select
+                value={effectiveResultFilter}
+                options={resultOptions}
+                onChange={onResultFilterChange}
+                className={`${styles.requestEventsResultSelect} ${styles.usagePillControl}`}
+                ariaLabel={t('usage_stats.request_events_filter_result')}
+                fullWidth={false}
+              />
+            </label>
+            <div className={styles.requestEventsFilterActionSlot}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`${styles.usagePillAction} ${styles.requestEventsClearFiltersButton}`.trim()}
+                onClick={handleClearFilters}
+                disabled={!hasActiveFilters}
+              >
+                {t('usage_stats.clear_filters')}
+              </Button>
             </div>
           </div>
-        </>
-      )}
-    </Card>
+        </div>
+
+        {loading && rows.length === 0 ? (
+          <div className={styles.hint}>{t('common.loading')}</div>
+        ) : rows.length === 0 ? (
+          <EmptyState
+            title={t('usage_stats.request_events_empty_title')}
+            description={t('usage_stats.request_events_empty_desc')}
+          />
+        ) : (
+          <>
+            <div className={styles.requestEventsTableWrapper}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    {visibleColumns.map((column) => (
+                      <React.Fragment key={column.id}>{column.header}</React.Fragment>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.id}>
+                      {visibleColumns.map((column) => (
+                        <React.Fragment key={column.id}>{column.renderCell(row)}</React.Fragment>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className={styles.requestEventsPaginationFooter}>
+              <div className={styles.requestEventsPaginationControls}>
+                <RequestEventsColumnSelector
+                  label={t('usage_stats.request_events_columns')}
+                  summary={visibleColumnSummary}
+                  ariaLabel={t('usage_stats.request_events_columns')}
+                  options={columnOptions}
+                  selectedIds={effectiveVisibleColumnIds}
+                  onToggle={handleColumnToggle}
+                />
+                <label className={styles.requestEventsPageSizeControl}>
+                  <span>{t('usage_stats.request_events_rows_per_page')}</span>
+                  <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} disabled={loading}>
+                    {pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+                <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page - 1)} disabled={loading || safePage <= 1}>
+                  {t('usage_stats.request_events_previous_page')}
+                </button>
+                <span className={styles.requestEventsPaginationPage}>{pageLabel}</span>
+                <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page + 1)} disabled={loading || safeTotalPages === 0 || safePage >= safeTotalPages}>
+                  {t('usage_stats.request_events_next_page')}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </Card>
+      <Modal
+        open={requestLogOpen}
+        title={requestLogTitle}
+        onClose={onRequestLogClose ?? (() => undefined)}
+        width={requestLogTooLarge ? 360 : 920}
+        className={requestLogTooLarge ? styles.requestEventsLargeLogModal : undefined}
+        footer={
+          requestLogTooLarge ? (
+            <>
+              <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={onRequestLogClose ?? (() => undefined)}>
+                {t('common.cancel')}
+              </Button>
+              <Button variant="primary" size="sm" className={styles.usagePillAction} onClick={handleRequestLogDownloadAction} loading={requestLogDownloading} disabled={!requestLogDownloadable}>
+                {requestLogDownloading ? t('common.loading') : t('usage_stats.request_events_log_download')}
+              </Button>
+            </>
+          ) : requestLogDownloadable ? (
+            <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={handleRequestLogDownloadAction} loading={requestLogDownloading}>
+              {requestLogDownloading ? t('common.loading') : t('usage_stats.request_events_log_download')}
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className={styles.requestEventsLogViewer}>
+          {requestLogLoadingEventId && !requestLogResponse && !requestLogError ? (
+            <div className={styles.hint} role="status" aria-live="polite">{t('common.loading')}</div>
+          ) : requestLogError ? (
+            <div className={styles.errorBox} role="status" aria-live="polite">{requestLogError}</div>
+          ) : requestLogTooLarge ? (
+            <div className={styles.requestEventsLargeLogPrompt} role="status" aria-live="polite">{t('usage_stats.request_events_log_too_large')}</div>
+          ) : requestLogResponse ? (
+            <>
+              {requestLogSections.length > 0 ? (
+                <div className={styles.requestEventsLogSections}>
+                  {requestLogSections.map((section, index) => (
+                    <RequestLogSectionDisclosure
+                      key={`${requestLogResponse.event_id}-${section.title}-${index}`}
+                      title={formatRequestLogSectionTitle(section.title, t)}
+                      content={section.content}
+                      defaultOpen={index === 0}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.hint}>{t('usage_stats.request_events_log_empty')}</div>
+              )}
+            </>
+          ) : null}
+        </div>
+      </Modal>
+    </>
   );
 }

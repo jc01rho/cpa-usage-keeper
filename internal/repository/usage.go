@@ -16,7 +16,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, model_alias, reasoning_effort, service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, model_alias, reasoning_effort, service_tier, executor_type, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 const analysisLatencyMaxDisplayPoints = 2500
 
 // usageOverviewRawEventProjectionColumns 是 Overview 边界补偿和 realtime DB 兜底的最小事件投影。
@@ -28,6 +28,7 @@ type usageEventProjection struct {
 	APIGroupKey         string
 	Provider            string
 	AuthType            string
+	RequestID           string
 	Model               string
 	ModelAlias          *string `gorm:"column:model_alias"`
 	ReasoningEffort     string
@@ -161,6 +162,20 @@ func queryUsageEvents(db *gorm.DB) *gorm.DB {
 	return db.Model(&entities.UsageEvent{})
 }
 
+func FindUsageEventRequestIDByID(db *gorm.DB, id int64) (string, error) {
+	if db == nil {
+		return "", fmt.Errorf("database is nil")
+	}
+	if id <= 0 {
+		return "", gorm.ErrRecordNotFound
+	}
+	var event entities.UsageEvent
+	if err := db.Select("request_id").Where("id = ?", id).First(&event).Error; err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(event.RequestID), nil
+}
+
 func loadUsageEventRecordsForQuery(db *gorm.DB, query *gorm.DB) ([]dto.UsageEventRecord, error) {
 	var events []usageEventProjection
 	if err := query.Find(&events).Error; err != nil {
@@ -232,6 +247,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		ExecutorType:        strings.TrimSpace(event.ExecutorType),
 		Endpoint:            strings.TrimSpace(event.Endpoint),
 		AuthType:            strings.TrimSpace(event.AuthType),
+		RequestID:           strings.TrimSpace(event.RequestID),
 		Provider:            strings.TrimSpace(event.Provider),
 		Source:              strings.TrimSpace(event.Source),
 		AuthIndex:           strings.TrimSpace(event.AuthIndex),
