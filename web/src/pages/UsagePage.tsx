@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, type KeyboardEvent, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
-import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageEvent, UsageSourceFilterOption, VersionResponse } from '@/lib/types';
+import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import type { AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, VersionResponse } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -347,6 +347,19 @@ type UsagePageVersionInfoOptions = {
   onAuthRequired?: () => void;
 };
 
+type RequestLogDownloadGenerationRef = {
+  current: number;
+};
+
+type UsageEventRequestLogDownloadOptions = {
+  eventId: string;
+  generationRef: RequestLogDownloadGenerationRef;
+  createDownloadURL?: (eventId: string) => Promise<string>;
+  triggerDownload?: (url: string) => void;
+  setDownloading: (downloading: boolean) => void;
+  showDownloadError: (error: unknown) => void;
+};
+
 export const loadUsagePageVersionInfo = async ({
   loadVersion,
   signal,
@@ -369,6 +382,32 @@ export const loadUsagePageVersionInfo = async ({
 
 export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptions) => {
   await refreshActiveTab();
+};
+
+export const runUsageEventRequestLogDownload = async ({
+  eventId,
+  generationRef,
+  createDownloadURL = createUsageEventRequestLogDownloadURL,
+  triggerDownload = triggerBrowserURLDownload,
+  setDownloading,
+  showDownloadError,
+}: UsageEventRequestLogDownloadOptions) => {
+  const normalizedEventId = eventId.trim();
+  if (!normalizedEventId) return;
+  const generation = generationRef.current;
+  setDownloading(true);
+  try {
+    const downloadURL = await createDownloadURL(normalizedEventId);
+    if (generationRef.current !== generation) return;
+    triggerDownload(downloadURL);
+  } catch (error) {
+    if (generationRef.current !== generation) return;
+    showDownloadError(error);
+  } finally {
+    if (generationRef.current === generation) {
+      setDownloading(false);
+    }
+  }
 };
 
 export const getOverviewDisplayLoading = ({ loading, hasUsage }: { loading: boolean; hasUsage: boolean }) => loading && !hasUsage;
@@ -703,6 +742,16 @@ export const triggerBrowserFileDownload = (blob: Blob, filename: string) => {
   window.URL.revokeObjectURL(url);
 };
 
+export const triggerBrowserURLDownload = (url: string) => {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = '';
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+};
+
 export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const { t } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -803,8 +852,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsVisibleColumnIds, setEventsVisibleColumnIds] = useState<RequestEventColumnId[]>(initialRequestEventsPreferences.visibleColumnIds);
   const [eventsExportingFormat, setEventsExportingFormat] = useState<UsageEventsExportFormat | null>(null);
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
+  const [requestLogResponse, setRequestLogResponse] = useState<UsageEventRequestLogResponse | null>(null);
+  const [requestLogError, setRequestLogError] = useState('');
+  const [requestLogLoadingEventId, setRequestLogLoadingEventId] = useState<string | null>(null);
+  const [requestLogDownloading, setRequestLogDownloading] = useState(false);
+  const requestLogDownloadGenerationRef = useRef(0);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
+  const requestLogControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [pageVisible, setPageVisible] = useState(isUsagePageVisible);
   const showTopNotice = useCallback((kind: TopNoticeKind, message: string) => {
@@ -1386,6 +1441,69 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, getEventQueryWindow, onAuthRequired, selectedApiKeyId, showTopNotice, t, timeRange]);
 
+  const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
+    const eventId = String(event.id ?? '').trim();
+    if (!eventId) {
+      setRequestLogResponse(null);
+      setRequestLogError(t('usage_stats.request_events_log_missing_event'));
+      return;
+    }
+    requestLogControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestLogControllerRef.current = controller;
+    setRequestLogLoadingEventId(eventId);
+    setRequestLogResponse(null);
+    setRequestLogError('');
+    try {
+      const response = await fetchUsageEventRequestLog(eventId, controller.signal);
+      if (requestLogControllerRef.current !== controller) return;
+      setRequestLogResponse(response);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      const missing = error instanceof ApiError && error.status === 404;
+      setRequestLogError(
+        missing
+          ? t('usage_stats.request_events_log_unavailable')
+          : t('usage_stats.request_events_log_load_failed')
+      );
+    } finally {
+      if (requestLogControllerRef.current === controller) {
+        requestLogControllerRef.current = null;
+        setRequestLogLoadingEventId(null);
+      }
+    }
+  }, [onAuthRequired, t]);
+
+  const handleRequestLogClose = useCallback(() => {
+    requestLogDownloadGenerationRef.current += 1;
+    requestLogControllerRef.current?.abort();
+    requestLogControllerRef.current = null;
+    setRequestLogLoadingEventId(null);
+    setRequestLogResponse(null);
+    setRequestLogError('');
+    setRequestLogDownloading(false);
+  }, []);
+
+  const handleRequestLogDownload = useCallback(async (eventId: string) => {
+    requestLogDownloadGenerationRef.current += 1;
+    await runUsageEventRequestLogDownload({
+      eventId,
+      generationRef: requestLogDownloadGenerationRef,
+      setDownloading: setRequestLogDownloading,
+      showDownloadError: (error) => {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      showTopNotice('error', t('notification.download_failed'));
+      },
+    });
+  }, [onAuthRequired, showTopNotice, t]);
+
   const refreshActiveTab = useCallback(async () => {
     if (activeTab === 'events') {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
@@ -1495,10 +1613,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onRefreshError: handleAutoRefreshError,
   }), [autoRefreshEnabled, handleAutoRefreshError, refreshAutoRefreshTab]);
 
-  useHeaderRefresh(refreshActiveTab);
+	  useHeaderRefresh(refreshActiveTab);
 
-  useEffect(() => {
-    if (activeTab !== 'events') {
+	  useEffect(() => {
+	    if (activeTab === 'events') return;
+	    handleRequestLogClose();
+	  }, [activeTab, handleRequestLogClose]);
+
+	  useEffect(() => {
+	    if (activeTab !== 'events') {
       eventsFilterOptionsRequestControllerRef.current?.abort();
       eventsFilterOptionsRequestControllerRef.current = null;
       return;
@@ -1958,6 +2081,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   onResultFilterChange={handleEventsResultFilterChange}
                   onExport={handleEventsExport}
                   onVisibleColumnIdsChange={setEventsVisibleColumnIds}
+                  onRequestLogOpen={handleRequestLogOpen}
+                  requestLogLoadingEventId={requestLogLoadingEventId}
+                  requestLogResponse={requestLogResponse}
+                  requestLogError={requestLogError}
+                  onRequestLogClose={handleRequestLogClose}
+                  onRequestLogDownload={handleRequestLogDownload}
+                  requestLogDownloading={requestLogDownloading}
                 />
               </>
             )}
