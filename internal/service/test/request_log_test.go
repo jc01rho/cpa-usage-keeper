@@ -4,16 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
-	"reflect"
-	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
-	"unsafe"
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
@@ -34,6 +31,7 @@ type requestLogClientStub struct {
 	downloadErr    error
 	started        chan struct{}
 	block          chan struct{}
+	fetchCanceled  chan struct{}
 }
 
 func (s *requestLogClientStub) FetchRequestLogByID(ctx context.Context, _ string) (*cpa.RequestLogResult, error) {
@@ -43,6 +41,7 @@ func (s *requestLogClientStub) FetchRequestLogByID(ctx context.Context, _ string
 	err := s.err
 	started := s.started
 	block := s.block
+	fetchCanceled := s.fetchCanceled
 	s.mu.Unlock()
 	if started != nil {
 		select {
@@ -54,6 +53,12 @@ func (s *requestLogClientStub) FetchRequestLogByID(ctx context.Context, _ string
 		select {
 		case <-block:
 		case <-ctx.Done():
+			if fetchCanceled != nil {
+				select {
+				case fetchCanceled <- struct{}{}:
+				default:
+				}
+			}
 			return nil, ctx.Err()
 		}
 	}
@@ -64,12 +69,6 @@ func (s *requestLogClientStub) fetchCalls() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls
-}
-
-func (s *requestLogClientStub) rawDownloadCalls() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.downloadCalls
 }
 
 func (s *requestLogClientStub) OpenRequestLogByID(context.Context, string) (*cpa.RequestLogStream, error) {
@@ -95,7 +94,7 @@ func (s *requestLogClientStub) OpenRequestLogByID(context.Context, string) (*cpa
 	}, err
 }
 
-func TestRequestLogServiceLoadsEventLogAndCachesByRequestID(t *testing.T) {
+func TestRequestLogServiceLoadsEventLogWithoutCachingByRequestID(t *testing.T) {
 	db := openRequestLogTestDB(t)
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey:    "event-1",
@@ -120,59 +119,19 @@ func TestRequestLogServiceLoadsEventLogAndCachesByRequestID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUsageEventRequestLog returned error: %v", err)
 	}
-	if first.RequestID != "req-log-1" || first.Filename != "v1-responses-req-log-1.log" || first.Cached {
+	if first.RequestID != "req-log-1" || first.Filename != "v1-responses-req-log-1.log" {
 		t.Fatalf("unexpected first response: %+v", first)
 	}
 	if len(first.Sections) != 2 || first.Sections[0].Title != "REQUEST INFO" || first.Sections[1].Title != "API RESPONSE" {
 		t.Fatalf("unexpected sections: %+v", first.Sections)
 	}
 
-	second, err := provider.GetUsageEventRequestLog(context.Background(), 1)
+	_, err = provider.GetUsageEventRequestLog(context.Background(), 1)
 	if err != nil {
-		t.Fatalf("cached GetUsageEventRequestLog returned error: %v", err)
+		t.Fatalf("second GetUsageEventRequestLog returned error: %v", err)
 	}
-	if !second.Cached {
-		t.Fatalf("expected cached response, got %+v", second)
-	}
-	if client.calls != 1 {
-		t.Fatalf("expected one CPA call, got %d", client.calls)
-	}
-}
-
-func TestRequestLogServiceCachesRawOnlyAndReparsesSections(t *testing.T) {
-	db := openRequestLogTestDB(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:  "event-raw-cache",
-		RequestID: "req-raw-cache",
-	}}); err != nil {
-		t.Fatalf("insert usage event: %v", err)
-	}
-
-	client := &requestLogClientStub{result: &cpa.RequestLogResult{
-		StatusCode: http.StatusOK,
-		Filename:   "raw-cache.log",
-		Body:       []byte("=== REQUEST INFO ===\nURL: /v1/responses\n=== API RESPONSE ===\n{\"ok\":true}\n"),
-	}}
-	provider := service.NewRequestLogService(db, client)
-
-	first, err := provider.GetUsageEventRequestLog(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("GetUsageEventRequestLog returned error: %v", err)
-	}
-	if len(first.Sections) != 2 {
-		t.Fatalf("expected parsed sections, got %+v", first.Sections)
-	}
-	first.Sections[0].Content = "mutated cached section"
-
-	second, err := provider.GetUsageEventRequestLog(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("cached GetUsageEventRequestLog returned error: %v", err)
-	}
-	if len(second.Sections) == 0 || second.Sections[0].Content != "URL: /v1/responses" {
-		t.Fatalf("expected cached raw log to be reparsed into fresh sections, got %+v", second.Sections)
-	}
-	if client.fetchCalls() != 1 {
-		t.Fatalf("expected one CPA call, got %d", client.fetchCalls())
+	if client.calls != 2 {
+		t.Fatalf("expected repeated CPA calls without cache, got %d", client.calls)
 	}
 }
 
@@ -198,102 +157,19 @@ func TestRequestLogServiceMapsCPANotFoundToUnavailable(t *testing.T) {
 
 	_, err = provider.GetUsageEventRequestLog(context.Background(), 1)
 	if !errors.Is(err, service.ErrRequestLogUnavailable) {
-		t.Fatalf("expected cached ErrRequestLogUnavailable, got %v", err)
+		t.Fatalf("expected second ErrRequestLogUnavailable, got %v", err)
 	}
-	if client.calls != 1 {
-		t.Fatalf("expected 404 response to be negative cached, got %d calls", client.calls)
-	}
-}
-
-func TestRequestLogServiceNegativeCacheExpiresAfterTTL(t *testing.T) {
-	db := openRequestLogTestDB(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:  "event-404-expire",
-		RequestID: "req-missing-expire",
-	}}); err != nil {
-		t.Fatalf("insert usage event: %v", err)
-	}
-
-	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
-	client := &requestLogClientStub{
-		result: &cpa.RequestLogResult{StatusCode: http.StatusNotFound, Body: []byte(`{"error":"missing"}`)},
-		err:    errors.New("management request log request returned status 404"),
-	}
-	provider := service.NewRequestLogService(db, client)
-	setRequestLogServiceNow(t, provider, func() time.Time { return now })
-
-	_, err := provider.GetUsageEventRequestLog(context.Background(), 1)
-	if !errors.Is(err, service.ErrRequestLogUnavailable) {
-		t.Fatalf("expected ErrRequestLogUnavailable, got %v", err)
-	}
-	_, err = provider.GetUsageEventRequestLog(context.Background(), 1)
-	if !errors.Is(err, service.ErrRequestLogUnavailable) {
-		t.Fatalf("expected cached ErrRequestLogUnavailable, got %v", err)
-	}
-	if client.fetchCalls() != 1 {
-		t.Fatalf("expected cached 404 before TTL, got %d calls", client.fetchCalls())
-	}
-
-	now = now.Add(11 * time.Second)
-	client.mu.Lock()
-	client.result = &cpa.RequestLogResult{StatusCode: http.StatusOK, Body: []byte("=== RAW LOG ===\nrecovered\n")}
-	client.err = nil
-	client.mu.Unlock()
-	response, err := provider.GetUsageEventRequestLog(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("expected expired negative cache to refetch successfully, got %v", err)
-	}
-	if response.Sections[0].Content != "recovered" {
-		t.Fatalf("unexpected refetched response: %+v", response)
-	}
-	if client.fetchCalls() != 2 {
-		t.Fatalf("expected negative cache to expire and refetch, got %d calls", client.fetchCalls())
-	}
-}
-
-func TestRequestLogServiceDeductsExpiredCacheEntryBytes(t *testing.T) {
-	db := openRequestLogTestDB(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:  "event-expired-bytes",
-		RequestID: "req-expired-bytes",
-	}}); err != nil {
-		t.Fatalf("insert usage event: %v", err)
-	}
-
-	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
-	raw := "=== REQUEST INFO ===\n" + strings.Repeat("x", 1024) + "\n"
-	client := &requestLogClientStub{result: &cpa.RequestLogResult{
-		StatusCode: http.StatusOK,
-		Filename:   "expired-bytes.log",
-		Body:       []byte(raw),
-	}}
-	provider := service.NewRequestLogService(db, client)
-	setRequestLogServiceNow(t, provider, func() time.Time { return now })
-
-	if _, err := provider.GetUsageEventRequestLog(context.Background(), 1); err != nil {
-		t.Fatalf("load request log: %v", err)
-	}
-	firstBytes := requestLogServiceCacheBytes(t, provider)
-	if firstBytes <= 0 {
-		t.Fatalf("expected cached bytes to be positive, got %d", firstBytes)
-	}
-
-	now = now.Add(11 * time.Minute)
-	if _, err := provider.GetUsageEventRequestLog(context.Background(), 1); err != nil {
-		t.Fatalf("reload expired request log: %v", err)
-	}
-	secondBytes := requestLogServiceCacheBytes(t, provider)
-	if secondBytes != firstBytes {
-		t.Fatalf("expected expired cache entry bytes to be deducted before refetch, got first=%d second=%d", firstBytes, secondBytes)
+	if client.calls != 2 {
+		t.Fatalf("expected repeated 404 responses to refetch without cache, got %d calls", client.calls)
 	}
 }
 
 func TestRequestLogServiceCoalescesConcurrentPreviewMisses(t *testing.T) {
 	db := openRequestLogTestDB(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:  "event-singleflight",
-		RequestID: "req-singleflight",
-	}}); err != nil {
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "event-singleflight-1", RequestID: "req-singleflight"},
+		{EventKey: "event-singleflight-2", RequestID: "req-singleflight"},
+	}); err != nil {
 		t.Fatalf("insert usage event: %v", err)
 	}
 
@@ -305,16 +181,19 @@ func TestRequestLogServiceCoalescesConcurrentPreviewMisses(t *testing.T) {
 	provider := service.NewRequestLogService(db, client)
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
-	for i := 0; i < 2; i++ {
+	for _, eventID := range []int64{1, 2} {
 		wg.Add(1)
-		go func() {
+		go func(eventID int64) {
 			defer wg.Done()
-			response, err := provider.GetUsageEventRequestLog(context.Background(), 1)
+			response, err := provider.GetUsageEventRequestLog(context.Background(), eventID)
 			if err == nil && response.Sections[0].Content != "coalesced" {
 				err = errors.New("unexpected response content")
 			}
+			if err == nil && response.EventID != eventID {
+				err = fmt.Errorf("expected event id %d, got %d", eventID, response.EventID)
+			}
 			errs <- err
-		}()
+		}(eventID)
 	}
 	<-client.started
 	time.Sleep(20 * time.Millisecond)
@@ -331,7 +210,122 @@ func TestRequestLogServiceCoalescesConcurrentPreviewMisses(t *testing.T) {
 	}
 }
 
-func TestRequestLogServiceCoalescedPreviewMissIgnoresLeaderCancellation(t *testing.T) {
+func TestRequestLogServiceCancelsPreviewFetchWhenOnlyWaiterCancels(t *testing.T) {
+	db := openRequestLogTestDB(t)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:  "event-singleflight-only-waiter-cancel",
+		RequestID: "req-singleflight-only-waiter-cancel",
+	}}); err != nil {
+		t.Fatalf("insert usage event: %v", err)
+	}
+
+	client := &requestLogClientStub{
+		result:        &cpa.RequestLogResult{StatusCode: http.StatusOK, Body: []byte("=== RAW LOG ===\nunused\n")},
+		started:       make(chan struct{}, 1),
+		block:         make(chan struct{}),
+		fetchCanceled: make(chan struct{}, 1),
+	}
+	provider := service.NewRequestLogService(db, client)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := provider.GetUsageEventRequestLog(ctx, 1)
+		errCh <- err
+	}()
+	<-client.started
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected canceled waiter to return context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		close(client.block)
+		<-errCh
+		t.Fatal("expected canceled waiter to return promptly")
+	}
+
+	select {
+	case <-client.fetchCanceled:
+	case <-time.After(time.Second):
+		close(client.block)
+		t.Fatal("expected the CPA fetch to be canceled after the last waiter left")
+	}
+
+	client.mu.Lock()
+	client.block = nil
+	client.mu.Unlock()
+	response, err := provider.GetUsageEventRequestLog(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected a fresh fetch after cancellation, got %v", err)
+	}
+	if len(response.Sections) != 1 || response.Sections[0].Content != "unused" {
+		t.Fatalf("unexpected retry response: %+v", response)
+	}
+	if client.fetchCalls() != 2 {
+		t.Fatalf("expected cancellation cleanup to allow a new fetch, got %d calls", client.fetchCalls())
+	}
+}
+
+func TestRequestLogServiceAllowsPreviewAtSixMiBLimit(t *testing.T) {
+	const sixMiB = 6 * 1024 * 1024
+	db := openRequestLogTestDB(t)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:  "event-six-mib",
+		RequestID: "req-six-mib",
+	}}); err != nil {
+		t.Fatalf("insert usage event: %v", err)
+	}
+
+	client := &requestLogClientStub{result: &cpa.RequestLogResult{
+		StatusCode: http.StatusOK,
+		Body:       bytes.Repeat([]byte("x"), sixMiB),
+	}}
+	provider := service.NewRequestLogService(db, client)
+
+	response, err := provider.GetUsageEventRequestLog(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetUsageEventRequestLog returned error: %v", err)
+	}
+	if got := service.RequestLogPreviewMaxBytes(); got != sixMiB {
+		t.Fatalf("expected preview limit %d, got %d", sixMiB, got)
+	}
+	if response.TooLarge || !response.Previewable || len(response.Sections) != 1 {
+		t.Fatalf("expected six MiB response to remain previewable, got %+v", response)
+	}
+	if len(response.Sections[0].Content) != sixMiB {
+		t.Fatalf("expected full six MiB preview content, got %d bytes", len(response.Sections[0].Content))
+	}
+}
+
+func TestRequestLogServiceTreatsOversizedBodyAsTooLargeWithoutTruncatedFlag(t *testing.T) {
+	const sixMiB = 6 * 1024 * 1024
+	db := openRequestLogTestDB(t)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
+		EventKey:  "event-six-mib-plus-one",
+		RequestID: "req-six-mib-plus-one",
+	}}); err != nil {
+		t.Fatalf("insert usage event: %v", err)
+	}
+
+	client := &requestLogClientStub{result: &cpa.RequestLogResult{
+		StatusCode:    http.StatusOK,
+		Body:          bytes.Repeat([]byte("x"), sixMiB+1),
+		BodyTruncated: false,
+	}}
+	provider := service.NewRequestLogService(db, client)
+
+	response, err := provider.GetUsageEventRequestLog(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetUsageEventRequestLog returned error: %v", err)
+	}
+	if !response.TooLarge || response.Previewable || !response.Downloadable || len(response.Sections) != 0 {
+		t.Fatalf("expected oversized body fallback to require download, got %+v", response)
+	}
+}
+
+func TestRequestLogServiceCoalescedPreviewReturnsLeaderCancellationWithoutAbortingFollower(t *testing.T) {
 	db := openRequestLogTestDB(t)
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey:  "event-singleflight-leader-cancel",
@@ -356,7 +350,6 @@ func TestRequestLogServiceCoalescedPreviewMissIgnoresLeaderCancellation(t *testi
 		leaderErr <- err
 	}()
 	<-client.started
-	cancelLeader()
 
 	followerErr := make(chan error, 1)
 	go func() {
@@ -367,16 +360,78 @@ func TestRequestLogServiceCoalescedPreviewMissIgnoresLeaderCancellation(t *testi
 		followerErr <- err
 	}()
 	time.Sleep(20 * time.Millisecond)
+	cancelLeader()
+	select {
+	case err := <-leaderErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected canceled leader to return context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Error("expected canceled leader to return promptly while the shared fetch continues")
+	}
 	close(client.block)
 
-	if err := <-leaderErr; err != nil {
-		t.Fatalf("expected leader cancellation not to cancel shared fetch, got %v", err)
-	}
 	if err := <-followerErr; err != nil {
 		t.Fatalf("expected follower to receive shared fetch result, got %v", err)
 	}
 	if client.fetchCalls() != 1 {
 		t.Fatalf("expected shared fetch to run once, got %d calls", client.fetchCalls())
+	}
+}
+
+func TestRequestLogServiceCancelsSharedPreviewAfterLastConcurrentWaiterLeaves(t *testing.T) {
+	db := openRequestLogTestDB(t)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "event-singleflight-all-cancel-1", RequestID: "req-singleflight-all-cancel"},
+		{EventKey: "event-singleflight-all-cancel-2", RequestID: "req-singleflight-all-cancel"},
+	}); err != nil {
+		t.Fatalf("insert usage events: %v", err)
+	}
+
+	client := &requestLogClientStub{
+		result:        &cpa.RequestLogResult{StatusCode: http.StatusOK, Body: []byte("=== RAW LOG ===\nunused\n")},
+		started:       make(chan struct{}, 1),
+		block:         make(chan struct{}),
+		fetchCanceled: make(chan struct{}, 1),
+	}
+	provider := service.NewRequestLogService(db, client)
+	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	followerCtx, cancelFollower := context.WithCancel(context.Background())
+	leaderErr := make(chan error, 1)
+	followerErr := make(chan error, 1)
+	go func() {
+		_, err := provider.GetUsageEventRequestLog(leaderCtx, 1)
+		leaderErr <- err
+	}()
+	<-client.started
+	go func() {
+		_, err := provider.GetUsageEventRequestLog(followerCtx, 2)
+		followerErr <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+
+	cancelLeader()
+	if err := <-leaderErr; !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected leader cancellation, got %v", err)
+	}
+	select {
+	case <-client.fetchCanceled:
+		t.Fatal("expected shared fetch to remain active while the follower is waiting")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancelFollower()
+	if err := <-followerErr; !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected follower cancellation, got %v", err)
+	}
+	select {
+	case <-client.fetchCanceled:
+	case <-time.After(time.Second):
+		close(client.block)
+		t.Fatal("expected the last waiter to cancel the shared fetch")
+	}
+	if client.fetchCalls() != 1 {
+		t.Fatalf("expected concurrent waiters to share one fetch, got %d calls", client.fetchCalls())
 	}
 }
 
@@ -453,7 +508,7 @@ func TestRequestLogServiceHandlesLargePreviewAsDownloadable(t *testing.T) {
 	}
 }
 
-func TestRequestLogServiceTooLargePreviewCacheExpiresAfterNegativeTTL(t *testing.T) {
+func TestRequestLogServiceTooLargePreviewRefetchesWithoutCache(t *testing.T) {
 	db := openRequestLogTestDB(t)
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
 		EventKey:  "event-large-expire",
@@ -462,7 +517,6 @@ func TestRequestLogServiceTooLargePreviewCacheExpiresAfterNegativeTTL(t *testing
 		t.Fatalf("insert usage event: %v", err)
 	}
 
-	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
 	client := &requestLogClientStub{result: &cpa.RequestLogResult{
 		StatusCode:    http.StatusOK,
 		Filename:      "large-request.log",
@@ -471,7 +525,6 @@ func TestRequestLogServiceTooLargePreviewCacheExpiresAfterNegativeTTL(t *testing
 		ContentLength: int64(service.RequestLogPreviewMaxBytes() + 1),
 	}}
 	provider := service.NewRequestLogService(db, client)
-	setRequestLogServiceNow(t, provider, func() time.Time { return now })
 
 	response, err := provider.GetUsageEventRequestLog(context.Background(), 1)
 	if err != nil {
@@ -480,109 +533,19 @@ func TestRequestLogServiceTooLargePreviewCacheExpiresAfterNegativeTTL(t *testing
 	if !response.TooLarge {
 		t.Fatalf("expected initial too-large response, got %+v", response)
 	}
-	now = now.Add(9 * time.Second)
-	response, err = provider.GetUsageEventRequestLog(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("cached GetUsageEventRequestLog returned error: %v", err)
-	}
-	if !response.Cached || !response.TooLarge {
-		t.Fatalf("expected too-large response to be cached before 10s TTL, got %+v", response)
-	}
-	if client.fetchCalls() != 1 {
-		t.Fatalf("expected cached too-large response before TTL, got %d calls", client.fetchCalls())
-	}
 
-	now = now.Add(2 * time.Second)
 	client.mu.Lock()
 	client.result = &cpa.RequestLogResult{StatusCode: http.StatusOK, Body: []byte("=== RAW LOG ===\nsmall again\n")}
 	client.mu.Unlock()
 	response, err = provider.GetUsageEventRequestLog(context.Background(), 1)
 	if err != nil {
-		t.Fatalf("expected expired too-large cache to refetch successfully, got %v", err)
+		t.Fatalf("expected too-large response to refetch successfully, got %v", err)
 	}
 	if response.TooLarge || len(response.Sections) != 1 || response.Sections[0].Content != "small again" {
 		t.Fatalf("expected refetched preview response, got %+v", response)
 	}
 	if client.fetchCalls() != 2 {
-		t.Fatalf("expected too-large cache to expire after 10s and refetch, got %d calls", client.fetchCalls())
-	}
-}
-
-func TestRequestLogServiceDownloadUsesCachedPreviewRawBody(t *testing.T) {
-	db := openRequestLogTestDB(t)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{
-		EventKey:  "event-cached-download",
-		RequestID: "req-cached-download",
-	}}); err != nil {
-		t.Fatalf("insert usage event: %v", err)
-	}
-
-	client := &requestLogClientStub{result: &cpa.RequestLogResult{
-		StatusCode:  http.StatusOK,
-		Filename:    "cached-download.log",
-		ContentType: "text/plain; charset=utf-8",
-		Body:        []byte("=== RAW LOG ===\nfrom cache\n"),
-	}}
-	provider := service.NewRequestLogService(db, client)
-	if _, err := provider.GetUsageEventRequestLog(context.Background(), 1); err != nil {
-		t.Fatalf("load request log: %v", err)
-	}
-
-	download, err := provider.DownloadUsageEventRequestLog(context.Background(), 1)
-	if err != nil {
-		t.Fatalf("DownloadUsageEventRequestLog returned error: %v", err)
-	}
-	body, err := io.ReadAll(download.Body)
-	if err != nil {
-		t.Fatalf("read download body: %v", err)
-	}
-	_ = download.Body.Close()
-	if string(body) != "=== RAW LOG ===\nfrom cache\n" {
-		t.Fatalf("unexpected cached download body %q", string(body))
-	}
-	if download.Filename != "cached-download.log" || download.ContentType != "text/plain; charset=utf-8" {
-		t.Fatalf("unexpected cached download metadata: %+v", download)
-	}
-	if client.rawDownloadCalls() != 0 {
-		t.Fatalf("expected cached small log download not to call raw CPA stream, got %d", client.rawDownloadCalls())
-	}
-}
-
-func TestRequestLogServicePrunesCacheByTotalBytes(t *testing.T) {
-	db := openRequestLogTestDB(t)
-	eventCount := 21
-	events := make([]entities.UsageEvent, 0, eventCount)
-	for i := 0; i < eventCount; i++ {
-		events = append(events, entities.UsageEvent{
-			EventKey:  "event-prune-" + strconv.Itoa(i),
-			RequestID: "req-prune-" + strconv.Itoa(i),
-		})
-	}
-	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
-		t.Fatalf("insert usage events: %v", err)
-	}
-
-	client := &requestLogClientStub{result: &cpa.RequestLogResult{
-		StatusCode: http.StatusOK,
-		Filename:   "request.log",
-		Body:       []byte("=== REQUEST INFO ===\n" + strings.Repeat("x", 5*1024*1024-64)),
-	}}
-	provider := service.NewRequestLogService(db, client)
-
-	for eventID := int64(1); eventID <= int64(len(events)); eventID++ {
-		if _, err := provider.GetUsageEventRequestLog(context.Background(), eventID); err != nil {
-			t.Fatalf("load request log for event %d: %v", eventID, err)
-		}
-	}
-	if client.calls != len(events) {
-		t.Fatalf("expected initial CPA calls to match event count, got %d", client.calls)
-	}
-
-	if _, err := provider.GetUsageEventRequestLog(context.Background(), 1); err != nil {
-		t.Fatalf("reload pruned request log: %v", err)
-	}
-	if client.calls != len(events)+1 {
-		t.Fatalf("expected oldest byte-budget cache entry to be pruned and refetched, got %d calls", client.calls)
+		t.Fatalf("expected too-large response to refetch without cache, got %d calls", client.fetchCalls())
 	}
 }
 
@@ -643,34 +606,4 @@ func openRequestLogTestDB(t *testing.T) *gorm.DB {
 		}
 	})
 	return db
-}
-
-func setRequestLogServiceNow(t *testing.T, provider service.RequestLogProvider, now func() time.Time) {
-	t.Helper()
-	setRequestLogServiceField(t, provider, "now", reflect.ValueOf(now))
-}
-
-func requestLogServiceCacheBytes(t *testing.T, provider service.RequestLogProvider) int {
-	t.Helper()
-	field := requestLogServiceField(t, provider, "cacheBytes")
-	return int(field.Int())
-}
-
-func setRequestLogServiceField(t *testing.T, provider service.RequestLogProvider, name string, value reflect.Value) {
-	t.Helper()
-	field := requestLogServiceField(t, provider, name)
-	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Set(value)
-}
-
-func requestLogServiceField(t *testing.T, provider service.RequestLogProvider, name string) reflect.Value {
-	t.Helper()
-	value := reflect.ValueOf(provider)
-	if value.Kind() != reflect.Ptr || value.IsNil() {
-		t.Fatalf("expected request log service pointer, got %T", provider)
-	}
-	field := value.Elem().FieldByName(name)
-	if !field.IsValid() {
-		t.Fatalf("request log service field %q not found", name)
-	}
-	return field
 }
