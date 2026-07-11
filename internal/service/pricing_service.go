@@ -208,7 +208,7 @@ func (s *pricingService) FetchFromOpenRouter(ctx context.Context) ([]entities.Mo
 			Model:                model,
 			PromptPricePer1M:     promptPrice,
 			CompletionPricePer1M: completionPrice,
-			CachePricePer1M:      cachePrice,
+			CacheReadPricePer1M:  cachePrice,
 		})
 		if err != nil {
 			logrus.WithError(err).WithField("model", model).Warn("upsert OpenRouter pricing failed")
