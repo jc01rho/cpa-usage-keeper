@@ -180,6 +180,18 @@ describe('UsagePage toolbar styles', () => {
     expect(downloadHandler).not.toContain('handleRequestLogClose()')
   })
 
+  it('cancels request log work when UsagePage unmounts', () => {
+    const cleanupStart = usagePageSource.indexOf('useEffect(() => () => {\n    requestLogDownloadGenerationRef.current += 1;')
+    expect(cleanupStart).toBeGreaterThanOrEqual(0)
+    const cleanupEnd = usagePageSource.indexOf('\n  }, []);', cleanupStart)
+    expect(cleanupEnd).toBeGreaterThan(cleanupStart)
+    const cleanupEffect = usagePageSource.slice(cleanupStart, cleanupEnd)
+
+    expect(cleanupEffect).toContain('requestLogControllerRef.current?.abort();')
+    expect(cleanupEffect).toContain('requestLogControllerRef.current = null;')
+    expect(cleanupEffect).not.toContain('setRequestLog')
+  })
+
   it('removes stale header control styles after the Overview chart cleanup', () => {
     expect(usagePageStyles).not.toContain('.syncSwitcher')
     expect(usagePageStyles).not.toContain('.syncPill')
