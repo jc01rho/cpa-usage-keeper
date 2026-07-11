@@ -164,7 +164,7 @@ func registerPricingRoutes(router gin.IRoutes, pricingProvider service.PricingPr
 				Model:                s.Model,
 				PromptPricePer1M:     s.PromptPricePer1M,
 				CompletionPricePer1M: s.CompletionPricePer1M,
-				CachePricePer1M:      s.CachePricePer1M,
+				CacheReadPricePer1M:  s.CacheReadPricePer1M,
 			})
 		}
 		if unmatched == nil {
