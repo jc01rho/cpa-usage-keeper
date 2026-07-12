@@ -17,6 +17,25 @@ const formatDisplayName = (value: string): string => {
   return normalized;
 };
 
+const modelNameCollator = new Intl.Collator('en', {
+  numeric: true,
+  sensitivity: 'base',
+});
+
+const compareModelNamesDescending = (left: string, right: string): number => {
+  const leftDisplayName = formatDisplayName(left);
+  const rightDisplayName = formatDisplayName(right);
+  const naturalOrder = modelNameCollator.compare(rightDisplayName, leftDisplayName);
+  if (naturalOrder !== 0) return naturalOrder;
+
+  // 自然排序等值时按精确字符串兜底，避免保存与刷新后的顺序随输入来源变化。
+  if (leftDisplayName !== rightDisplayName) {
+    return leftDisplayName > rightDisplayName ? -1 : 1;
+  }
+  if (left === right) return 0;
+  return left > right ? -1 : 1;
+};
+
 export interface PriceSettingsCardProps {
   modelNames: string[];
   modelPrices: Record<string, ModelPrice>;
@@ -238,7 +257,10 @@ export const buildPricingModelOptions = (
 ): SelectOption[] => {
   const configuredModels = new Set(Object.keys(modelPrices));
   const sortedModelNames = [...modelNames]
-    .sort((left, right) => formatDisplayName(left).localeCompare(formatDisplayName(right)));
+    .sort((left, right) => {
+      const configuredOrder = Number(configuredModels.has(left)) - Number(configuredModels.has(right));
+      return configuredOrder || compareModelNamesDescending(left, right);
+    });
 
   return [
     { value: '', label: placeholder },
@@ -535,6 +557,11 @@ export function PriceSettingsCard({
     [modelNames, modelPrices, t]
   );
   const styleOptions = useMemo(() => pricingStyleOptions(t), [t]);
+  const sortedModelPrices = useMemo(
+    () => Object.entries(modelPrices)
+      .sort(([left], [right]) => compareModelNamesDescending(left, right)),
+    [modelPrices]
+  );
   const selectedSyncCount = useMemo(
     () => syncDrafts.filter((draft) => draft.selected).length,
     [syncDrafts]
@@ -584,7 +611,7 @@ export function PriceSettingsCard({
               )}
               <div className={styles.priceForm}>
                 <div className={styles.formRow}>
-                  <div className={styles.formField}>
+                  <div className={`${styles.formField} ${styles.priceFormModelField}`}>
                     <label>{t('usage_stats.model_name')}</label>
                     <Select
                       value={selectedModel}
@@ -666,7 +693,7 @@ export function PriceSettingsCard({
                       className={styles.usagePillControl}
                     />
                   </div>
-                  <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSavePrice()} disabled={!selectedModel || priceSaving} loading={priceSaving}>
+                  <Button variant="primary" className={`${styles.usagePillAction} ${styles.priceFormAction}`} onClick={() => void handleSavePrice()} disabled={!selectedModel || priceSaving} loading={priceSaving}>
                     {t('common.save')}
                   </Button>
                 </div>
@@ -674,9 +701,9 @@ export function PriceSettingsCard({
 
               <div className={styles.pricesList}>
                 <h4 className={styles.pricesTitle}>{t('usage_stats.saved_prices')}</h4>
-                {Object.keys(modelPrices).length > 0 ? (
+                {sortedModelPrices.length > 0 ? (
                   <div className={styles.pricesGrid}>
-                    {Object.entries(modelPrices).map(([model, price]) => (
+                    {sortedModelPrices.map(([model, price]) => (
                       <div key={model} className={styles.priceItem}>
                         <div className={styles.priceInfo}>
                           <span className={styles.priceModel}>{formatDisplayName(model)}</span>
