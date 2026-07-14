@@ -16,6 +16,8 @@ import (
 
 func TestProcessRedisUsageInboxNormalizesOpenAICompatibilityTokensForOpenAIIdentity(t *testing.T) {
 	db := openOpenAITokenNormalizationTestDatabase(t)
+	// 固定 unknown executor 必须进入 identity fallback；查询计数用于防止测试被 executor-first 路径悄悄绕过。
+	identityLookupCount := registerTokenIdentityTypeLookupCallback(t, db, nil)
 	if err := db.Create(&entities.UsageIdentity{
 		Name:         "OpenAI Compatible",
 		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
@@ -35,7 +37,7 @@ func TestProcessRedisUsageInboxNormalizesOpenAICompatibilityTokensForOpenAIIdent
 			"auth_index":"openai-compat-auth-index",
 			"model":"gemini-2.5-pro",
 			"request_id":"openai-compatible-gemini-thinking",
-			"executor_type":"OpenAICompatExecutor",
+			"executor_type":"unknown",
 			"tokens":{
 				"input_tokens":11,
 				"output_tokens":7,
@@ -59,6 +61,9 @@ func TestProcessRedisUsageInboxNormalizesOpenAICompatibilityTokensForOpenAIIdent
 	}
 	if result == nil || result.InsertedEvents != 1 {
 		t.Fatalf("expected one inserted event, got %+v", result)
+	}
+	if *identityLookupCount == 0 {
+		t.Fatal("expected OpenAI compatibility normalization to query the identity fallback")
 	}
 	event := loadOpenAITokenNormalizationEvent(t, db, "openai-compatible-gemini-thinking")
 	if event.InputTokens != 11 || event.OutputTokens != 10 || event.ReasoningTokens != 3 || event.CachedTokens != 5 || event.CacheReadTokens != 4 || event.CacheCreationTokens != 2 || event.TotalTokens != 21 {
