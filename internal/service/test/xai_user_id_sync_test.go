@@ -226,6 +226,10 @@ func (*xaiUserIDMetadataFetcher) FetchVertexAPIKeys(context.Context) (*response.
 	return &response.ProviderKeyConfigResult{StatusCode: 200}, nil
 }
 
+func (*xaiUserIDMetadataFetcher) FetchCommandCodeAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error) {
+	return &response.ProviderKeyConfigResult{StatusCode: 200}, nil
+}
+
 func (*xaiUserIDMetadataFetcher) FetchOpenAICompatibility(context.Context) (*response.OpenAICompatibilityResult, error) {
 	return &response.OpenAICompatibilityResult{StatusCode: 200}, nil
 }
