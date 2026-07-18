@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/keeper-logo-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="./assets/keeper-logo-light.svg" />
+    <img src="./assets/keeper-logo-light.svg" alt="Keeper" width="560" />
+  </picture>
+</p>
+
 # CPA Usage Keeper
 
 > **This is a fork** of [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper) maintained by [jc01rho](https://github.com/jc01rho), intended for use with the [CLIProxyAPIPlus](https://github.com/jc01rho/CLIProxyAPIPlus) fork.
