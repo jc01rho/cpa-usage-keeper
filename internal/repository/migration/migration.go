@@ -57,6 +57,8 @@ const (
 	migrationAddUsageIdentityXAIUserID              = "20260711_add_usage_identity_xai_user_id"
 	migrationAddUsageEventResponseServiceTier       = "20260715_add_usage_event_response_service_tier"
 	migrationAddUsageEventGenerate                  = "20260715_add_usage_event_generate"
+	// migrationUsageActivityStats 创建统一 Activity 并在回填完成后删除旧 Health 表。
+	migrationUsageActivityStats = "20260719_usage_activity_stats"
 )
 
 type schemaMigration struct {
@@ -158,6 +160,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageIdentityXAIUserID, run: addUsageIdentityXAIUserIDMigration},
 		{version: migrationAddUsageEventResponseServiceTier, run: addUsageEventResponseServiceTierMigration},
 		{version: migrationAddUsageEventGenerate, run: addUsageEventGenerateMigration},
+		// Activity migration 自己管理 1000-event 小事务，外层不能再包一个长事务。
+		{version: migrationUsageActivityStats, run: usageActivityStatsMigration, disableTransaction: true},
 	}
 }
 

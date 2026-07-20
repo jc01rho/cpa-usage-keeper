@@ -102,6 +102,9 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if !db.Migrator().HasTable(&entities.AppSetting{}) {
 		t.Fatal("expected app_settings table to exist")
 	}
+	if db.Migrator().HasTable("usage_overview_health_stats") {
+		t.Fatal("expected fresh schema not to create legacy usage_overview_health_stats")
+	}
 	for _, indexName := range []string{
 		"idx_usage_events_api_group_key",
 		"idx_usage_events_auth_index",
@@ -118,8 +121,9 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_overview_daily_stats_api_model_bucket",
 		"idx_usage_overview_daily_stats_auth_bucket",
 		"idx_usage_overview_daily_stats_model_alias_bucket",
-		"uniq_usage_overview_health_stats_bucket_span_api",
-		"idx_usage_overview_health_stats_api_bucket_span",
+		"uniq_usage_activity_stats_grain_start_api",
+		"idx_usage_activity_stats_api_grain_start",
+		"idx_usage_activity_stats_grain_end",
 	} {
 		assertSQLiteIndexExists(t, db, indexName)
 	}
@@ -471,11 +475,12 @@ func TestCleanupStorageCleansRedisInboxAndVacuums(t *testing.T) {
 	if err := db.Model(&entities.RedisUsageInbox{}).Where("id = ?", inboxRows[0].ID).Updates(map[string]any{"status": repository.RedisUsageInboxStatusProcessed, "processed_at": time.Date(2026, 4, 26, 15, 59, 59, 0, time.UTC)}).Error; err != nil {
 		t.Fatalf("seed processed inbox row: %v", err)
 	}
-	if err := db.Create(&[]entities.UsageOverviewHealthStat{
-		{BucketStart: now.Add(-9 * 24 * time.Hour), SpanSeconds: 900, APIGroupKey: "old", SuccessCount: 1},
-		{BucketStart: now.Add(-7 * 24 * time.Hour), SpanSeconds: 900, APIGroupKey: "fresh", SuccessCount: 1},
+	// medium Activity 使用 8 天 retention，构造一条过期和一条保留行。
+	if err := db.Create(&[]entities.UsageActivityStat{
+		{Grain: entities.UsageActivityGrainMedium, BucketStart: now.Add(-9 * 24 * time.Hour), BucketEnd: now.Add(-9*24*time.Hour + time.Minute), APIGroupKey: "old", SuccessCount: 1},
+		{Grain: entities.UsageActivityGrainMedium, BucketStart: now.Add(-7 * 24 * time.Hour), BucketEnd: now.Add(-7*24*time.Hour + time.Minute), APIGroupKey: "fresh", SuccessCount: 1},
 	}).Error; err != nil {
-		t.Fatalf("seed health stats: %v", err)
+		t.Fatalf("seed activity stats: %v", err)
 	}
 
 	result, err := repository.CleanupStorage(db, now)
@@ -493,12 +498,13 @@ func TestCleanupStorageCleansRedisInboxAndVacuums(t *testing.T) {
 	if len(inboxRemaining) != 1 || inboxRemaining[0].ID != inboxRows[1].ID {
 		t.Fatalf("expected only pending inbox row to remain, got %+v", inboxRemaining)
 	}
-	var healthRemaining []entities.UsageOverviewHealthStat
-	if err := db.Order("api_group_key asc").Find(&healthRemaining).Error; err != nil {
-		t.Fatalf("load remaining health stats: %v", err)
+	// Storage cleanup 必须调用 Activity retention，而不是已经删除的旧 Health cleanup。
+	var activityRemaining []entities.UsageActivityStat
+	if err := db.Order("api_group_key asc").Find(&activityRemaining).Error; err != nil {
+		t.Fatalf("load remaining activity stats: %v", err)
 	}
-	if len(healthRemaining) != 1 || healthRemaining[0].APIGroupKey != "fresh" {
-		t.Fatalf("expected only fresh health stat row to remain, got %+v", healthRemaining)
+	if len(activityRemaining) != 1 || activityRemaining[0].APIGroupKey != "fresh" {
+		t.Fatalf("expected only fresh activity stat row to remain, got %+v", activityRemaining)
 	}
 }
 
@@ -520,6 +526,15 @@ func TestCleanupStorageCleansUsageEventsBeforePreviousMonthStart(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
+	// 准备：只有 Overview 与 Activity 都追平后，旧 raw events 才具备删除安全水位。
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate overview before cleanup: %v", err)
+	}
+	if err := repository.AggregateUsageActivityStats(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate activity before cleanup: %v", err)
+	}
+
+	// 执行：在两个全局 checkpoint 已追平且没有 identity delta 时运行清理。
 	result, err := repository.CleanupStorage(db, now, repository.CleanupStorageOptions{CleanupUsageEvents: true})
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
@@ -538,7 +553,8 @@ func TestCleanupStorageCleansUsageEventsBeforePreviousMonthStart(t *testing.T) {
 	}
 }
 
-func TestCleanupStorageCleansUsageEventsWithoutOverviewCheckpointGuard(t *testing.T) {
+func TestCleanupStorageDefersUsageEventsUntilOverviewAndActivityCatchUp(t *testing.T) {
+	// 准备：写入两条已过时间保留线、但尚未进入 Overview 与 Activity 的事件。
 	db := openTestDatabase(t)
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
 
@@ -548,32 +564,28 @@ func TestCleanupStorageCleansUsageEventsWithoutOverviewCheckpointGuard(t *testin
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
-	var first entities.UsageEvent
-	if err := db.Where("event_key = ?", "old-without-checkpoint").First(&first).Error; err != nil {
-		t.Fatalf("load first event: %v", err)
-	}
-	if err := db.Create(&entities.UsageOverviewAggregationCheckpoint{Name: usageOverviewAggregationCheckpoint, LastAggregatedUsageEventID: first.ID, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
-		t.Fatalf("seed overview checkpoint: %v", err)
-	}
 
+	// 执行：全局 checkpoint 尚未创建时尝试清理 raw events。
 	result, err := repository.CleanupStorage(db, now, repository.CleanupStorageOptions{CleanupUsageEvents: true})
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
-	if result.UsageEventsDeleted != 2 {
-		t.Fatalf("expected all expired usage events to be deleted, got %+v", result)
+	// 断言：清理必须让路，避免异步聚合再也读取不到两条事件。
+	if result.UsageEventsDeleted != 0 {
+		t.Fatalf("expected pending overview/activity events to remain, got %+v", result)
 	}
 
 	var remainingCount int64
 	if err := db.Model(&entities.UsageEvent{}).Count(&remainingCount).Error; err != nil {
 		t.Fatalf("count remaining usage events: %v", err)
 	}
-	if remainingCount != 0 {
-		t.Fatalf("expected no remaining expired usage events, got %d", remainingCount)
+	if remainingCount != 2 {
+		t.Fatalf("expected both pending events to remain, got %d", remainingCount)
 	}
 }
 
-func TestCleanupStorageCleansUsageEventsWithoutIdentityCheckpointGuard(t *testing.T) {
+func TestCleanupStorageDefersUsageEventsUntilIdentityCatchUp(t *testing.T) {
+	// 准备：全局 rollup 已追平，但现有 identity 仍落后一条已过保留线的事件。
 	db := openTestDatabase(t)
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
 
@@ -590,6 +602,9 @@ func TestCleanupStorageCleansUsageEventsWithoutIdentityCheckpointGuard(t *testin
 	if err := db.Create(&entities.UsageOverviewAggregationCheckpoint{Name: usageOverviewAggregationCheckpoint, LastAggregatedUsageEventID: events[1].ID, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
 		t.Fatalf("seed overview checkpoint: %v", err)
 	}
+	if err := db.Create(&entities.UsageActivityAggregationCheckpoint{Name: "activity", LastAggregatedUsageEventID: events[1].ID, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		t.Fatalf("seed activity checkpoint: %v", err)
+	}
 	if err := db.Create(&entities.UsageIdentity{
 		Name:                       "Auth 1",
 		AuthType:                   entities.UsageIdentityAuthTypeAuthFile,
@@ -601,20 +616,22 @@ func TestCleanupStorageCleansUsageEventsWithoutIdentityCheckpointGuard(t *testin
 		t.Fatalf("seed usage identity: %v", err)
 	}
 
+	// 执行：identity cursor 尚未越过第二条匹配事件时运行清理。
 	result, err := repository.CleanupStorage(db, now, repository.CleanupStorageOptions{CleanupUsageEvents: true})
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
-	if result.UsageEventsDeleted != 2 {
-		t.Fatalf("expected all expired usage events to be deleted, got %+v", result)
+	// 断言：两条 raw events 都必须保留，等待 Identity 下一批安全累计。
+	if result.UsageEventsDeleted != 0 {
+		t.Fatalf("expected pending identity events to remain, got %+v", result)
 	}
 
 	var remainingCount int64
 	if err := db.Model(&entities.UsageEvent{}).Count(&remainingCount).Error; err != nil {
 		t.Fatalf("count remaining usage events: %v", err)
 	}
-	if remainingCount != 0 {
-		t.Fatalf("expected no remaining expired usage events, got %d", remainingCount)
+	if remainingCount != 2 {
+		t.Fatalf("expected identity events to remain, got %d", remainingCount)
 	}
 }
 

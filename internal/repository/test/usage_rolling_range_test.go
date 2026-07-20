@@ -144,8 +144,14 @@ func TestBuildUsageOverviewUsesShortHealthWindowForArbitraryHourRange(t *testing
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
-	expectedStart := end.Add(-24 * time.Hour)
-	if !overview.Health.WindowStart.Equal(expectedStart) || !overview.Health.WindowEnd.Equal(end) {
-		t.Fatalf("expected arbitrary hour range health window %s - %s, got %s - %s", expectedStart, end, overview.Health.WindowStart, overview.Health.WindowEnd)
+	expectedBuckets, err := repository.UsageActivityWindowEndingAt(entities.UsageActivityGrainShort, end)
+	if err != nil {
+		t.Fatalf("UsageActivityWindowEndingAt returned error: %v", err)
+	}
+	if !overview.Health.WindowStart.Equal(expectedBuckets[0].Start) || !overview.Health.WindowEnd.Equal(expectedBuckets[len(expectedBuckets)-1].End) {
+		t.Fatalf("unexpected arbitrary hour short Activity window: %+v", overview.Health)
+	}
+	if overview.Health.Rows != 7 || overview.Health.Columns != 52 || len(overview.Health.BlockDetails) != 364 {
+		t.Fatalf("unexpected arbitrary hour Activity grid shape: %+v", overview.Health)
 	}
 }
