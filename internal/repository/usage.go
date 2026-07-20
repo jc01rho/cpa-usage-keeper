@@ -977,8 +977,8 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 
 	// fullStart/fullEnd 是能被 hourly stats 完整覆盖的半开区间。
 	fullStart, fullEnd := usageOverviewFullHourWindow(*effectiveFilter.StartTime, *effectiveFilter.EndTime)
-	// 原始事件只补主统计和 health grid 各自的窄边界，避免长窗口被 health 7d 展示窗口扩大成大范围事件扫描。
-	rawEventWindows := usageOverviewRawEventWindows(effectiveFilter, overview.Health, fullStart, fullEnd, currentRight)
+	// 原始事件只补主统计的窄边界；Request Health 完全读取 Activity，不再扩大 raw 扫描窗口。
+	rawEventWindows := usageOverviewRawEventWindows(effectiveFilter, fullStart, fullEnd, currentRight)
 
 	// 非整点窗口的头尾不能用小时 stats，否则会把窗口外事件算进去。
 	boundaryEvents, err := loadUsageOverviewRawEventWindowsWithFilter(db, effectiveFilter, rawEventWindows, recentCache)
@@ -1030,17 +1030,17 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 		}
 	}
 
-	healthSuccess, healthFailure, err := loadUsageOverviewHealthTotalsWithFilter(db, effectiveFilter, boundaryEvents, fullStart, fullEnd)
+	// Request Health 完整读取统一 Activity 网格，不再访问旧 Health 表或追加 raw 边界扫描。
+	overview.Health, err = buildUsageOverviewHealthFromActivity(db, effectiveFilter)
+	// Activity 查询失败时不能返回看似有效但为空的健康图。
 	if err != nil {
 		return nil, err
 	}
-	// Health 格子按展示窗口读取 health stats，总计仍按完整查询窗口覆盖，保持旧事件扫描语义。
-	overview.Health = buildUsageOverviewHealth(effectiveFilter)
-	if err := applyUsageOverviewHealthStatsToOverview(db, overview, effectiveFilter, boundaryEvents); err != nil {
-		return nil, err
-	}
-	overview.Health.TotalSuccess = healthSuccess
-	overview.Health.TotalFailure = healthFailure
+	// PR1 保持 main 的精确筛选 totals；完整档位 Activity 只负责热力图格子。
+	overview.Health.TotalSuccess = overview.Usage.SuccessCount
+	// 失败总数同样复用已经按 effective filter 还原的 Overview usage 快照。
+	overview.Health.TotalFailure = overview.Usage.FailureCount
+	// summary 和 health 的各自累计完成后统一计算派生率。
 	finalizeUsageOverview(overview)
 	return overview, nil
 }
@@ -1144,8 +1144,8 @@ type usageOverviewRawEventWindow struct {
 	currentRight bool
 }
 
-// usageOverviewRawEventWindows 返回 Overview 需要读取 usage_events 的小窗口并集，完整小时和完整 health bucket 都交给 stats 表。
-func usageOverviewRawEventWindows(filter dto.UsageQueryFilter, health dto.UsageOverviewHealthRecord, fullHourStart, fullHourEnd time.Time, currentRight bool) []usageOverviewRawEventWindow {
+// usageOverviewRawEventWindows 返回主 Overview 需要读取的 usage_events 窄边界，Health 完全交给 Activity。
+func usageOverviewRawEventWindows(filter dto.UsageQueryFilter, fullHourStart, fullHourEnd time.Time, currentRight bool) []usageOverviewRawEventWindow {
 	// Overview 必须已经解析出明确时间范围，否则无法计算边界补偿。
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return nil
@@ -1153,22 +1153,11 @@ func usageOverviewRawEventWindows(filter dto.UsageQueryFilter, health dto.UsageO
 	// 主查询窗口使用归一化后的存储时区，和 stats bucket 时间保持一致。
 	windowStart := timeutil.NormalizeStorageTime(*filter.StartTime)
 	windowEnd := timeutil.NormalizeStorageTime(*filter.EndTime)
-	// 最多包含主查询左右边界和 health 左右边界，预分配 4 个窗口。
-	windows := make([]usageOverviewRawEventWindow, 0, 4)
+	// 最多只包含主查询左右两个窄边界。
+	windows := make([]usageOverviewRawEventWindow, 0, 2)
 	// 主查询边界需要保留 includeEnd/currentRight 语义。
 	windows = appendUsageOverviewRawEventBoundaryWindows(windows, windowStart, windowEnd, fullHourStart, fullHourEnd, !filter.EndExclusive, currentRight)
-
-	// health grid 有自己的展示窗口，需要把无法由 health stats 覆盖的边界也补进来。
-	exactStart, exactEnd := usageOverviewHealthExactWindow(health, filter)
-	if exactStart.Before(exactEnd) {
-		// health bucket 粒度由 health record 决定，不能复用主 series 的小时/天粒度。
-		span := time.Duration(health.BucketSeconds) * time.Second
-		// 完整 health bucket 使用 health stats，剩余边界才需要 raw event。
-		healthFullStart, healthFullEnd := usageOverviewFullHealthWindow(exactStart, exactEnd, span)
-		// health 边界不是主查询当前右边界，因此 currentRight 固定为 false。
-		windows = appendUsageOverviewRawEventBoundaryWindows(windows, exactStart, exactEnd, healthFullStart, healthFullEnd, false, false)
-	}
-	// 主查询和 health 边界可能重叠，合并后避免重复读取 raw event。
+	// 主查询左右边界可能接触或重叠，合并后避免重复读取 raw event。
 	return mergeUsageOverviewRawEventWindows(windows)
 }
 
@@ -1423,41 +1412,6 @@ func loadUsageOverviewEventRangeWithFilter(db *gorm.DB, filter dto.UsageQueryFil
 	return events, nil
 }
 
-// loadUsageOverviewHealthTotalsWithFilter 用完整小时 stats 和边界事件还原旧 Overview health 总计语义。
-func loadUsageOverviewHealthTotalsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, boundaryEvents []entities.UsageEvent, fullStart, fullEnd time.Time) (int64, int64, error) {
-	// 总计口径覆盖完整查询窗口：边界事件来自 usage_events，完整小时来自 hourly stats。
-	var successCount int64
-	var failureCount int64
-	for _, event := range boundaryEvents {
-		if usageOverviewEventInsideWindow(event, fullStart, fullEnd) {
-			continue
-		}
-		if event.Failed {
-			failureCount++
-		} else {
-			successCount++
-		}
-	}
-	if !fullEnd.After(fullStart) {
-		return successCount, failureCount, nil
-	}
-	// health 总计不按 health grid 窗口截断，否则 7d/30d 查询会丢完整查询窗口内的数据。
-	totalsQuery := db.Model(&entities.UsageOverviewHourlyStat{}).
-		Select("COALESCE(SUM(success_count), 0) AS success_count, COALESCE(SUM(failure_count), 0) AS failure_count").
-		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(fullStart), timeutil.FormatStorageTime(fullEnd))
-	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
-		totalsQuery = totalsQuery.Where("api_group_key = ?", apiGroupKey)
-	}
-	var totals struct {
-		SuccessCount int64
-		FailureCount int64
-	}
-	if err := totalsQuery.Scan(&totals).Error; err != nil {
-		return 0, 0, fmt.Errorf("load usage overview health totals: %w", err)
-	}
-	return successCount + totals.SuccessCount, failureCount + totals.FailureCount, nil
-}
-
 // applyUsageOverviewHourlyStatToOverview 把小时 stats 同步写入 summary、snapshot 和主序列。
 func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewHourlyStat, bucketByDay bool, costResolver *UsageCostResolver) {
 	// 小时 stats 是完整小时事实，可直接累计到 snapshot totals。
@@ -1545,101 +1499,7 @@ func applyUsageOverviewStatToSeries(series *dto.UsageOverviewSeriesRecord, reque
 	updateUsageOverviewSeriesCacheReadRate(series, bucketKey, inputTokens, cacheReadTokens)
 }
 
-// applyUsageOverviewHealthStatsToOverview 用完整 health bucket 读 stats，边界 bucket 复用主查询已加载的事件。
-func applyUsageOverviewHealthStatsToOverview(db *gorm.DB, overview *dto.UsageOverviewRecord, filter dto.UsageQueryFilter, boundaryEvents []entities.UsageEvent) error {
-	spanSeconds := overview.Health.BucketSeconds
-	span := time.Duration(spanSeconds) * time.Second
-	// health grid 有自己的展示窗口，但统计不能越过用户查询窗口。
-	exactStart, exactEnd := usageOverviewHealthExactWindow(overview.Health, filter)
-	if !exactStart.Before(exactEnd) {
-		return nil
-	}
-
-	// 完整 health bucket 走 health stats，边界 bucket 复用主边界事件。
-	fullStart, fullEnd := usageOverviewFullHealthWindow(exactStart, exactEnd, span)
-	if fullStart.Before(fullEnd) {
-		query := db.Model(&entities.UsageOverviewHealthStat{}).
-			Where("bucket_start >= ? AND bucket_start < ? AND span_seconds = ?", timeutil.FormatStorageTime(fullStart), timeutil.FormatStorageTime(fullEnd), spanSeconds)
-		if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
-			query = query.Where("api_group_key = ?", apiGroupKey)
-		}
-		var rows []entities.UsageOverviewHealthStat
-		if err := query.Find(&rows).Error; err != nil {
-			return fmt.Errorf("load usage overview health stats: %w", err)
-		}
-		for _, row := range rows {
-			applyUsageOverviewHealthCountsToOverview(overview, timeutil.NormalizeStorageTime(row.BucketStart).Add(span/2), row.SuccessCount, row.FailureCount)
-		}
-	}
-
-	// 已被完整 health bucket 覆盖的事件不能再次累计，否则会和 health stats 重复。
-	for _, event := range boundaryEvents {
-		timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
-		if timestamp.Before(exactStart) || !timestamp.Before(exactEnd) {
-			continue
-		}
-		if fullStart.Before(fullEnd) && !timestamp.Before(fullStart) && timestamp.Before(fullEnd) {
-			continue
-		}
-		updateUsageOverviewHealthBlock(overview.Health.BlockDetails, event)
-		if event.Failed {
-			overview.Health.TotalFailure++
-		} else {
-			overview.Health.TotalSuccess++
-		}
-	}
-	return nil
-}
-
-// usageOverviewHealthExactWindow 返回 health grid 和查询条件相交后的精确统计窗口。
-func usageOverviewHealthExactWindow(health dto.UsageOverviewHealthRecord, filter dto.UsageQueryFilter) (time.Time, time.Time) {
-	exactStart := health.WindowStart
-	exactEnd := health.WindowEnd
-	if filter.StartTime != nil {
-		filterStart := timeutil.NormalizeStorageTime(*filter.StartTime)
-		if filterStart.After(exactStart) {
-			exactStart = filterStart
-		}
-	}
-	if filter.EndTime != nil {
-		filterEnd := timeutil.NormalizeStorageTime(*filter.EndTime)
-		if filterEnd.Before(exactEnd) {
-			exactEnd = filterEnd
-		}
-	}
-	return exactStart, exactEnd
-}
-
-// usageOverviewFullHealthWindow 返回可完全由 health stats 覆盖的半开 bucket 窗口。
-func usageOverviewFullHealthWindow(exactStart, exactEnd time.Time, span time.Duration) (time.Time, time.Time) {
-	fullStart := exactStart.Truncate(span)
-	if fullStart.Before(exactStart) {
-		fullStart = fullStart.Add(span)
-	}
-	fullEnd := exactEnd.Truncate(span)
-	if fullEnd.Before(fullStart) {
-		fullEnd = fullStart
-	}
-	return fullStart, fullEnd
-}
-
-// applyUsageOverviewHealthCountsToOverview 把单个 health stats bucket 写入展示格和总计。
-func applyUsageOverviewHealthCountsToOverview(overview *dto.UsageOverviewRecord, timestamp time.Time, successCount, failureCount int64) {
-	index := usageOverviewHealthBlockIndex(overview.Health.BlockDetails, timestamp)
-	if index < 0 {
-		return
-	}
-	block := &overview.Health.BlockDetails[index]
-	block.Success += successCount
-	block.Failure += failureCount
-	if total := block.Success + block.Failure; total > 0 {
-		block.Rate = float64(block.Success) / float64(total)
-	}
-	overview.Health.TotalSuccess += successCount
-	overview.Health.TotalFailure += failureCount
-}
-
-// usageOverviewHealthBlockIndex 用桶中心点定位 health stat 应落入的展示格子。
+// usageOverviewHealthBlockIndex 用 timestamp 定位 Activity 边界对应的展示格子。
 func usageOverviewHealthBlockIndex(blocks []dto.UsageOverviewHealthBlockRecord, timestamp time.Time) int {
 	for index := range blocks {
 		block := blocks[index]
@@ -2483,48 +2343,119 @@ func usageOverviewBucket(timestamp time.Time, byDay bool) (string, int64) {
 }
 
 const (
-	usageOverviewHealthRows           = 7
-	usageOverviewHealthDefaultColumns = 96
-	usageOverviewHealthDefaultSpan    = 15 * time.Minute
-	usageOverviewHealthPresetWindow   = 24 * time.Hour
-	usageOverviewHealthPresetSpan     = (usageOverviewHealthPresetWindow + time.Duration(usageOverviewHealthRows*usageOverviewHealthDefaultColumns) - 1) / time.Duration(usageOverviewHealthRows*usageOverviewHealthDefaultColumns)
+	// usageOverviewHealthRows 保持兼容响应的 7 行布局。
+	usageOverviewHealthRows = 7
+	// usageOverviewHealthColumns 与 Activity 364 格契约共同固定为 52 列。
+	usageOverviewHealthColumns = 52
 )
 
-// buildUsageOverviewHealth 初始化 service health 网格，不在这里写入任何统计值。
+// buildUsageOverviewHealth 用 Activity 唯一边界初始化空 service health 网格。
 func buildUsageOverviewHealth(filter dto.UsageQueryFilter) dto.UsageOverviewHealthRecord {
-	rows := usageOverviewHealthRows
-	columns, span := usageOverviewHealthGrid(filter)
-	totalBlocks := rows * columns
-	windowStart, windowEnd := usageOverviewHealthWindow(filter, totalBlocks, span)
-	// 每个 block 先标记 Rate=-1，表示这个时间桶暂无请求样本。
-	blocks := make([]dto.UsageOverviewHealthBlockRecord, totalBlocks)
-	for index := range blocks {
-		startTime := windowStart.Add(time.Duration(index) * span)
-		blocks[index] = dto.UsageOverviewHealthBlockRecord{
-			StartTime: startTime,
-			EndTime:   startTime.Add(span),
-			Rate:      -1,
+	// range 在 PR1 只选择 short 或 medium，PR2 再接入 long。
+	grain := usageOverviewHealthActivityGrain(filter)
+	// 参考结束时间沿用本次 API 已解析并压到 queryNow 的有效结束时间。
+	referenceEnd := usageOverviewHealthReferenceEnd(filter)
+	// 纯内存 builder 与查询路径调用同一个 Activity 边界 helper。
+	buckets, err := UsageActivityWindowEndingAt(grain, referenceEnd)
+	// 合法固定 grain 理论上不会失败；防御性返回明确固定形状的空记录。
+	if err != nil || len(buckets) != UsageActivityHeatmapBlocks {
+		return dto.UsageOverviewHealthRecord{Rows: usageOverviewHealthRows, Columns: usageOverviewHealthColumns, BlockDetails: []dto.UsageOverviewHealthBlockRecord{}}
+	}
+	// blocks 固定分配 364 个槽位，不因数据稀疏减少格子。
+	blocks := make([]dto.UsageOverviewHealthBlockRecord, len(buckets))
+	// bucketSeconds 兼容旧字段并取交替跨度中的最大秒数。
+	bucketSeconds := int64(0)
+	// 逐格复制 Activity 的真实半开边界。
+	for index, bucket := range buckets {
+		// 空格 Rate=-1 保持现有前端“无数据”语义。
+		blocks[index] = dto.UsageOverviewHealthBlockRecord{StartTime: bucket.Start, EndTime: bucket.End, Rate: -1}
+		// 当前 bucket 真实秒数来自 start/end，不按 grain 名称反推。
+		spanSeconds := int64(bucket.End.Sub(bucket.Start) / time.Second)
+		// 最大跨度作为兼容 bucket_seconds 值。
+		if spanSeconds > bucketSeconds {
+			bucketSeconds = spanSeconds
 		}
 	}
+	// 返回实际对齐窗口及固定网格元数据。
 	return dto.UsageOverviewHealthRecord{
-		Rows:          rows,
-		Columns:       columns,
-		BucketSeconds: int64((span + time.Second - 1) / time.Second),
-		WindowStart:   windowStart,
-		WindowEnd:     windowEnd,
+		Rows:          usageOverviewHealthRows,
+		Columns:       usageOverviewHealthColumns,
+		BucketSeconds: bucketSeconds,
+		WindowStart:   buckets[0].Start,
+		WindowEnd:     buckets[len(buckets)-1].End,
 		BlockDetails:  blocks,
 	}
 }
 
-// usageOverviewHealthGrid 根据 range 选择 health bucket 粒度。
-func usageOverviewHealthGrid(filter dto.UsageQueryFilter) (int, time.Duration) {
-	if isUsageOverviewShortHealthRange(filter.Range) {
-		return usageOverviewHealthDefaultColumns, usageOverviewHealthPresetSpan
+// buildUsageOverviewHealthFromActivity 把统一 Activity 查询结果适配到现有 service_health DTO。
+func buildUsageOverviewHealthFromActivity(db *gorm.DB, filter dto.UsageQueryFilter) (dto.UsageOverviewHealthRecord, error) {
+	// PR1 保持短范围 short、其它现有范围 medium 的迁移边界。
+	grain := usageOverviewHealthActivityGrain(filter)
+	// referenceEnd 使用本次固定 effective filter 结束时间。
+	referenceEnd := usageOverviewHealthReferenceEnd(filter)
+	// Activity 查询负责补齐 364 格并应用 API group scope，同时沿用 service 传入的请求 context。
+	grid, err := QueryUsageActivityGrid(gormDBContext(db), db, grain, referenceEnd, filter.APIGroupKey)
+	// 查询失败时把仓储错误原样返回给 Overview。
+	if err != nil {
+		return dto.UsageOverviewHealthRecord{}, err
 	}
-	return usageOverviewHealthDefaultColumns, usageOverviewHealthDefaultSpan
+	// 兼容 Health DTO 复制网格元数据和真实窗口。
+	health := dto.UsageOverviewHealthRecord{
+		Rows:          grid.Rows,
+		Columns:       grid.Columns,
+		BucketSeconds: grid.BucketSeconds,
+		WindowStart:   grid.WindowStart,
+		WindowEnd:     grid.WindowEnd,
+		BlockDetails:  make([]dto.UsageOverviewHealthBlockRecord, len(grid.Blocks)),
+	}
+	// 每个 Activity block 机械转换为已有 Request Health block。
+	for index, activityBlock := range grid.Blocks {
+		// 默认无请求时 rate=-1。
+		rate := -1.0
+		// 请求总数只由 success+failure 派生，不读取冗余字段。
+		total := activityBlock.SuccessCount + activityBlock.FailureCount
+		// 有请求时 rate 保持现有 0..1 block 语义。
+		if total > 0 {
+			rate = float64(activityBlock.SuccessCount) / float64(total)
+		}
+		// block 的 start/end 直接透传 Activity 查询边界。
+		health.BlockDetails[index] = dto.UsageOverviewHealthBlockRecord{
+			StartTime: activityBlock.StartTime,
+			EndTime:   activityBlock.EndTime,
+			Success:   activityBlock.SuccessCount,
+			Failure:   activityBlock.FailureCount,
+			Rate:      rate,
+		}
+	}
+	// header totals 由调用方按精确筛选窗口填入，PR2 才会改为与完整 Activity 档位对齐。
+	return health, nil
 }
 
-// isUsageOverviewShortHealthRange 判断 health grid 是否使用 24h 专用细粒度窗口。
+// usageOverviewHealthActivityGrain 在 PR1 只完成现有短/默认 Health 数据源迁移。
+func usageOverviewHealthActivityGrain(filter dto.UsageQueryFilter) entities.UsageActivityGrain {
+	// 24h 及以下滚动范围、Today 和 Yesterday 使用 short。
+	if isUsageOverviewShortHealthRange(filter.Range) {
+		return entities.UsageActivityGrainShort
+	}
+	// 其它当前范围先保持默认 7d medium；PR2 再按 duration 选择 long。
+	return entities.UsageActivityGrainMedium
+}
+
+// usageOverviewHealthReferenceEnd 返回本次 Activity 对齐使用的稳定结束时间。
+func usageOverviewHealthReferenceEnd(filter dto.UsageQueryFilter) time.Time {
+	// API 已解析结束时间时直接使用并归一化到存储时区。
+	if filter.EndTime != nil {
+		return timeutil.NormalizeStorageTime(*filter.EndTime)
+	}
+	// 防御性回退到本次 queryNow，避免未解析测试构造出零时间窗口。
+	if filter.QueryNow != nil {
+		return timeutil.NormalizeStorageTime(*filter.QueryNow)
+	}
+	// 旧纯内存 helper 没有边界时才使用当前项目时间。
+	return timeutil.NormalizeStorageTime(time.Now())
+}
+
+// isUsageOverviewShortHealthRange 判断 health grid 是否使用 short Activity。
 func isUsageOverviewShortHealthRange(value string) bool {
 	if timeutil.IsUsageRollingHourRange(value) {
 		return true
@@ -2535,35 +2466,6 @@ func isUsageOverviewShortHealthRange(value string) bool {
 	default:
 		return false
 	}
-}
-
-func isUsageOverviewCalendarDayHealthRange(value string) bool {
-	switch value {
-	case "today", "yesterday":
-		return true
-	default:
-		return false
-	}
-}
-
-// usageOverviewHealthWindow 返回 health grid 的展示窗口，可能和查询窗口不同。
-func usageOverviewHealthWindow(filter dto.UsageQueryFilter, totalBlocks int, span time.Duration) (time.Time, time.Time) {
-	end := timeutil.NormalizeStorageTime(time.Now())
-	if filter.EndTime != nil {
-		end = timeutil.NormalizeStorageTime(*filter.EndTime)
-	}
-	if isUsageOverviewCalendarDayHealthRange(filter.Range) && filter.StartTime != nil {
-		// today/yesterday 的 health 轴跟随本地自然日展示；统计窗口仍在后续 exact window 中按 queryNow/end 截断。
-		start := timeutil.NormalizeStorageTime(*filter.StartTime)
-		return start, start.AddDate(0, 0, 1)
-	}
-	if isUsageOverviewShortHealthRange(filter.Range) {
-		return end.Add(-usageOverviewHealthPresetWindow), end
-	}
-	// 长窗口按固定 15 分钟桶对齐到下一个 bucket 边界，保证网格列宽稳定。
-	currentBucketStart := end.Truncate(span)
-	windowEnd := currentBucketStart.Add(span)
-	return windowEnd.Add(-time.Duration(totalBlocks) * span), windowEnd
 }
 
 // updateUsageOverviewHealthBlock 把单条事件落到对应 health block 并刷新成功率。

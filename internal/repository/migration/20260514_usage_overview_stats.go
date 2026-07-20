@@ -13,7 +13,8 @@ func createUsageOverviewStatsMigration(tx *gorm.DB) error {
 	if err := tx.AutoMigrate(
 		&entities.UsageOverviewHourlyStat{},
 		&entities.UsageOverviewDailyStat{},
-		&entities.UsageOverviewHealthStat{},
+		// 历史 migration 使用包内 legacy 结构，避免最终业务 entity 继续暴露旧 Health 表。
+		&legacyUsageOverviewHealthStat{},
 		&entities.UsageOverviewAggregationCheckpoint{},
 	); err != nil {
 		return fmt.Errorf("auto migrate usage overview stats: %w", err)
