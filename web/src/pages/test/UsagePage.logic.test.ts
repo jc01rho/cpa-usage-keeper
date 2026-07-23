@@ -101,7 +101,7 @@ describe('UsagePage legacy Custom range migration', () => {
 
     expect(loadUsageRangeState).toBeTypeOf('function');
     expect(loadUsageRangeState?.(storage, Date.parse('2026-07-17T07:36:42.000Z'))).toEqual({
-      state: { range: '8h' },
+      state: { range: 'today' },
       pendingLegacyCustomRange: {
         unit: 'day',
         start: '2026-07-01',
@@ -119,7 +119,7 @@ describe('UsagePage legacy Custom range migration', () => {
     });
 
     expect(loadUsageRangeState?.(storage, Date.parse('2026-07-17T07:36:42.000Z'))).toEqual({
-      state: { range: '8h' },
+      state: { range: 'today' },
       pendingLegacyCustomRange: null,
     });
   });

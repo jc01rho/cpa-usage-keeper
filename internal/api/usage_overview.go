@@ -193,7 +193,7 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 		}
 		filter, err := parseKeyUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token)) {
@@ -225,7 +225,7 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 		}
 		filter, err := parseKeyUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token), "realtime") {
@@ -245,7 +245,7 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 		}
 		filter, err := parseUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		writeUsageOverviewResponse(c, usageProvider, filter)
@@ -253,7 +253,7 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 	router.GET("/usage/overview/realtime", func(c *gin.Context) {
 		filter, err := parseUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		writeUsageOverviewRealtimeResponse(c, usageProvider, cpaAPIKeyProvider, filter)

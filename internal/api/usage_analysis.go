@@ -146,7 +146,7 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 
 		filter, err := parseUsageAnalysisTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 
@@ -172,7 +172,7 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 		queryNow := timeutil.NormalizeStorageTime(time.Now())
 		filter, err := parseUsageAnalysisTimeFilterQuery(c.Request, queryNow)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		if !analysisLatencyRangeSupported(filter, queryNow) {
