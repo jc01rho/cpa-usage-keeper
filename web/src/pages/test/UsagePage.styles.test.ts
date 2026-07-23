@@ -139,11 +139,13 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource.match(/export_busy:/g)).toHaveLength(3)
   })
 
-  it('refreshes applied Custom bounds on both dashboard surfaces', () => {
-    expect(usagePageSource).toContain('scheduleCustomRangeBoundsRefresh({')
-    expect(usagePageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')
-    expect(keyOverviewPageSource).toContain('scheduleCustomRangeBoundsRefresh({')
-    expect(keyOverviewPageSource).toContain('clampStoredUsageRangeStateToCurrentBounds(current')
+  it('recovers applied Custom ranges only after a backend bounds conflict', () => {
+    expect(usagePageSource).not.toContain('scheduleCustomRangeBoundsRefresh({')
+    expect(keyOverviewPageSource).not.toContain('scheduleCustomRangeBoundsRefresh({')
+    expect(usagePageSource).toContain('const recoverRangeBoundsConflict = useCallback')
+    expect(keyOverviewPageSource).toContain('const recoverRangeBoundsConflict = useCallback')
+    expect(usagePageSource).toContain('if (recoverRangeBoundsConflict(error))')
+    expect(keyOverviewPageSource).toContain('if (recoverRangeBoundsConflict(nextError))')
   })
 
   it('keeps the mobile API Key group and select at full available width', () => {

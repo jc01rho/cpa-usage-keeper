@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, logout } from '@/lib/api';
+import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isUsageRangeBoundsConflict, logout } from '@/lib/api';
 import type { AuthSessionAPIKeySummary, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRange, UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -19,14 +19,14 @@ import {
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { BrandLink } from '@/components/BrandLink';
 import { getCurrentOverviewUsage, getDailyAverageCardUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
-import { clampStoredUsageRangeStateToCurrentBounds, parseStoredUsageRangeState, scheduleCustomRangeBoundsRefresh, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { clampStoredUsageRangeStateToCurrentBounds, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import type { Theme } from '@/types';
 import styles from './KeyOverviewPage.module.scss';
 
 const KEY_OVERVIEW_RANGE_STORAGE_KEY = 'cli-proxy-key-overview-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
-const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
+const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS = ['models'] as const;
 const REFRESH_THROTTLE_MS = 1_000;
@@ -200,6 +200,19 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
   const activityWindow = manualActivityWindow ?? activity?.window ?? null;
   const activityWindowIsCurrent = manualActivityWindow !== null || activityMatchesRequest;
   const rangeTimeZone = usage?.timezone ?? timeRangeState.timeZone;
+  const rangeRecoveryTimeZone = resolveUsageRangeRecoveryTimeZone(timeRangeState, usage?.timezone);
+  const recoverRangeBoundsConflict = useCallback((error: unknown) => {
+    if (!isUsageRangeBoundsConflict(error)) return false;
+    const timeZone = rangeRecoveryTimeZone?.trim();
+    if (!timeZone) return false;
+    const nextState = clampStoredUsageRangeStateToCurrentBounds(timeRangeState, {
+      nowMs: Date.now(),
+      timeZone,
+    });
+    if (nextState === timeRangeState) return false;
+    setTimeRangeState(nextState);
+    return true;
+  }, [rangeRecoveryTimeZone, timeRangeState]);
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
     if (range === 'custom' && nextCustomRange) {
       setTimeRangeState({ range, customRange: nextCustomRange, timeZone: rangeTimeZone });
@@ -230,6 +243,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
       setLoadedUsageRange(usageRangeQueryKey);
     } catch (nextError) {
       if (controller.signal.aborted) return;
+      if (recoverRangeBoundsConflict(nextError)) return;
       if (nextError instanceof ApiError && nextError.status === 401) {
         onAuthRequired?.();
         return;
@@ -245,7 +259,7 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
         overviewRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, usageRangeQuery, usageRangeQueryKey]);
+  }, [onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery, usageRangeQueryKey]);
 
   const loadRealtime = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     const { controller, skipped } = startKeyOverviewRequest({
@@ -334,18 +348,6 @@ export function KeyOverviewPage({ apiKey, onAuthRequired }: KeyOverviewPageProps
       // ignore storage failures
     }
   }, [timeRangeState]);
-
-  useEffect(() => scheduleCustomRangeBoundsRefresh({
-    enabled: timeRange === 'custom' && Boolean(rangeTimeZone),
-    refreshBounds: () => {
-      const timeZone = rangeTimeZone?.trim();
-      if (!timeZone) return;
-      setTimeRangeState((current) => clampStoredUsageRangeStateToCurrentBounds(current, {
-        nowMs: Date.now(),
-        timeZone,
-      }));
-    },
-  }), [rangeTimeZone, timeRange]);
 
   useEffect(() => {
     try {

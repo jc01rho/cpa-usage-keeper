@@ -166,7 +166,7 @@ func registerUsageEventsRoute(
 
 		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		if err := applyUsageEventsSourceFilter(&filter); err != nil {
@@ -260,7 +260,7 @@ func registerUsageEventsRoute(
 
 		filter, err := parseUsageFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeUsageFilterParseError(c, err)
 			return
 		}
 		if err := applyUsageEventsSourceFilter(&filter); err != nil {

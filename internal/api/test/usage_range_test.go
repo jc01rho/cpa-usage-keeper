@@ -155,17 +155,19 @@ func TestUsageRoutesRejectCustomRangesOutsideProductBounds(t *testing.T) {
 	currentHour := now.Truncate(time.Hour)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	testCases := []struct {
-		name  string
-		unit  string
-		start string
-		end   string
+		name       string
+		unit       string
+		start      string
+		end        string
+		wantStatus int
 	}{
-		{name: "four hour slots", unit: "hour", start: currentHour.Add(-3 * time.Hour).Format(time.RFC3339), end: currentHour.Format(time.RFC3339)},
-		{name: "hour before horizon", unit: "hour", start: currentHour.Add(-24 * time.Hour).Format(time.RFC3339), end: currentHour.Format(time.RFC3339)},
-		{name: "future hour", unit: "hour", start: currentHour.Add(-3 * time.Hour).Format(time.RFC3339), end: currentHour.Add(time.Hour).Format(time.RFC3339)},
-		{name: "unaligned hour", unit: "hour", start: currentHour.Add(-4*time.Hour + time.Minute).Format(time.RFC3339), end: currentHour.Format(time.RFC3339)},
-		{name: "future day", unit: "day", start: today.Format(time.DateOnly), end: today.AddDate(0, 0, 1).Format(time.DateOnly)},
-		{name: "mixed day and hour", unit: "day", start: today.Format(time.DateOnly), end: currentHour.Format(time.RFC3339)},
+		{name: "four hour slots", unit: "hour", start: currentHour.Add(-3 * time.Hour).Format(time.RFC3339), end: currentHour.Format(time.RFC3339), wantStatus: http.StatusBadRequest},
+		{name: "hour before horizon", unit: "hour", start: currentHour.Add(-24 * time.Hour).Format(time.RFC3339), end: currentHour.Format(time.RFC3339), wantStatus: http.StatusBadRequest},
+		{name: "future hour", unit: "hour", start: currentHour.Add(-3 * time.Hour).Format(time.RFC3339), end: currentHour.Add(time.Hour).Format(time.RFC3339), wantStatus: http.StatusConflict},
+		{name: "unaligned hour", unit: "hour", start: currentHour.Add(-4*time.Hour + time.Minute).Format(time.RFC3339), end: currentHour.Format(time.RFC3339), wantStatus: http.StatusBadRequest},
+		{name: "366 day slots", unit: "day", start: today.AddDate(0, 0, -365).Format(time.DateOnly), end: today.Format(time.DateOnly), wantStatus: http.StatusBadRequest},
+		{name: "future day", unit: "day", start: today.Format(time.DateOnly), end: today.AddDate(0, 0, 1).Format(time.DateOnly), wantStatus: http.StatusConflict},
+		{name: "mixed day and hour", unit: "day", start: today.Format(time.DateOnly), end: currentHour.Format(time.RFC3339), wantStatus: http.StatusBadRequest},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -177,8 +179,8 @@ func TestUsageRoutesRejectCustomRangesOutsideProductBounds(t *testing.T) {
 
 			router.ServeHTTP(resp, req)
 
-			if resp.Code != http.StatusBadRequest {
-				t.Fatalf("expected invalid custom range to return 400, got %d body=%s", resp.Code, resp.Body.String())
+			if resp.Code != tc.wantStatus {
+				t.Fatalf("expected invalid custom range to return %d, got %d body=%s", tc.wantStatus, resp.Code, resp.Body.String())
 			}
 			if provider.filterCalls != 0 {
 				t.Fatalf("expected invalid custom range not to reach provider, got %d calls", provider.filterCalls)

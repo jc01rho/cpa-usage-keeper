@@ -140,6 +140,11 @@ function CustomRangeSummary({
         <span>{t(value.unit === 'hour' ? 'usage_stats.range_custom_hours_count' : 'usage_stats.range_custom_days_count', { count: slotCount })}</span>
         <strong>{timeZone}</strong>
       </div>
+      {value.unit === 'day' && (
+        <small className={styles.customRangeLimitHint} data-custom-range-limit-hint>
+          {t('usage_stats.range_custom_day_limit_hint')}
+        </small>
+      )}
       <div className={styles.customSummaryActions}>
         <Button type="button" variant="secondary" size="sm" className={styles.customRangeAction} data-custom-summary-cancel onClick={onCancel}>
           {t('common.cancel')}
@@ -164,6 +169,8 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
   const slotCount = value.unit === 'hour'
     ? Math.max(endIndex - startIndex + 1, 0)
     : Math.max(Math.floor((parseDayKey(value.end).getTime() - parseDayKey(value.start).getTime()) / DAY_MS) + 1, 0);
+  const allowedDayValues = useMemo(() => new Set(daySlots.map((slot) => slot.value)), [daySlots]);
+  const firstAllowedMonth = monthKey(daySlots[0].value);
   const today = daySlots[daySlots.length - 1].value;
   const currentMonth = monthKey(today);
   const activeDay = value[activeEndpoint].slice(0, 10);
@@ -285,12 +292,18 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
         </span>
       </div>
       {endpointCards}
+      {value.unit === 'day' && (
+        <small className={styles.customRangeLimitHint} data-custom-range-limit-hint>
+          {t('usage_stats.range_custom_day_limit_hint')}
+        </small>
+      )}
 
       {view === 'day' ? (
         <div className={styles.customCalendar} data-custom-calendar-month={visibleMonth}>
           <div className={styles.customCalendarHeader}>
             <button
               type="button"
+              disabled={visibleMonth <= firstAllowedMonth}
               onClick={() => setVisibleMonth((month) => shiftMonth(month, -1))}
               aria-label={t('usage_stats.range_custom_previous_month')}
             ><IconChevronLeft size={14} /></button>
@@ -308,17 +321,17 @@ export function CustomRangePanel({ value, timeZone, locale, anchorMs, onChange, 
           </div>
           <div className={styles.customCalendarGrid}>
             {calendarCells.map(({ value: day, outsideMonth }, index) => {
-              const allowed = day <= today;
+              const allowed = allowedDayValues.has(day);
               const selected = day === value.start || day === value.end;
               const inRange = allowed && day >= value.start && day <= value.end;
               const previousDay = calendarCells[index - 1]?.value;
               const nextDay = calendarCells[index + 1]?.value;
               const previousInRange = previousDay !== undefined
-                && previousDay <= today
+                && allowedDayValues.has(previousDay)
                 && previousDay >= value.start
                 && previousDay <= value.end;
               const nextInRange = nextDay !== undefined
-                && nextDay <= today
+                && allowedDayValues.has(nextDay)
                 && nextDay >= value.start
                 && nextDay <= value.end;
               // 色带只在真实区间端点或每周换行处收口，不在月份边界人为断开。

@@ -184,6 +184,30 @@ func TestKeyOverviewRejectsUnsupportedRanges(t *testing.T) {
 	}
 }
 
+func TestKeyOverviewReturnsConflictForExpiredCustomRange(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	token, _, err := sessions.CreateAPIKeyViewer(42)
+	if err != nil {
+		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
+	}
+	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{}}
+	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
+	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
+	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-overview?range=custom&unit=day&start=2000-01-01&end=2000-01-02", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("expected expired Custom range to return 409, got %d %s", resp.Code, resp.Body.String())
+	}
+	if provider.overviewCalls != 0 {
+		t.Fatalf("expected expired range not to call usage provider, got %d", provider.overviewCalls)
+	}
+}
+
 func TestKeyOverviewRateLimitsPerViewerSession(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	token, _, err := sessions.CreateAPIKeyViewer(42)

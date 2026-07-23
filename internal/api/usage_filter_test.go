@@ -166,7 +166,7 @@ func TestParseUsageFilterQueryTodayRangeUsesLocalDSTBoundary(t *testing.T) {
 func TestParseUsageFilterQueryCustomRange(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=custom&unit=hour&start=2026-04-20T00:00:00Z&end=2026-04-20T04:00:00Z", nil)
 
-	filter, err := parseUsageFilterQuery(req, time.Time{})
+	filter, err := parseUsageFilterQuery(req, time.Date(2026, 4, 20, 4, 30, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestParseUsageFilterQueryCustomDateRangeUsesLocalDayBoundary(t *testing.T) 
 
 	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=custom&start=2026-04-20&end=2026-04-21", nil)
 
-	filter, err := parseUsageFilterQuery(req, time.Time{})
+	filter, err := parseUsageFilterQuery(req, time.Date(2026, 4, 21, 12, 0, 0, 0, location))
 	if err != nil {
 		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestParseUsageFilterQueryCustomDateRangeUsesLocalDayBoundary(t *testing.T) 
 func TestParseUsageFilterQueryRejectsInvalidCustomRange(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=custom&start=2026-04-21T00:00:00Z&end=2026-04-20T23:59:59Z", nil)
 
-	_, err := parseUsageFilterQuery(req, time.Time{})
+	_, err := parseUsageFilterQuery(req, time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC))
 	if err == nil {
 		t.Fatal("expected invalid custom range error")
 	}
@@ -256,7 +256,7 @@ func TestParseUsageFilterQueryAllowsLongCustomDayRange(t *testing.T) {
 func TestParseUsageFilterQueryRejectsMissingRange(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/usage/events", nil)
 
-	_, err := parseUsageFilterQuery(req, time.Time{})
+	_, err := parseUsageFilterQuery(req, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC))
 	if err == nil {
 		t.Fatal("expected missing range error")
 	}
@@ -378,7 +378,7 @@ func TestParseUsageFilterQueryRejectsInvalidEventsPagination(t *testing.T) {
 	}
 	for _, path := range tests {
 		req := httptest.NewRequest("GET", path, nil)
-		if _, err := parseUsageFilterQuery(req, time.Time{}); err == nil {
+		if _, err := parseUsageFilterQuery(req, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)); err == nil {
 			t.Fatalf("expected pagination error for %s", path)
 		}
 	}
