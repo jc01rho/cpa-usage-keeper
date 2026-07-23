@@ -93,3 +93,71 @@ func TestDailyActivityBucketUsesAdjacentLocalMidnights(t *testing.T) {
 		t.Fatalf("unexpected DST daily bucket: got=%+v want=%s..%s", bucket, wantStart, wantEnd)
 	}
 }
+
+func TestCalendarDayActivityWindowUsesExactLocalMidnightsAcrossDST(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load DST location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+
+	dayStart := time.Date(2026, 3, 8, 0, 0, 0, 0, location)
+	buckets, err := activity.WindowEndingAt(entities.UsageActivityGrainShort, dayStart.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("WindowEndingAt returned error: %v", err)
+	}
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	if len(buckets) != activity.HeatmapBlocks {
+		t.Fatalf("expected %d calendar buckets, got %d", activity.HeatmapBlocks, len(buckets))
+	}
+	if !buckets[0].Start.Equal(dayStart) || !buckets[len(buckets)-1].End.Equal(dayEnd) {
+		t.Fatalf("unexpected calendar window: %s..%s", buckets[0].Start, buckets[len(buckets)-1].End)
+	}
+	if got := buckets[len(buckets)-1].End.Sub(buckets[0].Start); got != 23*time.Hour {
+		t.Fatalf("DST calendar window duration=%s, want 23h", got)
+	}
+	for index, bucket := range buckets {
+		if index > 0 && !buckets[index-1].End.Equal(bucket.Start) {
+			t.Fatalf("calendar buckets %d and %d are not contiguous", index-1, index)
+		}
+	}
+}
+
+func TestShortActivityStorageBucketsMatchCalendarDayWindow(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = location
+	t.Cleanup(func() { time.Local = previousLocal })
+
+	dayStart := time.Date(2026, 7, 20, 0, 0, 0, 0, location)
+	calendarBuckets, err := activity.WindowEndingAt(entities.UsageActivityGrainShort, dayStart.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("WindowEndingAt returned error: %v", err)
+	}
+	for _, index := range []int{0, 1, 100, activity.HeatmapBlocks - 1} {
+		calendarBucket := calendarBuckets[index]
+		timestamp := calendarBucket.Start.Add(calendarBucket.End.Sub(calendarBucket.Start) / 2)
+		storedBucket, err := activity.BucketForTimestamp(entities.UsageActivityGrainShort, timestamp)
+		if err != nil {
+			t.Fatalf("resolve short bucket %d: %v", index, err)
+		}
+		if !storedBucket.Start.Equal(calendarBucket.Start) || !storedBucket.End.Equal(calendarBucket.End) {
+			t.Fatalf("short bucket %d does not match calendar grid: stored=%+v calendar=%+v", index, storedBucket, calendarBucket)
+		}
+	}
+
+	window, err := activity.WindowEndingAt(entities.UsageActivityGrainShort, dayStart.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("WindowEndingAt returned error: %v", err)
+	}
+	for index := range window {
+		if !window[index].Start.Equal(calendarBuckets[index].Start) || !window[index].End.Equal(calendarBuckets[index].End) {
+			t.Fatalf("calendar query bucket %d does not match short storage: query=%+v storage=%+v", index, window[index], calendarBuckets[index])
+		}
+	}
+}

@@ -164,7 +164,6 @@ func TestUsageRoutesRejectCustomRangesOutsideProductBounds(t *testing.T) {
 		{name: "hour before horizon", unit: "hour", start: currentHour.Add(-24 * time.Hour).Format(time.RFC3339), end: currentHour.Format(time.RFC3339)},
 		{name: "future hour", unit: "hour", start: currentHour.Add(-3 * time.Hour).Format(time.RFC3339), end: currentHour.Add(time.Hour).Format(time.RFC3339)},
 		{name: "unaligned hour", unit: "hour", start: currentHour.Add(-4*time.Hour + time.Minute).Format(time.RFC3339), end: currentHour.Format(time.RFC3339)},
-		{name: "day before horizon", unit: "day", start: today.AddDate(0, 0, -30).Format(time.DateOnly), end: today.Format(time.DateOnly)},
 		{name: "future day", unit: "day", start: today.Format(time.DateOnly), end: today.AddDate(0, 0, 1).Format(time.DateOnly)},
 		{name: "mixed day and hour", unit: "day", start: today.Format(time.DateOnly), end: currentHour.Format(time.RFC3339)},
 	}

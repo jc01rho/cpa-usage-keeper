@@ -11,6 +11,9 @@ import styles from './AnalysisPanel.module.scss';
 interface AnalysisPanelProps {
   analysis: AnalysisResponse | null;
   loading: boolean;
+  latencyDiagnostics?: AnalysisLatencyDiagnostics | null;
+  latencyLoading?: boolean;
+  latencyError?: string;
   isDark: boolean;
   isMobile: boolean;
 }
@@ -1249,7 +1252,7 @@ function buildLatencyDiagnosticsChartOptions({
   };
 }
 
-function LatencyDiagnosticsCard({ diagnostics, loading, isDark, isMobile }: { diagnostics: AnalysisLatencyDiagnostics | undefined; loading: boolean; isDark: boolean; isMobile: boolean }) {
+function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile }: { diagnostics: AnalysisLatencyDiagnostics | null | undefined; loading: boolean; error: string; isDark: boolean; isMobile: boolean }) {
   const { t } = useTranslation();
   const safeDiagnostics = diagnostics ?? emptyLatencyDiagnostics();
   const chartTheme = useMemo(() => getChartTheme(isDark), [isDark]);
@@ -1269,6 +1272,7 @@ function LatencyDiagnosticsCard({ diagnostics, loading, isDark, isMobile }: { di
     labels,
     colors: latencyColors,
   }), [chartTheme, isMobile, labels, latencyColors, safeDiagnostics]);
+  const unsupported = safeDiagnostics.supported === false;
   const hasData = toNumber(safeDiagnostics.total_points) > 0 && safeDiagnostics.points.length > 0;
   return (
     <section className={`${styles.analysisCard} ${styles.latencyDiagnosticsCard}`}>
@@ -1280,6 +1284,10 @@ function LatencyDiagnosticsCard({ diagnostics, loading, isDark, isMobile }: { di
       />
       {loading ? (
         <div className={styles.emptyState}>{t('common.loading')}</div>
+      ) : error ? (
+        <div className={styles.emptyState}>{error}</div>
+      ) : unsupported ? (
+        <div className={styles.emptyState}>{t('usage_stats.analysis_latency_recent_range_only')}</div>
       ) : !hasData ? (
         <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
       ) : (
@@ -2087,7 +2095,7 @@ function Heatmap({ cells, apiKeys, apiKeyLabels, models, loading, isDark }: { ce
   );
 }
 
-export function AnalysisPanel({ analysis, loading, isDark, isMobile }: AnalysisPanelProps) {
+export function AnalysisPanel({ analysis, loading, latencyDiagnostics, latencyLoading = false, latencyError = '', isDark, isMobile }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
   const apiComposition = useMemo(() => takeMajorComposition(analysis?.api_key_composition ?? [], t('usage_stats.analysis_others')), [analysis, t]);
@@ -2109,7 +2117,7 @@ export function AnalysisPanel({ analysis, loading, isDark, isMobile }: AnalysisP
         <CostBreakdownCard breakdown={analysis?.cost_breakdown} rows={tokenRows} loading={loading} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
-      <LatencyDiagnosticsCard diagnostics={analysis?.latency_diagnostics} loading={loading} isDark={isDark} isMobile={isMobile} />
+      <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
       <CompositionPanel tabs={compositionTabs} loading={loading} isDark={isDark} windowMinutes={analysisWindowMinutes} />
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />
     </div>

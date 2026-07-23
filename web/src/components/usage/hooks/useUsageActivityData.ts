@@ -12,6 +12,7 @@ export interface UseUsageActivityDataOptions {
 
 export interface UseUsageActivityDataReturn {
   activity: UsageActivityResponse | null;
+  activityMatchesRequest: boolean;
   loading: boolean;
   error: string;
   requestIdentity: string;
@@ -126,9 +127,11 @@ export function useUsageActivityData({
     : responseQueryScope === queryScope && errorQueryKey !== queryKey
       ? response
       : null;
+  const activityMatchesRequest = displayActivity !== null && responseQueryKey === queryKey;
 
   return {
     activity: displayActivity,
+    activityMatchesRequest,
     loading,
     error: errorQueryKey === queryKey ? error : '',
     requestIdentity: queryKey,

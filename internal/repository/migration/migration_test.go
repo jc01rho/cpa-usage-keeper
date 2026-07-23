@@ -69,6 +69,8 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260715_add_usage_event_generate",
 		// Activity 必须在所有 usage_events 字段规范化 migration 之后回填。
 		"20260719_usage_activity_stats",
+		"20260722_align_usage_activity_short",
+		"20260723_usage_overview_five_dimensions",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

@@ -33,7 +33,7 @@ func TestQueryUsageActivityGridReturnsFixedSparseBlocksAndAPIGroupScope(t *testi
 	}
 
 	// 执行：按 provider-a 查询固定 7×52 Activity 网格。
-	grid, err := repository.QueryUsageActivityGrid(context.Background(), db, entities.UsageActivityGrainMedium, now, "provider-a")
+	grid, err := repository.QueryUsageActivityGrid(context.Background(), db, entities.UsageActivityGrainMedium, now, time.Time{}, "provider-a")
 	if err != nil {
 		t.Fatalf("QueryUsageActivityGrid returned error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestQueryUsageActivityGridIncludesBothDSTFallbackOffsets(t *testing.T) {
 	}
 
 	// 执行：查询跨越两个 01 时段的完整 short Activity 网格。
-	grid, err := repository.QueryUsageActivityGrid(context.Background(), db, entities.UsageActivityGrainShort, referenceEnd, "fallback-provider")
+	grid, err := repository.QueryUsageActivityGrid(context.Background(), db, entities.UsageActivityGrainShort, referenceEnd, time.Time{}, "fallback-provider")
 	if err != nil {
 		t.Fatalf("query fallback Activity grid: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestQueryUsageActivityGridReadsRequestHealthWithoutLegacyTable(t *testing.T
 	}
 
 	// 执行：独立查询在旧 Health 表不存在时读取 medium Activity。
-	grid, err := repository.QueryUsageActivityGrid(context.Background(), db, entities.UsageActivityGrainMedium, end, "provider-a")
+	grid, err := repository.QueryUsageActivityGrid(context.Background(), db, entities.UsageActivityGrainMedium, end, time.Time{}, "provider-a")
 	if err != nil {
 		t.Fatalf("QueryUsageActivityGrid returned error: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestQueryUsageActivityGridPreservesRequestContext(t *testing.T) {
 	end := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 
 	// 执行：通过带请求 context 的 GORM session 查询独立 Activity。
-	_, err := repository.QueryUsageActivityGrid(requestContext, db.WithContext(requestContext), entities.UsageActivityGrainMedium, end, "")
+	_, err := repository.QueryUsageActivityGrid(requestContext, db.WithContext(requestContext), entities.UsageActivityGrainMedium, end, time.Time{}, "")
 
 	// 断言：Activity 查询应成功且回调必须看到原请求 context。
 	if err != nil {

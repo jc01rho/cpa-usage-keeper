@@ -20,8 +20,8 @@ const (
 	usageActivityGridColumns = 52
 )
 
-// QueryUsageActivityGrid 按 grain 和参考结束时间返回补齐后的固定 364 个 Activity blocks。
-func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.UsageActivityGrain, referenceEnd time.Time, apiGroupKey string) (dto.UsageActivityGridRecord, error) {
+// QueryUsageActivityGrid 按 grain 生成固定 364 格，并用 dataEnd 限制尚未开始的未来桶。
+func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.UsageActivityGrain, referenceEnd, dataEnd time.Time, apiGroupKey string) (dto.UsageActivityGridRecord, error) {
 	// result 先记录请求 grain，错误路径也能保留调用上下文。
 	result := dto.UsageActivityGridRecord{Grain: grain}
 	// nil 数据库无法读取 Activity rows。
@@ -54,7 +54,7 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 	// bucketIndex 用 Unix 秒把数据库稀疏行映射回固定槽位。
 	bucketIndex := make(map[int64]int, len(buckets))
 	// bucketStarts 保存本次允许读取的精确边界文本，避免 DST 回拨时按本地 RFC3339 文本范围漏行。
-	bucketStarts := make([]string, len(buckets))
+	bucketStarts := make([]string, 0, len(buckets))
 	// 每个 helper bucket 都写入一个连续响应块。
 	for index, bucket := range buckets {
 		// 空桶也必须返回真实 start/end，不能只返回有数据的行。
@@ -62,7 +62,10 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 		// 固定边界精度为秒，Unix key 与 SQLite storageTime 解析稳定对应。
 		bucketIndex[bucket.Start.Unix()] = index
 		// 查询值复用 Activity 可排序 UTC 格式，只匹配 helper 生成的 364 个真实起点。
-		bucketStarts[index] = timeutil.FormatSortableStorageTime(bucket.Start)
+		// 完整保留展示轴，但只查询 dataEnd 之前已经开始的聚合桶。
+		if dataEnd.IsZero() || bucket.Start.Before(dataEnd) {
+			bucketStarts = append(bucketStarts, timeutil.FormatSortableStorageTime(bucket.Start))
+		}
 		// bucket_seconds 取当前窗口实际块宽的最大秒数，覆盖交替宽度。
 		spanSeconds := int64(bucket.End.Sub(bucket.Start) / time.Second)
 		// 更宽块更新响应中的粒度元数据。

@@ -55,7 +55,8 @@ func parseUsageActivityFilterQuery(req *http.Request, anchor time.Time) (service
 func parseUsageActivityFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
 	queryNow := timeutil.NormalizeStorageTime(anchor)
 	if req == nil || strings.TrimSpace(req.URL.Query().Get("window")) == "" {
-		filter, err := parseUsageTimeFilterQueryWithClientAPIKey(req, queryNow, includeClientAPIKey)
+		// Activity 的长 Custom 日范围使用永久 daily 增量档位，不依赖历史 raw events。
+		filter, err := parseUsageTimeFilterQueryWithOptions(req, queryNow, includeClientAPIKey, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
 		if err != nil {
 			return servicedto.UsageFilter{}, err
 		}
@@ -63,9 +64,14 @@ func parseUsageActivityFilterQueryWithClientAPIKey(req *http.Request, anchor tim
 		return filter, nil
 	}
 
-	// 1y 是 Activity 专属窗口，不进入公共 Usage 只允许 1-30d 的时间解析器。
+	// Activity 专属 window 使用标准四档，以及归入 Day 视图的自然日模式。
 	window := servicedto.UsageActivityWindow(strings.TrimSpace(req.URL.Query().Get("window")))
-	if window != servicedto.UsageActivityWindow1Y {
+	if window != servicedto.UsageActivityWindowDay &&
+		window != servicedto.UsageActivityWindowWeek &&
+		window != servicedto.UsageActivityWindowMonth &&
+		window != servicedto.UsageActivityWindowYear &&
+		window != servicedto.UsageActivityWindowToday &&
+		window != servicedto.UsageActivityWindowYesterday {
 		return servicedto.UsageFilter{}, fmt.Errorf("unsupported activity window %q", window)
 	}
 	apiKeyID := ""
@@ -76,7 +82,31 @@ func parseUsageActivityFilterQueryWithClientAPIKey(req *http.Request, anchor tim
 			return servicedto.UsageFilter{}, err
 		}
 	}
-	return servicedto.UsageFilter{ActivityWindow: window, QueryNow: &queryNow, APIKeyID: apiKeyID}, nil
+	if window == servicedto.UsageActivityWindowDay ||
+		window == servicedto.UsageActivityWindowWeek ||
+		window == servicedto.UsageActivityWindowMonth ||
+		window == servicedto.UsageActivityWindowYear {
+		return servicedto.UsageFilter{ActivityWindow: window, QueryNow: &queryNow, APIKeyID: apiKeyID}, nil
+	}
+
+	// today/yesterday 复用公共时间解析器，确保 Overview、Analysis 与 Activity 的自然日边界一致。
+	normalizedRange, err := timeutil.ParseUsageQueryRange(string(window), "", "", "", queryNow)
+	if err != nil {
+		return servicedto.UsageFilter{}, err
+	}
+	startTime := normalizedRange.StartTime
+	endTime := normalizedRange.EndTime
+	return servicedto.UsageFilter{
+		Range:          normalizedRange.Range,
+		RangeUnit:      string(normalizedRange.Unit),
+		RangeCount:     normalizedRange.Count,
+		StartTime:      &startTime,
+		EndTime:        &endTime,
+		EndExclusive:   normalizedRange.EndExclusive,
+		ActivityWindow: window,
+		QueryNow:       &queryNow,
+		APIKeyID:       apiKeyID,
+	}, nil
 }
 
 func parseKeyUsageActivityFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {

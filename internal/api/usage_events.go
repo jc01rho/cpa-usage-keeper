@@ -127,6 +127,8 @@ type usageEventExportPayload struct {
 
 type usageEventStreamFunc func(func(servicedto.UsageEventRecord) error) error
 
+const usageEventsExportMaxConcurrency = 2
+
 func registerUsageEventsRoute(
 	router gin.IRoutes,
 	usageProvider service.UsageProvider,
@@ -136,6 +138,8 @@ func registerUsageEventsRoute(
 	requestLogDownloadTokens *requestLogDownloadTokenStore,
 	requestLogAccessEnabled bool,
 ) {
+	exportSlots := make(chan struct{}, usageEventsExportMaxConcurrency)
+
 	router.GET("/usage/events/filters/models", func(c *gin.Context) {
 		models, err := loadUsageEventModelFilterOptions(c, usageProvider)
 		if err != nil {
@@ -261,6 +265,13 @@ func registerUsageEventsRoute(
 		}
 		if err := applyUsageEventsSourceFilter(&filter); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		select {
+		case exportSlots <- struct{}{}:
+			defer func() { <-exportSlots }()
+		default:
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "usage events export capacity is full"})
 			return
 		}
 		filter.Limit = 0

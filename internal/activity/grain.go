@@ -25,8 +25,6 @@ func NormalizeAPIGroupKey(value string) string {
 const HeatmapBlocks = 364
 
 const (
-	// shortWindowSeconds 固定 short 的完整窗口为 24 小时。
-	shortWindowSeconds int64 = 24 * 60 * 60
 	// mediumWindowSeconds 固定 medium 的完整窗口为 7 天。
 	mediumWindowSeconds int64 = 7 * 24 * 60 * 60
 	// longWindowSeconds 固定 long 的完整窗口为 30 天。
@@ -43,6 +41,10 @@ type Bucket struct {
 
 // BucketForTimestamp 返回 timestamp 所属的唯一 Activity bucket。
 func BucketForTimestamp(grain entities.UsageActivityGrain, timestamp time.Time) (Bucket, error) {
+	// short 必须与自然日展示共用从本地零点开始的 364 个边界。
+	if grain == entities.UsageActivityGrainShort {
+		return shortBucketForTimestamp(timestamp), nil
+	}
 	// daily 必须按项目时区的自然日处理，不能套用固定秒数公式。
 	if grain == entities.UsageActivityGrainDaily {
 		// 先把输入时间归一化到项目存储时区，确保日期维度一致。
@@ -67,6 +69,10 @@ func BucketForTimestamp(grain entities.UsageActivityGrain, timestamp time.Time) 
 
 // WindowEndingAt 返回覆盖 referenceEnd 的最后 364 个连续 bucket。
 func WindowEndingAt(grain entities.UsageActivityGrain, referenceEnd time.Time) ([]Bucket, error) {
+	// short 从包含 referenceEnd 的自然日格向前读取连续 364 个真实存储桶。
+	if grain == entities.UsageActivityGrainShort {
+		return shortWindowEndingAt(referenceEnd), nil
+	}
 	// daily 窗口由连续本地自然日组成，单独保留 DST 语义。
 	if grain == entities.UsageActivityGrainDaily {
 		// 把查询参考时间归一化到项目时区。
@@ -123,9 +129,6 @@ func WindowEndingAt(grain entities.UsageActivityGrain, referenceEnd time.Time) (
 func fixedWindowSeconds(grain entities.UsageActivityGrain) (int64, error) {
 	// 每个合法 grain 只映射到一套固定窗口秒数。
 	switch grain {
-	case entities.UsageActivityGrainShort:
-		// short 的 364 个 buckets 合计必须正好覆盖 24 小时。
-		return shortWindowSeconds, nil
 	case entities.UsageActivityGrainMedium:
 		// medium 的 364 个 buckets 合计必须正好覆盖 7 天。
 		return mediumWindowSeconds, nil
@@ -133,9 +136,55 @@ func fixedWindowSeconds(grain entities.UsageActivityGrain) (int64, error) {
 		// long 的 364 个 buckets 合计必须正好覆盖 30 天。
 		return longWindowSeconds, nil
 	default:
-		// daily 已在调用入口单独处理，其余值一律视为非法。
+		// short 与 daily 已在调用入口单独处理，其余值一律视为非法。
 		return 0, fmt.Errorf("unsupported usage activity grain %q", grain)
 	}
+}
+
+func shortBucketForTimestamp(timestamp time.Time) Bucket {
+	// 每个 short bucket 都从 timestamp 所在本地自然日的零点重新编号。
+	normalized := timeutil.NormalizeStorageTime(timestamp)
+	dayStart := time.Date(normalized.Year(), normalized.Month(), normalized.Day(), 0, 0, 0, 0, normalized.Location())
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	windowSeconds := dayEnd.Unix() - dayStart.Unix()
+	index := floorDiv((normalized.Unix()-dayStart.Unix())*HeatmapBlocks, windowSeconds)
+	// floor 边界并非等宽，边界时刻需要用真实 start/end 修正一次估算。
+	for index+1 < HeatmapBlocks && !normalized.Before(calendarBoundary(dayStart, windowSeconds, index+1)) {
+		index++
+	}
+	for index > 0 && normalized.Before(calendarBoundary(dayStart, windowSeconds, index)) {
+		index--
+	}
+	return calendarBucket(dayStart, windowSeconds, index)
+}
+
+func shortWindowEndingAt(referenceEnd time.Time) []Bucket {
+	// 非边界时刻包含当前格；精确边界则把该边界作为半开窗口终点。
+	containing := shortBucketForTimestamp(referenceEnd)
+	cursor := containing.Start
+	if !referenceEnd.Equal(containing.Start) {
+		cursor = containing.End
+	}
+	// 逐格向前走能自然跨越本地零点和 DST，避免维护第二套全局 short index。
+	buckets := make([]Bucket, HeatmapBlocks)
+	for index := len(buckets) - 1; index >= 0; index-- {
+		bucket := shortBucketForTimestamp(cursor.Add(-time.Nanosecond))
+		buckets[index] = bucket
+		cursor = bucket.Start
+	}
+	return buckets
+}
+
+func calendarBucket(dayStart time.Time, windowSeconds, index int64) Bucket {
+	return Bucket{
+		Start: calendarBoundary(dayStart, windowSeconds, index),
+		End:   calendarBoundary(dayStart, windowSeconds, index+1),
+	}
+}
+
+func calendarBoundary(dayStart time.Time, windowSeconds, index int64) time.Time {
+	seconds := floorDiv(index*windowSeconds, HeatmapBlocks)
+	return time.Unix(dayStart.Unix()+seconds, 0).In(dayStart.Location())
 }
 
 // fixedBucketIndex 先用反向比例估算，再按真实整数边界修正舍入误差。

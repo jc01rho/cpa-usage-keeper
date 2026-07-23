@@ -6,7 +6,7 @@ import "time"
 type UsageActivityGrain string
 
 const (
-	// UsageActivityGrainShort 对应固定 24 小时窗口。
+	// UsageActivityGrainShort 对应从本地零点划分的 Day 视图细粒度桶。
 	UsageActivityGrainShort UsageActivityGrain = "short"
 	// UsageActivityGrainMedium 对应固定 7 天窗口。
 	UsageActivityGrainMedium UsageActivityGrain = "medium"
