@@ -89,8 +89,8 @@ export function ServiceHealthCard({ activity, loading, requestIdentity }: Servic
           getSummary={getSummary}
           renderTooltipStats={(block) => block.success + block.failure > 0 ? (
             <span className={styles.activityTooltipStats}>
-              <span className={styles.healthTooltipSuccess}>{t('status_bar.success_short')} {block.success}</span>
-              <span className={styles.healthTooltipFailure}>{t('status_bar.failure_short')} {block.failure}</span>
+              <strong className={styles.healthTooltipSuccess}>{t('status_bar.success_short')} {block.success}</strong>
+              <strong className={styles.healthTooltipFailure}>{t('status_bar.failure_short')} {block.failure}</strong>
               <span className={styles.healthTooltipRate}>({(block.rate * 100).toFixed(1)}%)</span>
             </span>
           ) : (

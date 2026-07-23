@@ -31,10 +31,10 @@ export function useRecentActivityWindow(query: UsageRangeQuery): UseRecentActivi
   const manualWindow = selection.queryIdentity === queryIdentity ? selection.window : null;
 
   const request: UsageActivityRequest = (
-    manualWindow === '1y'
+    manualWindow
       ? { window: manualWindow }
-      : manualWindow
-      ? { range: manualWindow }
+      : query.range === 'today' || query.range === 'yesterday'
+        ? { window: query.range }
       : query.range === 'custom'
         ? { range: query.range, unit: query.unit, start: query.start, end: query.end }
         : { range: query.range }

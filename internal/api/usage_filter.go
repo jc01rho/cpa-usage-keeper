@@ -29,17 +29,41 @@ func parseKeyUsageTimeFilterQuery(req *http.Request, anchor time.Time) (serviced
 	return parseUsageTimeFilterQueryWithClientAPIKey(req, anchor, false)
 }
 
+// Overview 的 Custom 日范围只依赖 daily 汇总，因此可以独立放开历史跨度。
+func parseUsageOverviewTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+}
+
+func parseKeyUsageOverviewTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, false, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+}
+
+// Events 直接查询仍在保留期内的原始事件，因此只放开 Custom 日范围的历史跨度。
+func parseUsageEventsTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+}
+
+// Analysis 主数据来自 hourly/daily 汇总，因此和 Overview 一样可以独立放开 Custom 日范围。
+func parseUsageAnalysisTimeFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, true, timeutil.UsageQueryRangeOptions{AllowLongCustomDayRange: true})
+}
+
 func parseUsageTimeFilterQueryWithClientAPIKey(req *http.Request, anchor time.Time, includeClientAPIKey bool) (servicedto.UsageFilter, error) {
+	return parseUsageTimeFilterQueryWithOptions(req, anchor, includeClientAPIKey, timeutil.UsageQueryRangeOptions{})
+}
+
+func parseUsageTimeFilterQueryWithOptions(req *http.Request, anchor time.Time, includeClientAPIKey bool, options timeutil.UsageQueryRangeOptions) (servicedto.UsageFilter, error) {
 	if req == nil {
 		return servicedto.UsageFilter{}, nil
 	}
 	query := req.URL.Query()
-	normalizedRange, err := timeutil.ParseUsageQueryRange(
+	normalizedRange, err := timeutil.ParseUsageQueryRangeWithOptions(
 		query.Get("range"),
 		query.Get("unit"),
 		query.Get("start"),
 		query.Get("end"),
 		anchor,
+		options,
 	)
 	if err != nil {
 		return servicedto.UsageFilter{}, err
@@ -83,7 +107,7 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 	if req == nil {
 		return servicedto.UsageFilter{}, nil
 	}
-	filter, err := parseUsageTimeFilterQuery(req, anchor)
+	filter, err := parseUsageEventsTimeFilterQuery(req, anchor)
 	if err != nil {
 		return servicedto.UsageFilter{}, err
 	}

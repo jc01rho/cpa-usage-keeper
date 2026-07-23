@@ -59,6 +59,10 @@ const (
 	migrationAddUsageEventGenerate                  = "20260715_add_usage_event_generate"
 	// migrationUsageActivityStats 创建统一 Activity 并在回填完成后删除旧 Health 表。
 	migrationUsageActivityStats = "20260719_usage_activity_stats"
+	// migrationAlignUsageActivityShort 把已部署 short 行切换到本地自然日边界。
+	migrationAlignUsageActivityShort = "20260722_align_usage_activity_short"
+	// migrationUsageOverviewFiveDimensions 从现存 raw events 重建五维 hourly/daily rollup。
+	migrationUsageOverviewFiveDimensions = "20260723_usage_overview_five_dimensions"
 )
 
 type schemaMigration struct {
@@ -162,6 +166,10 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventGenerate, run: addUsageEventGenerateMigration},
 		// Activity migration 自己管理 1000-event 小事务，外层不能再包一个长事务。
 		{version: migrationUsageActivityStats, run: usageActivityStatsMigration, disableTransaction: true},
+		// short 重建在默认事务内原子完成，失败时旧行和版本标记一起回滚。
+		{version: migrationAlignUsageActivityShort, run: alignUsageActivityShortMigration},
+		// 五维重建自己管理 schema/setup 与 1000-event 小事务，外层不能再包长事务。
+		{version: migrationUsageOverviewFiveDimensions, run: usageOverviewFiveDimensionsMigration, disableTransaction: true},
 	}
 }
 

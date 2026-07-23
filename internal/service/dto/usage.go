@@ -20,7 +20,7 @@ type UsageFilter struct {
 	EndExclusive bool
 	// QueryNow 固定本次内部查询的服务器时刻；Activity API 会显式设置，其他调用可留空。
 	QueryNow *time.Time
-	// ActivityWindow 只承载 Activity 专属窗口，避免把 1y 扩散到公共 Usage range 解析器。
+	// ActivityWindow 承载 Activity 的显式 window 请求；普通范围仍使用上面的统一时间字段。
 	ActivityWindow UsageActivityWindow
 	// RealtimeWindow 控制 Overview 实时图表短窗口，独立于页面主查询范围。
 	RealtimeWindow  string
@@ -83,9 +83,6 @@ type UsageEventRecord struct {
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。
 type UsageOverviewSummary struct {
-	RequestCount          int64
-	TokenCount            int64
-	WindowMinutes         int64
 	RPM                   float64
 	TPM                   float64
 	TotalCost             float64
@@ -102,12 +99,13 @@ type UsageOverviewSummary struct {
 
 // UsageOverviewSeries 是 overview series 的服务层结果。
 type UsageOverviewSeries struct {
-	Requests      map[string]int64
-	Tokens        map[string]int64
-	RPM           map[string]float64
-	TPM           map[string]float64
-	Cost          map[string]float64
-	CacheReadRate map[string]*float64
+	Buckets       []string
+	Requests      []int64
+	Tokens        []int64
+	RPM           []float64
+	TPM           []float64
+	Cost          []float64
+	CacheReadRate []*float64
 }
 
 // RealtimeTokenVelocityPoint 是 Overview token 速度图的单个短窗口桶。
