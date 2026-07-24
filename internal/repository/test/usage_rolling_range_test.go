@@ -41,7 +41,7 @@ func TestBuildAnalysisIncludesCurrentHourStatsForArbitraryHourRange(t *testing.T
 		t.Fatalf("drop usage_events: %v", err)
 	}
 
-	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "13h", StartTime: &start, EndTime: &end})
+	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "13h", StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBuildAnalysisIncludesCurrentHourStatsForRollingDayRange(t *testing.T) {
 		t.Fatalf("drop usage_events: %v", err)
 	}
 
-	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "13d", StartTime: &start, EndTime: &end})
+	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "13d", StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestBuildAnalysisKeepsDailyStatsAcrossDSTBoundary(t *testing.T) {
 		t.Fatalf("drop usage_events: %v", err)
 	}
 
-	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "8d", StartTime: &start, EndTime: &end})
+	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "8d", StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}

@@ -32,7 +32,7 @@ func TestListUsageEventsWithFilterPreservesEventFields(t *testing.T) {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{Page: 1, PageSize: 10, Limit: 10})
+	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{Page: 1, PageSize: 10, Limit: 10}, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestBuildUsageOverviewWithFilterFiltersByAPIGroupKey(t *testing.T) {
 	}
 	start := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 4, 20, 11, 0, 0, 0, time.UTC)
-	overview, err := BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Range: "custom", StartTime: &start, EndTime: &end})
+	overview, err := BuildUsageOverviewWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Range: "custom", StartTime: &start, EndTime: &end}, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatalf("BuildUsageOverviewWithFilter returned error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestBuildAnalysisWithFilterUsesOverviewStatsWithoutUsageEvents(t *testing.T
 	start := bucket
 	end := bucket.Add(time.Hour)
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error after dropping usage_events: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestBuildAnalysisWithFilterCalculatesCostInsightsFromOverviewStats(t *testi
 	start := bucket
 	end := bucket.Add(2 * time.Hour)
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestBuildAnalysisWithFilterMarksCostUnavailableForUnpricedStats(t *testing.
 	start := bucket
 	end := bucket.Add(time.Hour)
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestBuildAnalysisWithFilterExcludesMissingAndDeletedCPAAPIKeys(t *testing.T
 	start := bucket
 	end := bucket.Add(time.Hour)
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestBuildAnalysisWithFilterBuildsIdentityCompositionsFromActiveUsageIdentit
 	start := bucket
 	end := bucket.Add(time.Hour)
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -468,7 +468,7 @@ func TestBuildAnalysisWithFilterKeepsHeatmapPairsSeparateWhenValuesContainDelimi
 	start := bucket
 	end := bucket.Add(time.Hour)
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestBuildAnalysisWithFilterIncludesCurrentHourStatsInRollingHourlyRanges(t 
 		t.Fatalf("drop usage_events: %v", err)
 	}
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "5h", StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "5h", StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -546,7 +546,7 @@ func TestBuildAnalysisWithFilterFillsTodayAndYesterdayHourlyBucketsFromStats(t *
 		t.Fatalf("drop usage_events: %v", err)
 	}
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "yesterday", StartTime: &start, EndTime: &end})
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "yesterday", StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
@@ -619,7 +619,7 @@ func TestBuildAnalysisWithFilterIncludesPartialCurrentDayInDailyRanges(t *testin
 
 	for _, rangeValue := range []string{"7d", "30d"} {
 		t.Run(rangeValue, func(t *testing.T) {
-			analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: rangeValue, StartTime: &start, EndTime: &end})
+			analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: rangeValue, StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
@@ -647,7 +647,7 @@ func TestListUsageEventsWithFilterFiltersByAPIGroupKey(t *testing.T) {
 	db := openUsageTestDatabase(t)
 	insertAPIKeyFilterEvents(t, db)
 
-	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Page: 1, PageSize: 100, Limit: 100})
+	page, err := ListUsageEventsWithFilter(db, repodto.UsageQueryFilter{APIGroupKey: "sk-target-key", Page: 1, PageSize: 100, Limit: 100}, emptyPricingResolverForTest())
 	if err != nil {
 		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
 	}

@@ -74,7 +74,7 @@ func TestPricingUpdateDoesNotDependOnReaderAvailability(t *testing.T) {
 	// 执行：更新定价时的存在性查询和 Save 都必须使用 writer。
 	result := make(chan error, 1)
 	go func() {
-		_, err := service.NewPricingService(db).UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
+		_, err := service.NewPricingService(db, emptyPricingCatalogForTest()).UpdatePricing(context.Background(), servicedto.UpdatePricingInput{
 			Model:                "writer-pricing-model",
 			PromptPricePer1M:     1,
 			CompletionPricePer1M: 2,

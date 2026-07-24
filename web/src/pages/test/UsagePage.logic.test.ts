@@ -533,7 +533,7 @@ describe('UsagePage request event preferences', () => {
     });
 
     expect(preferences).toEqual({
-      version: 5,
+      version: 7,
       pageSize: 500,
       filters: {
         model: 'claude-opus',
@@ -541,6 +541,7 @@ describe('UsagePage request event preferences', () => {
         result: 'failed',
       },
       visibleColumnIds: ['model', 'timestamp', 'total_cost'],
+      columnOrder: REQUEST_EVENT_COLUMN_IDS,
     });
   });
 
@@ -613,7 +614,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'speed');
 
     saveRequestEventsPreferences({
-      version: 5,
+      version: 7,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -621,11 +622,12 @@ describe('UsagePage request event preferences', () => {
         result: '__all__',
       },
       visibleColumnIds: hiddenSpeedColumnIds,
+      columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
     }, storage);
 
     const stored = JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '');
     expect(stored).toEqual({
-      version: 5,
+      version: 7,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -633,6 +635,7 @@ describe('UsagePage request event preferences', () => {
         result: '__all__',
       },
       visibleColumnIds: hiddenSpeedColumnIds,
+      columnOrder: REQUEST_EVENT_COLUMN_IDS,
     });
     expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenSpeedColumnIds);
   });
@@ -642,7 +645,7 @@ describe('UsagePage request event preferences', () => {
     const hiddenSpeedModeColumnIds = REQUEST_EVENT_COLUMN_IDS.filter((columnId) => columnId !== 'service_tier');
 
     saveRequestEventsPreferences({
-      version: 5,
+      version: 7,
       pageSize: 100,
       filters: {
         model: '__all__',
@@ -650,6 +653,7 @@ describe('UsagePage request event preferences', () => {
         result: '__all__',
       },
       visibleColumnIds: hiddenSpeedModeColumnIds,
+      columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
     }, storage);
 
     expect(loadRequestEventsPreferences(storage).visibleColumnIds).toEqual(hiddenSpeedModeColumnIds);
@@ -675,7 +679,7 @@ describe('UsagePage request event preferences', () => {
 
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.value(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY) ?? '')).toEqual({
-      version: 5,
+      version: 7,
       pageSize: 50,
       filters: {
         model: 'gpt-4.1',
@@ -683,6 +687,7 @@ describe('UsagePage request event preferences', () => {
         result: 'success',
       },
       visibleColumnIds: ['timestamp', 'model'],
+      columnOrder: REQUEST_EVENT_COLUMN_IDS,
     });
   });
 });

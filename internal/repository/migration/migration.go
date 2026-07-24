@@ -63,6 +63,8 @@ const (
 	migrationAlignUsageActivityShort = "20260722_align_usage_activity_short"
 	// migrationUsageOverviewFiveDimensions 从现存 raw events 重建五维 hourly/daily rollup。
 	migrationUsageOverviewFiveDimensions = "20260723_usage_overview_five_dimensions"
+	// migrationModelPriceRules 创建每模型精确字段倍率规则表。
+	migrationModelPriceRules = "20260723_model_price_rules"
 )
 
 type schemaMigration struct {
@@ -170,6 +172,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAlignUsageActivityShort, run: alignUsageActivityShortMigration},
 		// 五维重建自己管理 schema/setup 与 1000-event 小事务，外层不能再包长事务。
 		{version: migrationUsageOverviewFiveDimensions, run: usageOverviewFiveDimensionsMigration, disableTransaction: true},
+		{version: migrationModelPriceRules, run: createModelPriceRulesMigration},
 	}
 }
 

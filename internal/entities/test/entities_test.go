@@ -17,6 +17,7 @@ func TestAllIncludesCoreModels(t *testing.T) {
 		&UsageEvent{},
 		&RedisUsageInbox{},
 		&ModelPriceSetting{},
+		&ModelPriceRule{},
 		&UsageIdentity{},
 		&CPAAPIKey{},
 		&UsageOverviewHourlyStat{},

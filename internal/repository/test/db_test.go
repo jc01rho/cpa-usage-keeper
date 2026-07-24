@@ -16,6 +16,7 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -24,6 +25,10 @@ const (
 	testRedisInboxSource               = "redis_pull:usage"
 	usageOverviewAggregationCheckpoint = "overview"
 )
+
+func emptyPricingResolverForTest() pricing.Resolver {
+	return pricing.NewCatalog(pricing.EmptySnapshot()).NewResolver()
+}
 
 func TestOpenDatabaseAutoMigratesCoreTables(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "app.db")

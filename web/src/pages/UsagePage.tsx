@@ -34,6 +34,7 @@ import {
 import {
   RequestEventsDetailsCard,
   REQUEST_EVENT_COLUMN_IDS,
+  normalizeRequestEventColumnOrder,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
 import { clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
@@ -70,7 +71,8 @@ const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
-const REQUEST_EVENTS_PREFERENCES_VERSION = 5;
+// v6 曾用于拆分 Speed Mode 列的历史偏好，新的完整列顺序格式从 v7 开始，避免误判旧数据。
+const REQUEST_EVENTS_PREFERENCES_VERSION = 7;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 const CPA_MANAGEMENT_PAGE = 'management.html';
@@ -193,6 +195,7 @@ export type RequestEventsPreferences = {
   pageSize: number;
   filters: RequestEventFilterState;
   visibleColumnIds: RequestEventColumnId[];
+  columnOrder: RequestEventColumnId[];
 };
 
 type RequestEventsPreferenceStorage = Pick<Storage, 'getItem' | 'setItem'>;
@@ -208,6 +211,7 @@ const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
   pageSize: REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
   filters: { ...DEFAULT_REQUEST_EVENT_FILTERS },
   visibleColumnIds: [...REQUEST_EVENT_COLUMN_IDS],
+  columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
 });
 
 const LEGACY_REQUEST_EVENT_COLUMN_IDS_V3 = [
@@ -400,6 +404,11 @@ export const normalizeRequestEventsPreferences = (value: unknown): RequestEvents
     pageSize: isRequestEventPageSize(preferences.pageSize) ? preferences.pageSize : REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
     filters: normalizeRequestEventPreferenceFilters(preferences.filters),
     visibleColumnIds: normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds, preferences.version),
+    columnOrder: normalizeRequestEventColumnOrder(
+      Array.isArray(preferences.columnOrder)
+        ? preferences.columnOrder.filter(isRequestEventColumnId)
+        : REQUEST_EVENT_COLUMN_IDS
+    ),
   };
 };
 
@@ -852,6 +861,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     loadPricing,
     saveModelPrice,
     deleteModelPrice,
+    loadPricingRules,
+    savePricingRules,
     syncModelPrices,
     previewPricingSync,
   } = usePricingData({
@@ -889,6 +900,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsSourceFilter, setEventsSourceFilter] = useState(initialRequestEventsPreferences.filters.source);
   const [eventsResultFilter, setEventsResultFilter] = useState(initialRequestEventsPreferences.filters.result);
   const [eventsVisibleColumnIds, setEventsVisibleColumnIds] = useState<RequestEventColumnId[]>(initialRequestEventsPreferences.visibleColumnIds);
+  const [eventsColumnOrder, setEventsColumnOrder] = useState<RequestEventColumnId[]>(initialRequestEventsPreferences.columnOrder);
   const [eventsExportingFormat, setEventsExportingFormat] = useState<UsageEventsExportFormat | null>(null);
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
   const [requestLogResponse, setRequestLogResponse] = useState<UsageEventRequestLogResponse | null>(null);
@@ -1208,8 +1220,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         result: eventsResultFilter,
       },
       visibleColumnIds: eventsVisibleColumnIds,
+      columnOrder: eventsColumnOrder,
     });
-  }, [eventsModelFilter, eventsPageSize, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
+  }, [eventsColumnOrder, eventsModelFilter, eventsPageSize, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
 
   useEffect(() => {
     setEventsPage(1);
@@ -2007,6 +2020,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   resultFilter={eventsResultFilter}
                   exportingFormat={eventsExportingFormat}
                   visibleColumnIds={eventsVisibleColumnIds}
+                  columnOrder={eventsColumnOrder}
                   onPageChange={setEventsPage}
                   onPageSizeChange={handleEventsPageSizeChange}
                   onModelFilterChange={handleEventsModelFilterChange}
@@ -2014,6 +2028,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   onResultFilterChange={handleEventsResultFilterChange}
                   onExport={handleEventsExport}
                   onVisibleColumnIdsChange={setEventsVisibleColumnIds}
+                  onColumnOrderChange={setEventsColumnOrder}
                   requestLogAccessEnabled={requestLogAccessEnabled}
                   onRequestLogOpen={handleRequestLogOpen}
                   requestLogLoadingEventId={requestLogLoadingEventId}
@@ -2106,6 +2121,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   modelPrices={modelPrices}
                   onPriceSave={saveModelPrice}
                   onPriceDelete={deleteModelPrice}
+                  onRulesLoad={loadPricingRules}
+                  onRulesSave={savePricingRules}
                   onSyncPricesChange={syncModelPrices}
                   onSyncPreview={previewPricingSync}
                   onNotice={showTopNotice}
@@ -2124,10 +2141,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         closeDisabled={loggingOut}
         footer={
           <>
-            <Button type="button" variant="secondary" onClick={() => setLogoutConfirmOpen(false)} disabled={loggingOut}>
+            <Button type="button" variant="secondary" className={styles.usagePillAction} onClick={() => setLogoutConfirmOpen(false)} disabled={loggingOut}>
               {t('common.cancel')}
             </Button>
-            <Button type="button" variant="danger" onClick={() => void handleConfirmLogout()} loading={loggingOut}>
+            <Button type="button" variant="danger" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => void handleConfirmLogout()} loading={loggingOut}>
               {loggingOut ? t('common.loading') : t('usage_stats.logout_confirm_action')}
             </Button>
           </>
