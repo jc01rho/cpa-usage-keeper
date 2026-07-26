@@ -17,6 +17,9 @@ func main() {
 
 	application, err := app.NewWithOptions(app.Options{EnvFile: *envFile})
 	if err != nil {
+		if app.IsInitializationErrorLogged(err) {
+			os.Exit(1)
+		}
 		logrus.WithError(err).Fatal("initialize app")
 	}
 	defer application.Close()

@@ -80,15 +80,6 @@ export interface PricingDraftInput {
   multiplier: string;
 }
 
-function PriceSettingsTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className={styles.sectionTitleBlock}>
-      <h3 className={styles.sectionTitle}>{title}</h3>
-      <p className={styles.sectionSubtitle}>{subtitle}</p>
-    </div>
-  );
-}
-
 const parsePriceValue = (value: string): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
@@ -574,21 +565,16 @@ export function PriceSettingsCard({
   return (
     <>
       <Card
-        title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', gap: '16px' }}>
-            <PriceSettingsTitle
-              title={t('usage_stats.model_price_settings_title')}
-              subtitle={t('usage_stats.model_price_settings_subtitle')}
-            />
-            <Button
-              variant="secondary"
-              onClick={handleFetchOpenRouter}
-              disabled={isFetchingOpenRouter || loading}
-              style={{ flexShrink: 0 }}
-            >
-              {isFetchingOpenRouter ? t('usage_stats.fetch_openrouter_loading') : t('usage_stats.fetch_openrouter')}
-            </Button>
-          </div>
+        title={t('usage_stats.model_price_settings_title')}
+        subtitle={t('usage_stats.model_price_settings_subtitle')}
+        extra={
+          <Button
+            variant="secondary"
+            onClick={handleFetchOpenRouter}
+            disabled={isFetchingOpenRouter || loading}
+          >
+            {isFetchingOpenRouter ? t('usage_stats.fetch_openrouter_loading') : t('usage_stats.fetch_openrouter')}
+          </Button>
         }
         className={`${styles.detailsFixedCard} ${styles.pricingFixedCard}`}
       >

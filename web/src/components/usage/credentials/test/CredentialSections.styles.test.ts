@@ -16,6 +16,30 @@ const cssBlock = (selector: string) => {
 }
 
 describe('Credential section styles', () => {
+  it('uses the global card contract and a stable credential title track', () => {
+    expect(credentialShellSource).toMatch(/className=\{`\$\{styles\.credentialSectionCard\} keeper-card-surface`\}/)
+    expect(credentialShellSource).toMatch(/className=\{`\$\{styles\.credentialSectionTitleRow\} keeper-card-title-track`\}/)
+    expect(credentialShellSource).toMatch(/className=\{`\$\{styles\.credentialSectionTitle\} keeper-card-title`\}/)
+    expect(credentialShellSource).toMatch(/className=\{`\$\{styles\.credentialSectionSubtitle\} keeper-card-subtitle`\}/)
+
+    expect(credentialStyles).toMatch(/\.credentialSectionHeader\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto;/)
+    expect(credentialStyles).toMatch(/\.credentialSectionActions\s*\{[\s\S]*?min-height:\s*var\(--keeper-card-title-track-height\);[\s\S]*?align-items:\s*center;/)
+    expect(credentialStyles).toMatch(/\.credentialSectionTitleRow\s*\{[\s\S]*?flex-wrap:\s*nowrap;/)
+    expect(credentialStyles).toMatch(/\.credentialSectionTitleBlock\s*\{[\s\S]*?min-width:\s*0;/)
+    expect(cssBlock('.credentialSectionTitleBlock')).not.toContain('display: contents;')
+    expect(credentialStyles).toMatch(/\.credentialSectionTitleRow\s*\{[\s\S]*?min-height:\s*34px;/)
+    expect(credentialStyles).toMatch(/\.credentialSectionActions\s*\{[\s\S]*?align-self:\s*flex-end;/)
+    expect(credentialStyles).toMatch(/\.credentialSectionSubtitle\s*\{[\s\S]*?font-size:\s*var\(--keeper-card-subtitle-size\);[\s\S]*?font-weight:\s*var\(--keeper-card-subtitle-weight\);/)
+    expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]*?\.credentialSectionTitleRow\s*\{[\s\S]*?flex-wrap:\s*wrap;/)
+
+    const cardBlock = cssBlock('.credentialSectionCard')
+    expect(cardBlock).not.toContain('border: 1px solid')
+    expect(cardBlock).not.toContain('border-radius: 24px')
+    expect(cardBlock).not.toContain('box-shadow:')
+    expect(cssBlock('.credentialRefreshButton')).toContain('font-size: 12px;')
+    expect(cssBlock('.credentialRefreshButton')).not.toContain('font-size: 14px;')
+  })
+
   it('keeps Auth Files and AI Provider row sizing separate', () => {
     expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?grid-template-columns:\s*236px minmax\(0, 448px\) minmax\(250px, 1fr\);/)
     expect(credentialStyles).toMatch(/\.authFileCredentialRow\s*\{[\s\S]*?\.credentialIdentityBlock\s*\{[\s\S]*?max-width:\s*236px;/)

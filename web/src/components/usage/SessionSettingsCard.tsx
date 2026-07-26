@@ -55,12 +55,8 @@ export function SessionSettingsCard({ sessions, loading = false, revokingId = nu
 
   return (
     <Card
-      title={
-        <div className={styles.sectionTitleBlock}>
-          <h3 className={styles.sectionTitle}>{t('usage_stats.session_settings_title')}</h3>
-          <p className={styles.sectionSubtitle}>{t('usage_stats.session_settings_subtitle')}</p>
-        </div>
-      }
+      title={t('usage_stats.session_settings_title')}
+      subtitle={t('usage_stats.session_settings_subtitle')}
       className={`${styles.detailsFixedCard} ${styles.sessionSettingsCard}`}
     >
       <div ref={sessionSettingsBodyRef} className={styles.sessionSettingsBody}>

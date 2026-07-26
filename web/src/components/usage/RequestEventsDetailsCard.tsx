@@ -374,18 +374,6 @@ const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endp
   return { requestType, endpoint: normalizedPath || '-' };
 };
 
-function RequestEventsTitle({ title, subtitle, totalLabel }: { title: string; subtitle: string; totalLabel: string }) {
-  return (
-    <div className={styles.sectionTitleBlock}>
-      <div className={styles.requestEventsTitleRow}>
-        <h3 className={styles.sectionTitle}>{title}</h3>
-        <span className={styles.requestEventsCountBadge}>{totalLabel}</span>
-      </div>
-      <p className={styles.sectionSubtitle}>{subtitle}</p>
-    </div>
-  );
-}
-
 const copyRequestLogSectionContent = async (content: string) => {
   const clipboard = globalThis.navigator?.clipboard;
   if (clipboard) {
@@ -1179,12 +1167,13 @@ export function RequestEventsDetailsCard({
     <>
       <Card
         className={styles.requestEventsCard}
-        title={
-          <RequestEventsTitle
-            title={t('usage_stats.request_events_title')}
-            subtitle={t('usage_stats.request_events_subtitle')}
-            totalLabel={t('usage_stats.request_events_total_count', { count: totalCount })}
-          />
+        variant="flush"
+        title={t('usage_stats.request_events_title')}
+        subtitle={t('usage_stats.request_events_subtitle')}
+        titleMeta={
+          <span className={styles.requestEventsCountBadge}>
+            {t('usage_stats.request_events_total_count', { count: totalCount })}
+          </span>
         }
         extra={
           <div className={styles.requestEventsActions}>

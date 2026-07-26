@@ -6,10 +6,13 @@
   align-items: center;
   justify-content: center;
   gap: $spacing-sm;
+  min-height: var(--keeper-control-height-md);
   border: 1px solid transparent;
   border-radius: $radius-md;
-  padding: 10px 14px;
+  padding: 0 14px;
+  font-size: var(--keeper-control-font-size);
   font-weight: 600;
+  line-height: 1;
   cursor: pointer;
   transition: all $transition-fast;
   background-color: var(--bg-secondary);
@@ -49,12 +52,13 @@
   }
 
   &.btn-danger {
-    background-color: $error-color;
-    border-color: $error-color;
+    background-color: var(--danger-color);
+    border-color: var(--danger-color);
     color: #fff;
 
     &:hover {
-      background-color: color.adjust($error-color, $lightness: -5%);
+      background-color: color-mix(in srgb, var(--danger-color) 92%, #000);
+      border-color: color-mix(in srgb, var(--danger-color) 92%, #000);
     }
   }
 
@@ -63,8 +67,9 @@
   }
 
   &.btn-sm {
-    padding: 8px 10px;
-    font-size: 14px;
+    min-height: var(--keeper-control-height-sm);
+    padding: 0 12px;
+    font-size: var(--keeper-control-font-size);
   }
 
   &:disabled {
@@ -118,33 +123,79 @@ textarea {
   }
 }
 
-.card {
+.keeper-card-surface {
   background-color: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: $radius-lg;
-  box-shadow: var(--shadow);
-  padding: $spacing-lg;
+  border-radius: var(--keeper-card-radius);
+  box-shadow: var(--shadow-lg);
+}
+
+.card {
+  @extend .keeper-card-surface;
+  padding: var(--keeper-card-padding);
+}
+
+.card-flush {
+  padding: 0;
 }
 
 .card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: $spacing-sm;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
   margin-bottom: $spacing-md;
+}
 
-  > * {
-    min-width: 0;
-  }
+.card-flush > .card-header {
+  margin-bottom: 0;
+  padding: var(--keeper-card-header-padding-top) var(--keeper-card-header-padding-x)
+    var(--keeper-card-header-padding-bottom);
+  border-bottom: 1px solid var(--border-color);
+}
 
-  .title {
-    flex: 1 1 auto;
-    min-width: 0;
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
+.keeper-card-heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.keeper-card-title-track {
+  display: flex;
+  min-width: 0;
+  min-height: var(--keeper-card-title-track-height);
+  align-items: center;
+  gap: 10px;
+}
+
+.keeper-card-title {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--keeper-card-title-size);
+  font-weight: var(--keeper-card-title-weight);
+  line-height: var(--keeper-card-title-line-height);
+}
+
+.keeper-card-title-meta {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.keeper-card-subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--keeper-card-subtitle-size);
+  font-weight: var(--keeper-card-subtitle-weight);
+  line-height: var(--keeper-card-subtitle-line-height);
+}
+
+.keeper-card-actions {
+  display: flex;
+  min-height: var(--keeper-card-title-track-height);
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .status-badge {
@@ -413,7 +464,7 @@ textarea {
 
 .modal {
   background: var(--bg-primary);
-  border-radius: $radius-lg;
+  border-radius: var(--keeper-card-radius);
   border: 1px solid var(--border-color);
   box-shadow: $shadow-lg;
   max-width: 100%;
@@ -518,12 +569,14 @@ textarea {
 .modal-header {
   display: flex;
   align-items: center;
+  min-height: calc(var(--keeper-card-title-track-height) + #{$spacing-md * 2});
   padding: $spacing-md $spacing-lg;
   border-bottom: 1px solid var(--border-color);
 
   .modal-title {
-    font-weight: 700;
-    font-size: 18px;
+    font-weight: var(--keeper-card-title-weight);
+    font-size: var(--keeper-card-title-size);
+    line-height: var(--keeper-card-title-line-height);
     color: var(--text-primary);
   }
 }
@@ -549,9 +602,17 @@ textarea {
     padding: $spacing-md;
   }
 
+  .card-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .card-flush > .card-header {
+    padding: 18px;
+  }
+
   .modal {
     max-height: calc(100vh - #{$spacing-md * 2});
-    border-radius: $radius-md;
+    border-radius: var(--keeper-card-radius);
   }
 
   @supports (height: 100dvh) {
@@ -708,6 +769,8 @@ textarea {
   border-radius: $radius-md;
   padding: $spacing-sm $spacing-md;
   color: $error-color;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .stack {
