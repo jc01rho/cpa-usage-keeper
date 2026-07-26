@@ -20,6 +20,7 @@ import (
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/ranking"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 	webui "cpa-usage-keeper/web"
@@ -61,6 +62,7 @@ type App struct {
 	RedisProcess Runner
 	// UsageAggregation 是唯一串行调度三类派生聚合事务的后台 runner。
 	UsageAggregation  Runner
+	Ranking           Runner
 	Maintenance       *StorageCleanupRunner
 	MetadataSync      *MetadataSyncRunner
 	QuotaService      QuotaRunner
@@ -76,6 +78,35 @@ type App struct {
 
 // newUsageRecentEventCache 是最近事件缓存构造入口，测试可替换它来覆盖缓存初始化失败路径。
 var newUsageRecentEventCache = repository.NewUsageRecentEventCache
+
+type loggedInitializationError struct {
+	err error
+}
+
+func (e *loggedInitializationError) Error() string {
+	return e.err.Error()
+}
+
+func (e *loggedInitializationError) Unwrap() error {
+	return e.err
+}
+
+// IsInitializationErrorLogged 判断构造阶段是否已在释放日志资源前写入终止错误。
+func IsInitializationErrorLogged(err error) bool {
+	var logged *loggedInitializationError
+	return errors.As(err, &logged)
+}
+
+func failInitialization(logCloser io.Closer, err error) error {
+	logging.LogTerminalFatal("initialize app", err)
+	if closeErr := logCloser.Close(); closeErr != nil {
+		wrappedCloseErr := fmt.Errorf("close logging: %w", closeErr)
+		err = errors.Join(err, wrappedCloseErr)
+		// 文件日志已经进入关闭流程，额外将关闭失败写到恢复后的控制台输出，避免错误只留在返回值里。
+		logging.LogTerminalError("close logging after initialization failure", wrappedCloseErr)
+	}
+	return &loggedInitializationError{err: err}
+}
 
 func New() (*App, error) {
 	return NewWithOptions(Options{})
@@ -100,6 +131,24 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	db, readDB, err := repository.OpenDatabasePools(cfg)
 	// 任一数据库池构造失败时 repository 已回收局部资源，App 只需要释放日志句柄。
 	if err != nil {
+		return nil, failInitialization(logCloser, err)
+	}
+	// Ranking 完全复用现有 app_settings 和统一 DB；构造阶段不访问中心，默认 disabled 没有外部请求。
+	rankingService, err := ranking.NewService(ranking.NewStore(db), ranking.NewAggregator(db), ranking.NewClient())
+	if err != nil {
+		if readDB != db {
+			_ = closeGormDB(readDB)
+		}
+		_ = closeGormDB(db)
+		_ = logCloser.Close()
+		return nil, err
+	}
+	rankingRunner, err := ranking.NewRunner(rankingService)
+	if err != nil {
+		if readDB != db {
+			_ = closeGormDB(readDB)
+		}
+		_ = closeGormDB(db)
 		_ = logCloser.Close()
 		return nil, err
 	}
@@ -119,8 +168,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			_ = closeGormDB(readDB)
 		}
 		_ = closeGormDB(db)
-		_ = logCloser.Close()
-		return nil, fmt.Errorf("load pricing snapshot: %w", err)
+		return nil, failInitialization(logCloser, fmt.Errorf("load pricing snapshot: %w", err))
 	}
 	pricingCatalog := pricing.NewCatalog(pricingSnapshot)
 
@@ -129,8 +177,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit,
 		PricingCatalog:     pricingCatalog,
 	})
-	// 单 writer aggregation runner 复用同一个数据库和 quota appender，并在 App.Run 时主动追平。
-	usageAggregationRunner := poller.NewUsageAggregationRunner(db, quotaService)
+	// 单 writer aggregation runner 只维护 rollups/Identity，并在 App.Run 时主动追平。
+	usageAggregationRunner := poller.NewUsageAggregationRunner(db)
 	// syncService 仍然是 metadata 和 usage 处理共享的业务服务入口。
 	syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 		BaseURL:                   cfg.CPABaseURL,
@@ -140,6 +188,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		RecentUsageEvents: recentUsageCache,
 		// usage 与 metadata 提交后只唤醒单 writer runner，不在前台链路执行派生聚合。
 		UsageAggregationNotifier: usageAggregationRunner,
+		// Header 独立进入 Quota worker 的惰性一分钟窗口，不再等待 Overview 水位。
+		UsageHeaderQuota: quotaService,
 	})
 	// metadataSyncRunner 提前创建，保证控制消息和后台任务使用同一个调度器实例。
 	metadataSyncRunner := NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval)
@@ -199,8 +249,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			// 最后关闭唯一 writer，确保任何已开始的写操作先于日志资源结束。
 			_ = closeGormDB(db)
 			// 数据库资源全部回收后再关闭日志文件。
-			_ = logCloser.Close()
-			return nil, err
+			return nil, failInitialization(logCloser, err)
 		}
 		// 备份期间其它写入继续在 writer 池外排队；页面查询仍可使用独立 reader，不恢复旧版的全局读阻塞。
 		backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
@@ -249,6 +298,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		RedisIngest:       redisIngestRunner,
 		RedisProcess:      redisProcessRunner,
 		UsageAggregation:  usageAggregationRunner,
+		Ranking:           rankingRunner,
 		Maintenance:       NewStorageCleanupRunner(syncService),
 		MetadataSync:      metadataSyncRunner,
 		QuotaService:      quotaService,
@@ -271,6 +321,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				CPAAPIKeys:    cpaAPIKeyService,
 				AuthFiles:     authFilesManagementService,
 				RequestLogs:   requestLogService,
+				Ranking:       rankingService,
 				Status: api.StatusRouteConfig{
 					CPAPublicURL:               cfg.CPAPublicURL,
 					CPARequestLogAccessEnabled: cfg.CPARequestLogAccessEnabled,
@@ -380,6 +431,14 @@ func (a *App) Run() error {
 			// runner 错误只终止该后台任务，不影响 HTTP 或已提交 usage 数据。
 			if err := a.UsageAggregation.Run(ctx); err != nil {
 				logrus.Errorf("usage aggregation stopped: %v", err)
+			}
+		})
+	}
+	if a.Ranking != nil {
+		a.startBackgroundTask(func() {
+			// 排名中心故障只能终止本次可选同步任务，不能影响 Keeper HTTP 或 usage 采集。
+			if err := a.Ranking.Run(ctx); err != nil {
+				logrus.Errorf("ranking synchronization stopped: %v", err)
 			}
 		})
 	}

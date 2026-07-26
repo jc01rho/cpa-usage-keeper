@@ -82,7 +82,7 @@ func benchmarkRedisUsageInboxProcessing(b *testing.B, rowCount, identityCount in
 		b.StopTimer()
 		db := openRedisProcessBenchmarkDB(b, rowCount, identityCount, i)
 		// 使用生产 notifier 的同步内存路径，但不启动后台聚合 goroutine，隔离 ingestion 自身成本。
-		aggregationRunner := poller.NewUsageAggregationRunner(db, nil)
+		aggregationRunner := poller.NewUsageAggregationRunner(db)
 		syncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
 			Now:                      func() time.Time { return time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC) },
 			UsageAggregationNotifier: aggregationRunner,

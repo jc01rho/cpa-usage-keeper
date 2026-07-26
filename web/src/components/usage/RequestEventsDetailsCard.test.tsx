@@ -69,6 +69,16 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
 const countOccurrences = (text: string, value: string) => text.split(value).length - 1;
 
 describe('RequestEventsDetailsCard pagination', () => {
+  it('renders the shared flush card heading without bolding its subtitle', () => {
+    const html = renderCard();
+
+    expect(html).toContain('card-flush');
+    expect(html).toContain('keeper-card-title');
+    expect(html).toContain('keeper-card-title-meta');
+    expect(html).toContain('keeper-card-subtitle');
+    expect(html).toMatch(/class="keeper-card-subtitle">[^<]+<\/p>/);
+  });
+
   it('renders the title without the Event Stream eyebrow', () => {
     const html = renderCard();
 
@@ -370,7 +380,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     const html = renderCard();
 
     expect(html).toContain('_requestEventsFiltersGroup_');
-    expect(html).toContain('_requestEventsTitleRow_');
+    expect(html).toContain('keeper-card-title-track');
     expect(html).toContain('_requestEventsCountBadge_');
     expect(html).toContain('120 total events');
     expect(html).toContain('_requestEventsPaginationFooter_');

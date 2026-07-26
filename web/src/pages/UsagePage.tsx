@@ -43,6 +43,9 @@ import { getDailyAverageCardUsage, isDailyAverageRange } from '@/utils/usage/ove
 import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed';
+import { RankingPage } from '@/features/ranking/RankingPage';
+import { useRankingData } from '@/features/ranking/hooks/useRankingData';
+import { resolveRankingPreviewAPI } from '@/features/ranking/previewMock';
 import styles from './UsagePage.module.scss';
 
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
@@ -56,12 +59,14 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'auth-files', 'ai-provider', 'settings'] as const;
+const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'ranking', 'events', 'auth-files', 'ai-provider', 'settings'] as const;
+const RANKING_PREVIEW_API = resolveRankingPreviewAPI(import.meta.env.VITE_RANKING_PREVIEW_MOCK);
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
   analysis: 'usage_stats.tab_analysis',
+  ranking: 'usage_stats.tab_ranking',
   events: 'usage_stats.tab_events',
   'auth-files': 'usage_stats.tab_auth_files',
   'ai-provider': 'usage_stats.tab_ai_provider',
@@ -109,7 +114,7 @@ export const getCredentialSectionVisibility = (tab: UsageTab) => ({
   showAiProvider: tab === 'ai-provider',
 });
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
@@ -696,8 +701,11 @@ export const normalizeUsageTabValue = (value: unknown): UsageTab | null => {
   return isUsageTab(value) ? value : null;
 };
 
-export const getUsageTabOptions = (translate: Translate): Array<{ value: UsageTab; label: string }> =>
-  USAGE_TAB_OPTIONS.map((value) => ({
+export const getUsageTabOptions = (
+  translate: Translate,
+  { includeRanking = true }: { includeRanking?: boolean } = {},
+): Array<{ value: UsageTab; label: string }> =>
+  USAGE_TAB_OPTIONS.filter((value) => includeRanking || value !== 'ranking').map((value) => ({
     value,
     label: translate(USAGE_TAB_LABEL_KEYS[value]),
   }));
@@ -752,14 +760,17 @@ export const triggerBrowserURLDownload = (url: string) => {
 };
 
 export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isEmbeddedInCPAMC = isCPAMCEmbed();
   const theme = useThemeStore((state) => state.theme);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const setTheme = useThemeStore((state) => state.setTheme);
   const isDark = resolvedTheme === 'dark';
-  const [activeTab, setActiveTab] = useState<UsageTab>(loadUsageTab);
+  const [activeTab, setActiveTab] = useState<UsageTab>(() => {
+    const loadedTab = loadUsageTab();
+    return isEmbeddedInCPAMC && loadedTab === 'ranking' ? DEFAULT_USAGE_TAB : loadedTab;
+  });
   const [loadedTimeRange] = useState(loadTimeRange);
   const pendingLegacyCustomRangeRef = useRef(loadedTimeRange.pendingLegacyCustomRange);
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadedTimeRange.state);
@@ -924,6 +935,16 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       topNoticeTimerRef.current = null;
     }, getUpdateCheckToastDuration(kind));
   }, []);
+  const handleRankingBackgroundRefreshError = useCallback(() => {
+    showTopNotice('error', t('ranking.refresh_failed'));
+  }, [showTopNotice, t]);
+  const rankingData = useRankingData({
+    enabled: activeTab === 'ranking' && !isEmbeddedInCPAMC,
+    onAuthRequired,
+    onBackgroundRefreshError: handleRankingBackgroundRefreshError,
+    api: RANKING_PREVIEW_API,
+  });
+  const refreshRanking = rankingData.refreshRanking;
   const credentialsData = useCredentialsTabData({
     enabledAuthFiles: credentialSectionVisibility.showAuthFiles && pageVisible,
     enabledAiProviders: credentialSectionVisibility.showAiProvider && pageVisible,
@@ -939,7 +960,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [analysisLatencyData, setAnalysisLatencyData] = useState<AnalysisLatencyDiagnostics | null>(null);
   const analysisRequestControllerRef = useRef<AbortController | null>(null);
 
-  const tabOptions = useMemo(() => getUsageTabOptions(t), [t]);
+  const tabOptions = useMemo(
+    () => getUsageTabOptions(t, { includeRanking: !isEmbeddedInCPAMC }),
+    [isEmbeddedInCPAMC, t],
+  );
   const apiKeySelectOptions = useMemo(
     () => [
       { value: '', label: t('usage_stats.api_key_filter_all') },
@@ -1508,6 +1532,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
     }
+    if (activeTab === 'ranking') {
+      await refreshRanking();
+      return;
+    }
     if (credentialSectionVisibility.enabled) {
       await refreshCredentials();
       return;
@@ -1521,7 +1549,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     await Promise.all([loadUsage(), loadActivity(), loadRealtime()]);
-  }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials]);
+  }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials, refreshRanking]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -1863,7 +1891,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             )}
 
             <div className={styles.toolbarRow}>
-              <div className={styles.tabBar} role="tablist" aria-label={t('usage_stats.tabs_aria_label')}>
+              <div
+                className={`${styles.tabBar} ${!isEmbeddedInCPAMC ? styles.tabBarConnected : ''}`.trim()}
+                role="tablist"
+                aria-label={t('usage_stats.tabs_aria_label')}
+                lang={i18n.resolvedLanguage || i18n.language}
+              >
                 {tabOptions.map((option) => (
                   <button
                     key={option.value}
@@ -1879,8 +1912,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
 
               <div className={`${styles.toolbarActionsRight} ${!isEmbeddedInCPAMC ? styles.toolbarActionsRightAnimated : ''}`.trim()}>
-                {/* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */}
                 {(!isEmbeddedInCPAMC || showRangeControls) && (
+                  /* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */
                   <div
                     className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''}`.trim()}
                     aria-hidden={!showRangeControls}
@@ -2000,6 +2033,37 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   isMobile={isMobile}
                 />
               </>
+            )}
+
+            {activeTab === 'ranking' && (
+              <RankingPage
+                period={rankingData.period}
+                metric={rankingData.metric}
+                status={rankingData.status}
+                metadata={rankingData.metadata}
+                leaderboard={rankingData.leaderboard}
+                statusLoading={rankingData.statusLoading}
+                metadataLoading={rankingData.metadataLoading}
+                leaderboardLoading={rankingData.leaderboardLoading}
+                statusError={rankingData.statusError}
+                metadataError={rankingData.metadataError}
+                leaderboardError={rankingData.leaderboardError}
+                action={rankingData.action}
+                actionError={rankingData.actionError}
+                onClearActionError={rankingData.clearActionError}
+                onJoin={rankingData.join}
+                onSync={rankingData.sync}
+                onPause={rankingData.pause}
+                onResume={rankingData.resume}
+                onExit={rankingData.exit}
+                onRetryStatus={rankingData.refreshStatus}
+                onRetryMetadata={rankingData.refreshMetadata}
+                onRetryLeaderboard={rankingData.refreshLeaderboard}
+                onPeriodChange={rankingData.setPeriod}
+                onMetricChange={rankingData.setMetric}
+                actionClassName={styles.usagePillAction}
+                dangerActionClassName={styles.usagePillActionDanger}
+              />
             )}
 
             {activeTab === 'events' && (
