@@ -186,7 +186,8 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
                       <Button
                         variant="secondary"
                         size="sm"
-                        className={`${styles.usagePillAction} ${styles.settingsCompactAction} ${styles.apiKeySettingsCopyButton}`.trim()}
+                        appearance="action"
+                        className={styles.apiKeySettingsCopyButton}
                         onClick={() => void handleCopyApiKey(item)}
                         disabled={!item.apiKey}
                       >
@@ -195,7 +196,8 @@ export function ApiKeySettingsCard({ apiKeys, loading = false, savingId = null, 
                       <Button
                         variant="primary"
                         size="sm"
-                        className={`${styles.usagePillAction} ${styles.settingsCompactAction} ${styles.apiKeySettingsSaveButton}`.trim()}
+                        appearance="action"
+                        className={styles.apiKeySettingsSaveButton}
                         onClick={() => onSaveAlias(item.id, draftAlias)}
                         disabled={disabled}
                       >

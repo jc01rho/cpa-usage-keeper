@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { MainActionButton } from '@/components/ui/MainActionButton';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { IconCheck, IconChevronDown, IconCopy, IconDownload, IconScrollText, IconSettings } from '@/components/ui/icons';
@@ -585,23 +586,18 @@ function RequestEventsExportMenu({
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
     >
-      <Button
+      <MainActionButton
         type="button"
-        variant="secondary"
-        size="sm"
-        className={styles.requestEventsExportButton}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
         loading={exportingFormat !== null}
         onClick={handleTriggerClick}
       >
-        <span className={styles.requestEventsExportButtonInner}>
-          <IconDownload size={12} aria-hidden="true" />
-          <span>{label}</span>
-          <IconChevronDown size={12} aria-hidden="true" />
-        </span>
-      </Button>
+        <IconDownload size={12} aria-hidden="true" />
+        <span>{label}</span>
+        <IconChevronDown size={12} aria-hidden="true" />
+      </MainActionButton>
       {open && !disabled && (
         <div className={styles.requestEventsExportDropdown} role="menu" aria-label={label}>
           <button type="button" role="menuitem" onClick={() => handleSelect('csv')}>
@@ -1177,26 +1173,19 @@ export function RequestEventsDetailsCard({
         }
         extra={
           <div className={styles.requestEventsActions}>
-            <div className={styles.requestEventsColumnSettingsShell}>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className={styles.requestEventsColumnSettingsButton}
-                data-request-events-column-settings-trigger="true"
-                aria-label={t('usage_stats.request_events_columns')}
-                onClick={() => {
-                  // 新会话重新挂载草稿状态，取消或关闭后不会复用上一次未提交修改。
-                  setColumnSettingsSession((currentSession) => currentSession + 1);
-                  setColumnSettingsOpen(true);
-                }}
-              >
-                <span className={styles.requestEventsColumnSettingsButtonInner}>
-                  <IconSettings size={12} aria-hidden="true" />
-                  <span>{t('usage_stats.request_events_columns')}</span>
-                </span>
-              </Button>
-            </div>
+            <MainActionButton
+              type="button"
+              data-request-events-column-settings-trigger="true"
+              aria-label={t('usage_stats.request_events_columns')}
+              onClick={() => {
+                // 新会话重新挂载草稿状态，取消或关闭后不会复用上一次未提交修改。
+                setColumnSettingsSession((currentSession) => currentSession + 1);
+                setColumnSettingsOpen(true);
+              }}
+            >
+              <IconSettings size={12} aria-hidden="true" />
+              <span>{t('usage_stats.request_events_columns')}</span>
+            </MainActionButton>
             <RequestEventsExportMenu
               label={t('usage_stats.export')}
               csvLabel={t('usage_stats.export_csv')}
@@ -1252,7 +1241,7 @@ export function RequestEventsDetailsCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className={`${styles.usagePillAction} ${styles.requestEventsClearFiltersButton}`.trim()}
+                appearance="action"
                 onClick={handleClearFilters}
                 disabled={!hasActiveFilters}
               >
@@ -1348,15 +1337,15 @@ export function RequestEventsDetailsCard({
         footer={
           requestLogTooLarge ? (
             <>
-              <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={onRequestLogClose ?? (() => undefined)}>
+              <Button variant="secondary" size="sm" appearance="action" onClick={onRequestLogClose ?? (() => undefined)}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="primary" size="sm" className={styles.usagePillAction} onClick={handleRequestLogDownloadAction} loading={requestLogDownloading} disabled={!requestLogDownloadable}>
+              <Button variant="primary" size="sm" appearance="action" onClick={handleRequestLogDownloadAction} loading={requestLogDownloading} disabled={!requestLogDownloadable}>
                 {requestLogDownloading ? t('common.loading') : t('usage_stats.request_events_log_download')}
               </Button>
             </>
           ) : requestLogDownloadable ? (
-            <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={handleRequestLogDownloadAction} loading={requestLogDownloading}>
+            <Button variant="secondary" size="sm" appearance="action" onClick={handleRequestLogDownloadAction} loading={requestLogDownloading}>
               {requestLogDownloading ? t('common.loading') : t('usage_stats.request_events_log_download')}
             </Button>
           ) : undefined

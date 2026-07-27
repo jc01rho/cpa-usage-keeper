@@ -53,6 +53,8 @@ describe('RankingToolbar', () => {
     const metricSizer = container.querySelector('[data-ranking-metric-sizer]');
     expect(metricSizer?.querySelectorAll('span')).toHaveLength(8);
     expect(metricSizer?.textContent).toContain('This is the longest translated ranking metric');
+    act(() => metricTrigger?.click());
+    expect(document.querySelector<HTMLElement>('[role="listbox"]')?.style.width).toBe('260px');
     expect(periodGroup?.compareDocumentPosition(container.querySelector('[data-ranking-metric]') as Node) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
   });

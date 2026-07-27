@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { MainActionButton } from '@/components/ui/MainActionButton';
 import { Modal } from '@/components/ui/Modal';
 import { RankingApiError } from './api';
 import { RankingAvatar } from './components/RankingAvatar';
@@ -69,8 +70,6 @@ export interface RankingPageProps {
   onRetryLeaderboard: AsyncAction;
   onPeriodChange: (period: RankingPeriod) => void;
   onMetricChange: (metric: RankingMetric) => void;
-  actionClassName: string;
-  dangerActionClassName: string;
 }
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -175,22 +174,22 @@ export function RankingPage(props: RankingPageProps) {
         : t('ranking.participation_title');
   const modalFooter = profileModalStep === 'confirm-join' ? (
     <>
-      <Button variant="secondary" className={props.actionClassName} onClick={showProfileStep} disabled={props.action === 'join'}>
+      <Button variant="secondary" appearance="action" onClick={showProfileStep} disabled={props.action === 'join'}>
         {t('common.cancel')}
       </Button>
-      <Button data-ranking-confirm-join className={props.actionClassName} onClick={() => void handleConfirmJoin()} loading={props.action === 'join'}>
+      <Button data-ranking-confirm-join appearance="action" onClick={() => void handleConfirmJoin()} loading={props.action === 'join'}>
         {t('ranking.join_confirm_action')}
       </Button>
     </>
   ) : profileModalStep === 'confirm-pause' ? (
     <>
-      <Button variant="secondary" className={props.actionClassName} onClick={showProfileStep} disabled={props.action === 'pause'}>
+      <Button variant="secondary" appearance="action" onClick={showProfileStep} disabled={props.action === 'pause'}>
         {t('common.cancel')}
       </Button>
       <Button
         data-ranking-confirm-pause
         variant="secondary"
-        className={props.actionClassName}
+        appearance="action"
         onClick={() => void handleConfirmPause()}
         loading={props.action === 'pause'}
       >
@@ -199,13 +198,13 @@ export function RankingPage(props: RankingPageProps) {
     </>
   ) : profileModalStep === 'confirm-exit' ? (
     <>
-      <Button variant="secondary" className={props.actionClassName} onClick={showProfileStep} disabled={props.action === 'exit'}>
+      <Button variant="secondary" appearance="action" onClick={showProfileStep} disabled={props.action === 'exit'}>
         {t('common.cancel')}
       </Button>
       <Button
         data-ranking-confirm-exit
         variant="danger"
-        className={`${props.actionClassName} ${props.dangerActionClassName}`.trim()}
+        appearance="action"
         onClick={() => void handleConfirmExit()}
         loading={props.action === 'exit'}
       >
@@ -214,10 +213,10 @@ export function RankingPage(props: RankingPageProps) {
     </>
   ) : profileModalStep === 'profile' && props.status?.status === 'disabled' ? (
     <>
-      <Button variant="secondary" className={props.actionClassName} onClick={closeProfileModal} disabled={props.action !== null}>
+      <Button variant="secondary" appearance="action" onClick={closeProfileModal} disabled={props.action !== null}>
         {t('common.cancel')}
       </Button>
-      <Button data-ranking-join className={props.actionClassName} onClick={handleRequestJoin} disabled={props.action !== null}>
+      <Button data-ranking-join appearance="action" onClick={handleRequestJoin} disabled={props.action !== null}>
         {t('ranking.join')}
       </Button>
     </>
@@ -226,7 +225,7 @@ export function RankingPage(props: RankingPageProps) {
       <Button
         data-ranking-exit
         variant="danger"
-        className={`${props.actionClassName} ${props.dangerActionClassName}`.trim()}
+        appearance="action"
         onClick={() => {
           setPrivacyTooltipOpen(false);
           setProfileModalStep('confirm-exit');
@@ -241,7 +240,7 @@ export function RankingPage(props: RankingPageProps) {
             <Button
               data-ranking-sync
               variant="secondary"
-              className={props.actionClassName}
+              appearance="action"
               onClick={() => void runProfileAction('sync', props.onSync)}
               loading={props.action === 'sync'}
               disabled={props.action !== null && props.action !== 'sync'}
@@ -251,7 +250,7 @@ export function RankingPage(props: RankingPageProps) {
             <Button
               data-ranking-pause
               variant="secondary"
-              className={props.actionClassName}
+              appearance="action"
               onClick={() => {
                 setPrivacyTooltipOpen(false);
                 setProfileModalStep('confirm-pause');
@@ -264,7 +263,7 @@ export function RankingPage(props: RankingPageProps) {
         ) : (
           <Button
             data-ranking-resume
-            className={props.actionClassName}
+            appearance="action"
             onClick={() => void runProfileAction('resume', props.onResume)}
             loading={props.action === 'resume'}
             disabled={props.action !== null && props.action !== 'resume'}
@@ -275,7 +274,7 @@ export function RankingPage(props: RankingPageProps) {
         <Button
           data-ranking-close
           variant="secondary"
-          className={props.actionClassName}
+          appearance="action"
           onClick={closeProfileModal}
           disabled={props.action !== null}
         >
@@ -304,7 +303,6 @@ export function RankingPage(props: RankingPageProps) {
         onOpenProfile={openProfileModal}
         onPeriodChange={props.onPeriodChange}
         onMetricChange={props.onMetricChange}
-        actionClassName={props.actionClassName}
         t={t}
         language={i18n.language}
       />
@@ -403,7 +401,6 @@ function ParticipationContent({
   setAvatarID,
   onJoin,
   onRetryStatus,
-  actionClassName,
   t,
   language,
 }: ParticipationContentProps) {
@@ -441,7 +438,7 @@ function ParticipationContent({
   }
   if (!status) {
     return (
-      <ErrorState error={statusError} onRetry={onRetryStatus} actionClassName={actionClassName} t={t} />
+      <ErrorState error={statusError} onRetry={onRetryStatus} t={t} />
     );
   }
   if (status.status === 'deleted') {
@@ -459,7 +456,7 @@ function ParticipationContent({
         <ProfileIdentity status={status} />
         <p>{t('ranking.joining_description')}</p>
         <Button
-          className={actionClassName}
+          appearance="action"
           onClick={() => void onJoin(profile)}
           loading={action === 'join'}
           disabled={!profile.display_name || !profile.avatar_id}
@@ -550,7 +547,6 @@ interface LeaderboardCardProps {
   onOpenProfile: () => void;
   onPeriodChange: (period: RankingPeriod) => void;
   onMetricChange: (metric: RankingMetric) => void;
-  actionClassName: string;
   t: Translate;
   language: string;
 }
@@ -572,7 +568,6 @@ function LeaderboardCard({
   onOpenProfile,
   onPeriodChange,
   onMetricChange,
-  actionClassName,
   t,
   language,
 }: LeaderboardCardProps) {
@@ -602,12 +597,11 @@ function LeaderboardCard({
           />
         </div>
         <div
-          className={`${styles.leaderboardHeaderActions} ${styles.profileActionShell} ${status?.status === 'active' || status?.status === 'paused' ? styles.profileActionShellActive : ''}`.trim()}
+          className={styles.leaderboardHeaderActions}
           data-ranking-profile-action-shell
         >
-          <Button
-            variant="secondary"
-            className={`${actionClassName} ${styles.profileAction}`.trim()}
+          <MainActionButton
+            shellClassName={`${styles.profileActionShell} ${status?.status === 'active' || status?.status === 'paused' ? styles.profileActionShellActive : ''}`.trim()}
             onClick={onOpenProfile}
             disabled={statusLoading && !status}
             data-ranking-profile-action
@@ -624,13 +618,13 @@ function LeaderboardCard({
                 : status?.status === 'disabled'
                   ? t('ranking.join')
                   : t('ranking.profile_action')}
-          </Button>
+          </MainActionButton>
         </div>
       </header>
       {metadataError && board ? (
         <div className={styles.metadataWarning} role="alert" data-ranking-metadata-warning>
           <span>{t('ranking.refresh_failed')}</span>
-          <Button variant="secondary" className={actionClassName} onClick={() => void onRetryMetadata()}>
+          <Button variant="secondary" appearance="action" onClick={() => void onRetryMetadata()}>
             {t('common.retry')}
           </Button>
         </div>
@@ -638,13 +632,13 @@ function LeaderboardCard({
       {metadataLoading && !metadata && !board ? (
         <LoadingState text={t('ranking.metadata_loading')} />
       ) : metadataError && !metadata && !board ? (
-        <ErrorState error={metadataError} onRetry={onRetryMetadata} actionClassName={actionClassName} t={t} />
+        <ErrorState error={metadataError} onRetry={onRetryMetadata} t={t} />
       ) : periodOnline === false ? (
         <EmptyState title={t('ranking.offline_title')} description={t('ranking.offline_description')} />
       ) : loading && !board ? (
         <LoadingState text={t('ranking.leaderboard_loading')} />
       ) : error && !board ? (
-        <ErrorState error={error} onRetry={onRetry} actionClassName={actionClassName} t={t} />
+        <ErrorState error={error} onRetry={onRetry} t={t} />
       ) : rows.length === 0 ? (
         <EmptyState title={t('ranking.empty_title')} description={t('ranking.empty_description')} />
       ) : (
@@ -734,11 +728,11 @@ function LoadingState({ text }: { text: string }) {
   return <div className={styles.loadingState}><LoadingSpinner size={20} /><span>{text}</span></div>;
 }
 
-function ErrorState({ error, onRetry, actionClassName, t }: { error: unknown; onRetry: AsyncAction; actionClassName: string; t: Translate }) {
+function ErrorState({ error, onRetry, t }: { error: unknown; onRetry: AsyncAction; t: Translate }) {
   return (
     <div className={styles.errorState} role="alert">
       <p>{formatError(error, t)}</p>
-      <Button variant="secondary" className={actionClassName} onClick={() => void onRetry()}>{t('common.retry')}</Button>
+      <Button variant="secondary" appearance="action" onClick={() => void onRetry()}>{t('common.retry')}</Button>
     </div>
   );
 }

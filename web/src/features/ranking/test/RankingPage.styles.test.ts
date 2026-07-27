@@ -77,10 +77,16 @@ describe('Ranking table context styles', () => {
     expect(rule('.periodButtonActive')).not.toContain('border-bottom-color:');
     expect(rule('.metricControl')).toContain('width: max-content;');
     expect(rule('.metricControl')).toContain('min-height: 40px;');
-    expect(rule('.metricSelect')).toContain('height: 40px;');
-    expect(rule('.metricSelect')).toContain('border-radius: 999px;');
-    expect(rule('.metricSelect')).not.toContain('font-size: 14px;');
-    expect(rule('.metricWidthSizer')).toContain('visibility: hidden;');
+    const metricSelect = rule('.metricSelect');
+    const metricWidthSizer = rule('.metricWidthSizer');
+    expect(metricSelect).toContain('height: 40px;');
+    expect(metricSelect).toContain('border-radius: 999px;');
+    expect(metricSelect).not.toContain('justify-content: center;');
+    expect(metricSelect).not.toContain('position: absolute;');
+    expect(metricSelect).toMatch(/> span:first-child[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-width:\s*0;[\s\S]*?text-align:\s*center;/);
+    expect(metricSelect).not.toContain('font-size: 14px;');
+    expect(metricWidthSizer).toContain('visibility: hidden;');
+    expect(metricWidthSizer).toContain('padding: 0 42px 0 12px;');
   });
 
   it('softens the active period glow specifically in dark mode', () => {
@@ -120,38 +126,58 @@ describe('Ranking table context styles', () => {
     expect(rule('.leaderboardTitle')).toContain('grid-area: title;');
     expect(rule('.leaderboardTitle')).toContain('align-self: start;');
     expect(rule('.leaderboardHeaderActions')).toContain('grid-area: profile;');
-    expect(rule('.leaderboardHeaderActions')).toContain('margin-right: -4px;');
+    expect(rule('.leaderboardHeaderActions')).toContain(
+      'margin-right: calc(var(--keeper-card-header-padding-x) - var(--keeper-card-padding));',
+    );
     expect(rule('.toolbar')).toContain('column-gap: 16px;');
     expect(rule('.toolbar')).toContain('row-gap: 10px;');
   });
 
-  it('matches existing Keeper header actions with an outer pill shell', () => {
+  it('keeps long titles on one line and reflows the header when the card narrows', () => {
+    const card = rule('.leaderboardCard:global(.card)');
+    const title = rule('.leaderboardTitle :global(.keeper-card-title)');
+    const stackedStart = styles.indexOf('@mixin ranking-header-stacked');
+    const stackedEnd = styles.indexOf('\n}', stackedStart);
+    const stacked = styles.slice(stackedStart, stackedEnd);
+    const containerStart = styles.indexOf('@container ranking-card (max-width: 1120px)');
+    const containerEnd = styles.indexOf('\n}', containerStart);
+    const container = styles.slice(containerStart, containerEnd);
+
+    expect(card).toContain('container-name: ranking-card;');
+    expect(card).toContain('container-type: inline-size;');
+    expect(title).toContain('white-space: nowrap;');
+    expect(title).toContain('overflow: hidden;');
+    expect(title).toContain('text-overflow: ellipsis;');
+    expect(stacked).toContain("grid-template-areas:\n      'title'\n      'toolbar'\n      'profile';");
+    expect(stacked).toMatch(/\.leaderboardHeaderToolbar\s*\{[\s\S]*?justify-self:\s*stretch;/);
+    expect(stacked).toMatch(/\.toolbar\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/);
+    expect(container).toContain('@include ranking-header-stacked;');
+  });
+
+  it('reuses the shared main action surface without a ranking-only resting background', () => {
     const shell = rule('.profileActionShell');
-    expect(shell).toContain('min-height: 42px;');
-    expect(shell).toContain('padding: 4px;');
-    expect(shell).toContain('border: 1px solid var(--border-color);');
-    expect(shell).toContain('border-radius: 999px;');
+
+    expect(source).toContain("import { MainActionButton } from '@/components/ui/MainActionButton';");
+    expect(source).toContain('<MainActionButton');
+    expect(source).not.toContain('main-action-button-shell');
+    expect(source).not.toContain('className={`main-action-button')
     expect(shell).toContain('width: fit-content;');
     expect(shell).toContain('max-width: 210px;');
     expect(shell).toContain('min-width: 0;');
     expect(rule('.profileActionShellActive')).toContain('max-width: 260px;');
-    expect(rule('.profileAction {')).toContain('width: fit-content;');
+    expect(styles).not.toContain('\n.profileAction {');
     expect(rule('.profileActionName')).toContain('overflow: hidden;');
     expect(rule('.profileActionName')).toContain('text-overflow: ellipsis;');
     expect(rule('.profileActionName')).toContain('white-space: nowrap;');
     expect(rule('.profileActionAvatar')).toContain('flex: 0 0 22px;');
   });
 
-  it('keeps the filters above the title and profile entry on mobile', () => {
+  it('stacks the header in scan order with compact time text and a centered profile entry on mobile', () => {
     const mobileStart = styles.indexOf('@include mobile');
     const mobileEnd = styles.indexOf('@media (prefers-reduced-motion', mobileStart);
     const mobile = styles.slice(mobileStart, mobileEnd);
 
-    expect(mobile).toContain("'toolbar toolbar'");
-    expect(mobile).toContain("'title profile'");
-    expect(mobile).toContain('.leaderboardHeaderToolbar');
-    expect(mobile).toContain('justify-self: stretch;');
-    expect(mobile).toContain('max-width: min(260px, 52vw);');
+    expect(mobile).toContain('@include ranking-header-stacked;');
   });
 
   it('gives loading, empty, and error content a tall centered viewport', () => {
@@ -258,12 +284,12 @@ describe('Ranking table context styles', () => {
     expect(card).toContain('overflow: hidden;');
     expect(header).toContain('padding: 0;');
     expect(meta).toContain('margin-top: 6px;');
-    expect(meta).toContain('font-size: 13px;');
+    expect(meta).toContain('font-size: 12px;');
     expect(meta).toContain('line-height: 1.45;');
 
     const mobileStart = styles.indexOf('@include mobile');
     const mobileEnd = styles.indexOf('@media (prefers-reduced-motion', mobileStart);
     const mobile = styles.slice(mobileStart, mobileEnd);
-    expect(mobile).toMatch(/\.leaderboardHeader\s*\{[\s\S]*?padding:\s*0;/);
+    expect(mobile).toContain('@include ranking-header-stacked;');
   });
 });

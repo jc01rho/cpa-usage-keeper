@@ -36,8 +36,9 @@ describe('Credential section styles', () => {
     expect(cardBlock).not.toContain('border: 1px solid')
     expect(cardBlock).not.toContain('border-radius: 24px')
     expect(cardBlock).not.toContain('box-shadow:')
-    expect(cssBlock('.credentialRefreshButton')).toContain('font-size: 12px;')
-    expect(cssBlock('.credentialRefreshButton')).not.toContain('font-size: 14px;')
+    expect(authFileSectionSource.match(/<MainActionButton/g)).toHaveLength(2)
+    expect(authFileSectionSource).toContain("import { MainActionButton } from '@/components/ui/MainActionButton'")
+    expect(credentialStyles).not.toContain('.credentialRefreshButton')
   })
 
   it('keeps Auth Files and AI Provider row sizing separate', () => {
@@ -278,12 +279,10 @@ describe('Credential section styles', () => {
 
   it('keeps Auth Files inspection separate from the quota refresh pill', () => {
     expect(authFileSectionSource).toContain('credentialSectionActionButtons')
-    expect(authFileSectionSource).toMatch(/credentialInspectionSwitcher[\s\S]*?credentialInspectionButton[\s\S]*?credentialRefreshSwitcher/)
+    expect(authFileSectionSource).toMatch(/<MainActionButton[\s\S]*?credentialInspectionButton[\s\S]*?<MainActionButton/)
     expect(authFileSectionSource).toContain('credentialInspectionButton')
-    expect(authFileSectionSource).toMatch(/credentialInspectionButton[\s\S]*?credentialRefreshSwitcher/)
-    expect(authFileSectionSource).toMatch(/credentialRefreshSwitcher\} \$\{styles\.credentialInspectionSwitcher[\s\S]*?credentialInspectionButton[\s\S]*?<\/div>\s*<div className=\{styles\.credentialRefreshSwitcher\}>[\s\S]*?credentialRefreshButtonLoading/)
-    expect(credentialStyles).toMatch(/\.credentialInspectionSwitcher\s*\{[\s\S]*?border-radius:\s*999px;/)
-    expect(credentialStyles).toMatch(/\.credentialInspectionSwitcher\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--bg-secondary\) 78%, transparent\);/)
+    expect(authFileSectionSource).toContain('loading={quotaRefreshing}')
+    expect(credentialStyles).not.toContain('.credentialInspectionSwitcher')
     expect(credentialStyles).toMatch(/\.credentialInspectionProgressTrack\s*\{[\s\S]*?height:\s*8px;/)
     expect(credentialStyles).toMatch(/\.credentialInspectionProgressTrack\s*\{[\s\S]*?background:\s*var\(--bg-tertiary\);/)
     expect(credentialStyles).toMatch(/\.credentialInspectionProgressTrack\s*\{[\s\S]*?border:\s*1px solid var\(--border-color\);/)

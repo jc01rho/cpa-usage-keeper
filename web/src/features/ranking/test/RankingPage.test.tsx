@@ -99,8 +99,6 @@ const defaultProps = {
   onRetryLeaderboard: vi.fn(async () => null),
   onPeriodChange: vi.fn(),
   onMetricChange: vi.fn(),
-  actionClassName: 'keeper-action',
-  dangerActionClassName: 'keeper-danger',
 };
 
 describe('RankingPage', () => {
@@ -159,7 +157,10 @@ describe('RankingPage', () => {
     expect(container.querySelector('[data-ranking-avatar-option]')).toBeNull();
     const profileActionShell = container.querySelector('[data-ranking-profile-action-shell]');
     expect(profileActionShell).not.toBeNull();
-    expect(profileActionShell?.querySelector('[data-ranking-profile-action]')).not.toBeNull();
+    const sharedActionShell = profileActionShell?.querySelector('.main-action-button-shell');
+    expect(sharedActionShell).not.toBeNull();
+    expect(sharedActionShell?.querySelector('[data-ranking-profile-action]')).not.toBeNull();
+    expect(sharedActionShell?.querySelector('[data-ranking-profile-action]')?.classList.contains('main-action-button')).toBe(true);
     expect(container.querySelector('[data-ranking-profile-action]')?.textContent).toContain('ranking.join');
 
     await openProfileModal();
@@ -202,7 +203,7 @@ describe('RankingPage', () => {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     const footer = dialog?.querySelector('.modal-footer');
     expect(footer?.textContent).toContain('common.cancel');
-    expect(footer?.querySelector('[data-ranking-join]')).not.toBeNull();
+    expect(footer?.querySelector('[data-ranking-join]')?.classList.contains('btn-action')).toBe(true);
     expect(dialog?.querySelector('.modal-body [data-ranking-join]')).toBeNull();
   });
 
@@ -350,6 +351,7 @@ describe('RankingPage', () => {
     expect(onExit).not.toHaveBeenCalled();
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('ranking.exit_confirm_title');
+    expect(document.querySelector('[data-ranking-confirm-exit]')?.classList.contains('btn-action')).toBe(true);
     await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-confirm-exit]')?.click());
     expect(onExit).toHaveBeenCalledOnce();
   });

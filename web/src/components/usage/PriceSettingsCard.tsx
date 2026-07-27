@@ -590,7 +590,7 @@ export function PriceSettingsCard({
                   </div>
                   <Button
                     variant="secondary"
-                    className={styles.usagePillAction}
+                    appearance="action"
                     onClick={() => void handleOpenSyncPreview()}
                     loading={syncLoading}
                   >
@@ -683,7 +683,7 @@ export function PriceSettingsCard({
                       className={styles.usagePillControl}
                     />
                   </div>
-                  <Button variant="primary" className={`${styles.usagePillAction} ${styles.priceFormAction}`} onClick={() => void handleSavePrice()} disabled={!selectedModel || priceSaving} loading={priceSaving}>
+                  <Button variant="primary" appearance="action" className={styles.priceFormAction} onClick={() => void handleSavePrice()} disabled={!selectedModel || priceSaving} loading={priceSaving}>
                     {t('common.save')}
                   </Button>
                 </div>
@@ -719,13 +719,13 @@ export function PriceSettingsCard({
                           </div>
                         </div>
                         <div className={styles.priceActions}>
-                          <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={() => setRulesModel(model)}>
+                          <Button variant="secondary" size="sm" appearance="action" onClick={() => setRulesModel(model)}>
                             {t('usage_stats.model_price_rules')}
                           </Button>
-                          <Button variant="secondary" size="sm" className={styles.usagePillAction} onClick={() => handleOpenEdit(model)}>
+                          <Button variant="secondary" size="sm" appearance="action" onClick={() => handleOpenEdit(model)}>
                             {t('common.edit')}
                           </Button>
-                          <Button variant="danger" size="sm" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => setDeleteModel(model)}>
+                          <Button variant="danger" size="sm" appearance="action" onClick={() => setDeleteModel(model)}>
                             {t('common.delete')}
                           </Button>
                         </div>
@@ -758,10 +758,10 @@ export function PriceSettingsCard({
         closeDisabled={editSaving}
         footer={
           <div className={styles.priceActions}>
-            <Button variant="secondary" className={styles.usagePillAction} onClick={closeEditModal} disabled={editSaving}>
+            <Button variant="secondary" appearance="action" onClick={closeEditModal} disabled={editSaving}>
               {t('common.cancel')}
             </Button>
-            <Button variant="primary" className={styles.usagePillAction} onClick={() => void handleSaveEdit()} loading={editSaving}>
+            <Button variant="primary" appearance="action" onClick={() => void handleSaveEdit()} loading={editSaving}>
               {t('common.save')}
             </Button>
           </div>
@@ -850,10 +850,10 @@ export function PriceSettingsCard({
         closeDisabled={deleteSaving}
         footer={
           <div className={styles.priceActions}>
-            <Button variant="secondary" className={styles.usagePillAction} onClick={closeDeleteModal} disabled={deleteSaving}>
+            <Button variant="secondary" appearance="action" onClick={closeDeleteModal} disabled={deleteSaving}>
               {t('common.cancel')}
             </Button>
-            <Button variant="danger" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => void confirmDeleteModel()} loading={deleteSaving}>
+            <Button variant="danger" appearance="action" onClick={() => void confirmDeleteModel()} loading={deleteSaving}>
               {t('usage_stats.model_price_delete_confirm_action')}
             </Button>
           </div>
@@ -878,7 +878,7 @@ export function PriceSettingsCard({
           <div className={styles.priceActions}>
             <Button
               variant="secondary"
-              className={styles.usagePillAction}
+              appearance="action"
               onClick={() => setSyncOpen(false)}
               disabled={syncApplying}
             >
@@ -886,7 +886,7 @@ export function PriceSettingsCard({
             </Button>
             <Button
               variant="primary"
-              className={styles.usagePillAction}
+              appearance="action"
               onClick={() => void handleApplySyncDrafts()}
               loading={syncApplying}
               disabled={selectedSyncCount === 0}
@@ -916,7 +916,7 @@ export function PriceSettingsCard({
                 <Button
                   variant="secondary"
                   size="sm"
-                  className={styles.usagePillAction}
+                  appearance="action"
                   onClick={() => handleSetAllSyncDrafts(true)}
                   disabled={syncApplying}
                 >
@@ -925,7 +925,7 @@ export function PriceSettingsCard({
                 <Button
                   variant="secondary"
                   size="sm"
-                  className={styles.usagePillAction}
+                  appearance="action"
                   onClick={() => handleSetAllSyncDrafts(false)}
                   disabled={syncApplying}
                 >

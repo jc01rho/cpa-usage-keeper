@@ -153,22 +153,6 @@
   font-size: 12px;
 }
 
-.actionButton {
-  min-height: 32px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-
-  &:global(.btn),
-  &:global(.btn.btn-sm) {
-    min-height: 32px;
-    padding: 7px 12px;
-    border-radius: 999px;
-    font-size: 12px;
-  }
-}
-
 .removeButton {
   align-self: start;
   margin-top: 20px;
