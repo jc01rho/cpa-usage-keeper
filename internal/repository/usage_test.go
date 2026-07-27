@@ -488,24 +488,36 @@ func TestBuildAnalysisWithFilterFillsTodayAndYesterdayHourlyBucketsFromStats(t *
 	}
 }
 
-func TestBuildAnalysisWithFilterIncludesPartialCurrentDayInDailyRanges(t *testing.T) {
+func TestBuildAnalysisWithFilterUsesCurrentDailyRollupInDailyRanges(t *testing.T) {
 	withRepositoryTestLocation(t, "UTC")
 	db := openUsageTestDatabase(t)
 	start := time.Date(2026, 5, 11, 10, 15, 0, 0, time.UTC)
 	end := time.Date(2026, 5, 18, 18, 30, 0, 0, time.UTC)
 	yesterday := time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC)
+	currentDay := time.Date(2026, 5, 18, 0, 0, 0, 0, time.UTC)
 	currentDayHour := time.Date(2026, 5, 18, 9, 0, 0, 0, time.UTC)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}
-	if err := db.Create(&entities.UsageOverviewDailyStat{
-		BucketStart:  yesterday,
-		APIGroupKey:  "sk-target-key",
-		Model:        "claude-sonnet",
-		RequestCount: 2,
-		InputTokens:  10,
-		OutputTokens: 20,
-		TotalTokens:  30,
+	if err := db.Create([]entities.UsageOverviewDailyStat{
+		{
+			BucketStart:  yesterday,
+			APIGroupKey:  "sk-target-key",
+			Model:        "claude-sonnet",
+			RequestCount: 2,
+			InputTokens:  10,
+			OutputTokens: 20,
+			TotalTokens:  30,
+		},
+		{
+			BucketStart:  currentDay,
+			APIGroupKey:  "sk-target-key",
+			Model:        "claude-sonnet",
+			RequestCount: 4,
+			InputTokens:  40,
+			OutputTokens: 50,
+			TotalTokens:  90,
+		},
 	}).Error; err != nil {
 		t.Fatalf("insert daily stat: %v", err)
 	}
@@ -523,10 +535,10 @@ func TestBuildAnalysisWithFilterIncludesPartialCurrentDayInDailyRanges(t *testin
 			BucketStart:  currentDayHour,
 			APIGroupKey:  "sk-target-key",
 			Model:        "claude-sonnet",
-			RequestCount: 4,
-			InputTokens:  40,
-			OutputTokens: 50,
-			TotalTokens:  90,
+			RequestCount: 40,
+			InputTokens:  400,
+			OutputTokens: 500,
+			TotalTokens:  900,
 		},
 	}).Error; err != nil {
 		t.Fatalf("insert hourly stats: %v", err)
@@ -551,11 +563,11 @@ func TestBuildAnalysisWithFilterIncludesPartialCurrentDayInDailyRanges(t *testin
 			if !analysis.TokenUsage[0].Bucket.Equal(yesterday) || analysis.TokenUsage[0].TotalTokens != 30 || analysis.TokenUsage[0].Requests != 2 {
 				t.Fatalf("expected yesterday daily stats first, got %+v", analysis.TokenUsage[0])
 			}
-			if !analysis.TokenUsage[1].Bucket.Equal(time.Date(2026, 5, 18, 0, 0, 0, 0, time.UTC)) || analysis.TokenUsage[1].TotalTokens != 90 || analysis.TokenUsage[1].Requests != 4 {
-				t.Fatalf("expected current-day hourly stats to be folded into daily bucket, got %+v", analysis.TokenUsage[1])
+			if !analysis.TokenUsage[1].Bucket.Equal(currentDay) || analysis.TokenUsage[1].TotalTokens != 90 || analysis.TokenUsage[1].Requests != 4 {
+				t.Fatalf("expected current-day daily stats, got %+v", analysis.TokenUsage[1])
 			}
 			if len(analysis.APIKeyComposition) != 1 || analysis.APIKeyComposition[0].TotalTokens != 120 || analysis.APIKeyComposition[0].Requests != 6 {
-				t.Fatalf("expected compositions to include daily and current-day hourly stats, got %+v", analysis.APIKeyComposition)
+				t.Fatalf("expected compositions to include only daily stats, got %+v", analysis.APIKeyComposition)
 			}
 		})
 	}
