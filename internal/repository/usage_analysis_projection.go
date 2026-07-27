@@ -94,19 +94,6 @@ func loadAnalysisOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFil
 	return rows, nil
 }
 
-func loadAnalysisDailyBoundaryHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, fullStart, fullDayStart, fullDayEnd, fullEnd time.Time, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
-	windows := analysisDailyBoundaryHourlyWindows(fullStart, fullDayStart, fullDayEnd, fullEnd)
-	rows := make([]analysisOverviewStatProjection, 0)
-	for _, window := range windows {
-		windowRows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, window.start, window.end, activeFields)
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, windowRows...)
-	}
-	return rows, nil
-}
-
 func calculateAnalysisOverviewProjectionCost(costResolver pricing.Resolver, row analysisOverviewStatProjection) pricing.CostResult {
 	return costResolver.Calculate(newUsagePricingCostSubject(
 		row.APIGroupKey,

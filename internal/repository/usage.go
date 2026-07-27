@@ -356,10 +356,19 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 	if filter.StartTime == nil || filter.EndTime == nil {
 		return nil, fmt.Errorf("analysis requires start_time and end_time")
 	}
-	// 同一请求内固定一次价格字段快照，确保 daily 与两侧 hourly 边界使用完全相同的查询维度。
+	// 同一请求内固定一次价格字段快照，确保所选 hourly 或 daily 粒度使用完全相同的查询维度。
 	activeFields := costResolver.ActiveFields()
 	windowMinutes := computeWindowMinutes(filter)
 	bucketByDay := windowMinutes > 24*60
+	if strings.TrimSpace(filter.Range) == "custom" {
+		// Custom 显式粒度与 Overview 保持一致，不能用单日跨度反推 hourly。
+		switch strings.TrimSpace(filter.CustomUnit) {
+		case "day":
+			bucketByDay = true
+		case "hour":
+			bucketByDay = false
+		}
+	}
 	record := &dto.AnalysisRecord{
 		Granularity: func() dto.AnalysisGranularity {
 			if bucketByDay {
@@ -374,22 +383,9 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 		},
 	}
 
-	fullStart, fullEnd := usageOverviewFullHourWindow(*filter.StartTime, *filter.EndTime)
-	fullEnd = analysisHourlyStatsEnd(filter, fullEnd)
-	if !fullEnd.After(fullStart) {
-		return record, nil
-	}
 	if bucketByDay {
-		fullDayStart, fullDayEnd := usageOverviewFullDayWindow(fullStart, fullEnd)
-		var dailyRows []analysisOverviewStatProjection
-		if fullDayEnd.After(fullDayStart) {
-			var err error
-			dailyRows, err = loadAnalysisOverviewDailyStatsWithFilter(db, filter, fullDayStart, fullDayEnd, activeFields)
-			if err != nil {
-				return nil, err
-			}
-		}
-		hourlyRows, err := loadAnalysisDailyBoundaryHourlyStatsWithFilter(db, filter, fullStart, fullDayStart, fullDayEnd, fullEnd, activeFields)
+		// 日坐标桶必须完整来自 daily 汇总；Analysis 不读取 raw events，不能再用 hourly 拼接不完整自然日。
+		dailyRows, err := loadAnalysisOverviewDailyStatsWithFilter(db, filter, *filter.StartTime, *filter.EndTime, activeFields)
 		if err != nil {
 			return nil, err
 		}
@@ -397,11 +393,13 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, costResol
 		if err != nil {
 			return nil, err
 		}
-		hourlyIdentityLookup, err := loadAnalysisProjectionIdentityLookup(db, hourlyRows)
-		if err != nil {
-			return nil, err
-		}
-		applyAnalysisDailyAndBoundaryHourlyRows(record, dailyRows, dailyIdentityLookup, hourlyRows, hourlyIdentityLookup, costResolver)
+		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup, costResolver)
+		return record, nil
+	}
+
+	fullStart, fullEnd := usageOverviewFullHourWindow(*filter.StartTime, *filter.EndTime)
+	fullEnd = analysisHourlyStatsEnd(filter, fullEnd)
+	if !fullEnd.After(fullStart) {
 		return record, nil
 	}
 	rows, err := loadAnalysisOverviewHourlyStatsWithFilter(db, filter, fullStart, fullEnd, activeFields)
@@ -518,7 +516,7 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverview
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
-func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, hourlyRows []analysisOverviewStatProjection, hourlyIdentityLookup analysisIdentityLookup, costResolver pricing.Resolver) {
+func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, costResolver pricing.Resolver) {
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -531,14 +529,6 @@ func applyAnalysisDailyAndBoundaryHourlyRows(record *dto.AnalysisRecord, dailyRo
 		cost, costAvailable := costResult.Cost, costResult.Available
 		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-	}
-	for _, row := range hourlyRows {
-		bucketStart := timeutil.NormalizeStorageTime(row.BucketStart)
-		bucket := time.Date(bucketStart.Year(), bucketStart.Month(), bucketStart.Day(), 0, 0, 0, 0, bucketStart.Location())
-		costResult := calculateAnalysisOverviewProjectionCost(costResolver, row)
-		cost, costAvailable := costResult.Cost, costResult.Available
-		applyAnalysisRow(record, bucketTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-		applyAnalysisIdentityComposition(hourlyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
 	finalizeAnalysisRecord(record, bucketTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
@@ -1092,25 +1082,6 @@ func mergeUsageOverviewRawEventWindows(windows []usageOverviewRawEventWindow) []
 func usageOverviewEventInsideWindow(event entities.UsageEvent, start, end time.Time) bool {
 	timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
 	return !timestamp.Before(start) && timestamp.Before(end)
-}
-
-func analysisDailyBoundaryHourlyWindows(fullStart, fullDayStart, fullDayEnd, fullEnd time.Time) []usageOverviewRawEventWindow {
-	windows := make([]usageOverviewRawEventWindow, 0, 2)
-	leftEnd := fullDayStart
-	if fullEnd.Before(leftEnd) {
-		leftEnd = fullEnd
-	}
-	if fullStart.Before(leftEnd) {
-		windows = append(windows, usageOverviewRawEventWindow{start: fullStart, end: leftEnd})
-	}
-	rightStart := fullDayEnd
-	if rightStart.Before(fullStart) {
-		rightStart = fullStart
-	}
-	if rightStart.Before(fullEnd) {
-		windows = append(windows, usageOverviewRawEventWindow{start: rightStart, end: fullEnd})
-	}
-	return mergeUsageOverviewRawEventWindows(windows)
 }
 
 func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, windows []usageOverviewRawEventWindow, recentCache *UsageRecentEventCache, activeFields pricing.ActiveFields) ([]entities.UsageEvent, error) {

@@ -212,7 +212,7 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 	assertAnalysisProjectionComposition(t, filtered.APIKeyComposition, "group-a", "", 2, 1_300_000, 9.3)
 }
 
-func TestAnalysisProjectionPreservesDailyAndBoundaryHourlyResults(t *testing.T) {
+func TestAnalysisProjectionPreservesDailyResultsWithoutBoundaryHourlyRows(t *testing.T) {
 	db := openTestDatabase(t)
 	start := time.Date(2026, 2, 1, 5, 0, 0, 0, time.Local)
 	end := time.Date(2026, 2, 4, 8, 0, 0, 0, time.Local)
@@ -234,11 +234,19 @@ func TestAnalysisProjectionPreservesDailyAndBoundaryHourlyResults(t *testing.T) 
 	}).Error; err != nil {
 		t.Fatalf("seed boundary hourly stats: %v", err)
 	}
-	if err := db.Create(&entities.UsageOverviewDailyStat{
-		BucketStart: time.Date(2026, 2, 2, 0, 0, 0, 0, time.Local), APIGroupKey: "group-a", Model: "model-a",
-		AuthIndex: "identity-a", ModelAlias: "alias-a", ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli",
-		RequestCount: 2, InputTokens: 200, OutputTokens: 20, ReasoningTokens: 4, CacheReadTokens: 40,
-		CacheCreationTokens: 20, TotalTokens: 220,
+	if err := db.Create(&[]entities.UsageOverviewDailyStat{
+		{
+			BucketStart: time.Date(2026, 2, 2, 0, 0, 0, 0, time.Local), APIGroupKey: "group-a", Model: "model-a",
+			AuthIndex: "identity-a", ModelAlias: "alias-a", ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli",
+			RequestCount: 2, InputTokens: 200, OutputTokens: 20, ReasoningTokens: 4, CacheReadTokens: 40,
+			CacheCreationTokens: 20, TotalTokens: 220,
+		},
+		{
+			BucketStart: time.Date(2026, 2, 4, 0, 0, 0, 0, time.Local), APIGroupKey: "group-a", Model: "model-a",
+			AuthIndex: "identity-a", ModelAlias: "alias-a", ResponseServiceTier: "batch", ReasoningEffort: "xhigh", ExecutorType: "cli",
+			RequestCount: 3, InputTokens: 300, OutputTokens: 30, ReasoningTokens: 6, CacheReadTokens: 60,
+			CacheCreationTokens: 30, TotalTokens: 330,
+		},
 	}).Error; err != nil {
 		t.Fatalf("seed daily stat: %v", err)
 	}
@@ -254,7 +262,7 @@ func TestAnalysisProjectionPreservesDailyAndBoundaryHourlyResults(t *testing.T) 
 		t.Fatalf("BuildAnalysisWithFilter: %v", err)
 	}
 
-	if analysis.Granularity != repodto.AnalysisGranularityDaily || len(analysis.TokenUsage) != 3 {
+	if analysis.Granularity != repodto.AnalysisGranularityDaily || len(analysis.TokenUsage) != 2 {
 		t.Fatalf("unexpected daily result: %+v", analysis)
 	}
 	wantBuckets := []struct {
@@ -262,7 +270,6 @@ func TestAnalysisProjectionPreservesDailyAndBoundaryHourlyResults(t *testing.T) 
 		requests int64
 		tokens   int64
 	}{
-		{time.Date(2026, 2, 1, 0, 0, 0, 0, time.Local), 1, 110},
 		{time.Date(2026, 2, 2, 0, 0, 0, 0, time.Local), 2, 220},
 		{time.Date(2026, 2, 4, 0, 0, 0, 0, time.Local), 3, 330},
 	}
@@ -272,23 +279,23 @@ func TestAnalysisProjectionPreservesDailyAndBoundaryHourlyResults(t *testing.T) 
 			t.Fatalf("token usage[%d] = %+v, want bucket=%v requests=%d total=%d", i, got, want.bucket, want.requests, want.tokens)
 		}
 	}
-	assertAnalysisProjectionComposition(t, analysis.APIKeyComposition, "group-a", "", 6, 660, 0.01656)
-	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "model-a", "", 6, 660, 0.01656)
-	assertAnalysisProjectionComposition(t, analysis.AuthFilesComposition, "identity-a", "Auth Account", 6, 660, 0.01656)
-	assertAnalysisProjectionComposition(t, analysis.AIProviderComposition, "identity-a", "Provider Account", 6, 660, 0.01656)
-	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].Requests != 6 || analysis.Heatmap[0].TotalTokens != 660 {
+	assertAnalysisProjectionComposition(t, analysis.APIKeyComposition, "group-a", "", 5, 550, 0.0138)
+	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "model-a", "", 5, 550, 0.0138)
+	assertAnalysisProjectionComposition(t, analysis.AuthFilesComposition, "identity-a", "Auth Account", 5, 550, 0.0138)
+	assertAnalysisProjectionComposition(t, analysis.AIProviderComposition, "identity-a", "Provider Account", 5, 550, 0.0138)
+	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].Requests != 5 || analysis.Heatmap[0].TotalTokens != 550 {
 		t.Fatalf("unexpected daily heatmap: %+v", analysis.Heatmap)
 	}
-	assertFloatClose(t, analysis.Heatmap[0].CostUSD, 0.01656)
-	if len(analysis.ModelEfficiency) != 1 || analysis.ModelEfficiency[0].Requests != 6 || analysis.ModelEfficiency[0].TotalTokens != 660 {
+	assertFloatClose(t, analysis.Heatmap[0].CostUSD, 0.0138)
+	if len(analysis.ModelEfficiency) != 1 || analysis.ModelEfficiency[0].Requests != 5 || analysis.ModelEfficiency[0].TotalTokens != 550 {
 		t.Fatalf("unexpected daily model efficiency: %+v", analysis.ModelEfficiency)
 	}
-	assertFloatClose(t, analysis.ModelEfficiency[0].CostUSD, 0.01656)
-	assertFloatClose(t, analysis.CostBreakdown.UncachedInputCostUSD, 0.01008)
-	assertFloatClose(t, analysis.CostBreakdown.CacheReadCostUSD, 0.00144)
-	assertFloatClose(t, analysis.CostBreakdown.CacheWriteCostUSD, 0.00216)
-	assertFloatClose(t, analysis.CostBreakdown.OutputCostUSD, 0.00288)
-	assertFloatClose(t, analysis.CostBreakdown.TotalCostUSD, 0.01656)
+	assertFloatClose(t, analysis.ModelEfficiency[0].CostUSD, 0.0138)
+	assertFloatClose(t, analysis.CostBreakdown.UncachedInputCostUSD, 0.0084)
+	assertFloatClose(t, analysis.CostBreakdown.CacheReadCostUSD, 0.0012)
+	assertFloatClose(t, analysis.CostBreakdown.CacheWriteCostUSD, 0.0018)
+	assertFloatClose(t, analysis.CostBreakdown.OutputCostUSD, 0.0024)
+	assertFloatClose(t, analysis.CostBreakdown.TotalCostUSD, 0.0138)
 }
 
 func TestBuildAnalysisWithoutUsageEventsUsesOnlyRollupTables(t *testing.T) {
