@@ -34,6 +34,7 @@ const serviceHealthCardSource = readSource(new URL('../../components/usage/Servi
 const tokenActivityCardSource = readSource(new URL('../../components/usage/TokenActivityCard.tsx', import.meta.url))
 const statCardsSource = readSource(new URL('../../components/usage/StatCards.tsx', import.meta.url))
 const dailyAverageCardSource = readSource(new URL('../../components/usage/DailyAverageCard.tsx', import.meta.url))
+const customRangePanelSource = readSource(new URL('../../components/usage/CustomRangePanel.tsx', import.meta.url))
 const timeRangeControlSource = readSource(new URL('../../components/usage/TimeRangeControl.tsx', import.meta.url))
 const timeRangeControlStyles = readSource(new URL('../../components/usage/TimeRangeControl.module.scss', import.meta.url))
 
@@ -127,7 +128,10 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).not.toContain("import { RankingToolbar }")
     expect(usagePageSource).not.toContain('<RankingToolbar')
     expect(usagePageStyles).not.toContain('.rankingToolbarSlot')
-    expect(usagePageSource).toContain('className={styles.refreshSwitcher}')
+    expect(usagePageSource).toContain("import { MainActionButton } from '@/components/ui/MainActionButton'")
+    expect(usagePageSource).toContain('<MainActionButton')
+    expect(keyOverviewPageSource).toContain("import { MainActionButton } from '@/components/ui/MainActionButton'")
+    expect(keyOverviewPageSource).toContain('<MainActionButton')
   })
 
   it('removes obsolete Last Updated presentation and API plumbing', () => {
@@ -332,13 +336,10 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('sizes custom actions like model price row actions', () => {
-    const customAction = styleRuleBlock(timeRangeControlStyles, '.customRangeAction:global(.btn.btn-sm)')
-
-    expect(customAction).toContain('min-height: 32px;')
-    expect(customAction).toContain('padding: 7px 12px;')
-    expect(customAction).toContain('border-radius: 999px;')
-    expect(customAction).toContain('font-size: 12px;')
-    expect(customAction).not.toContain('min-width:')
+    expect(customRangePanelSource.match(/appearance="action"/g)).toHaveLength(4)
+    expect(customRangePanelSource).not.toContain('styles.customRangeAction')
+    expect(timeRangeControlStyles).not.toContain('.customRangeAction')
+    expect(componentsStyles).toMatch(/\.btn-action\s*\{[\s\S]*?min-height:\s*32px;/)
   })
 
   it('uses Keeper theme colors for custom day and hour selections', () => {
@@ -773,12 +774,18 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain("const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'ranking', 'events', 'auth-files', 'ai-provider', 'settings'] as const")
   })
 
-  it('keeps Sign out as the rightmost header action after Check Updates', () => {
+  it('keeps Sign out as the rightmost shared main action after Check Updates', () => {
     expect(usagePageSource).toContain('logout')
     expect(usagePageSource).toContain('fetchUpdateCheck')
     expect(usagePageSource.indexOf("t('usage_stats.check_updates')")).toBeLessThan(usagePageSource.indexOf("t('common.logout')"))
-    expect(usagePageStyles).toContain('.signOutSwitcher')
-    expect(usagePageStyles).toContain('.signOutPill')
+    expect(usagePageSource.match(/<MainActionButton/g)).toHaveLength(2)
+    expect(keyOverviewPageSource.match(/<MainActionButton/g)).toHaveLength(2)
+    expect(usagePageSource).toContain("aria-label={t('common.logout')}")
+    expect(keyOverviewPageSource).toContain("aria-label={t('common.logout')}")
+    expect(usagePageSource).not.toContain('styles.signOutPill')
+    expect(keyOverviewPageSource).not.toContain('styles.logoutPill')
+    expect(usagePageStyles).not.toContain('.signOutPill')
+    expect(keyOverviewPageStyles).not.toContain('.logoutPill')
   })
 
   it('uses only a theme-tuned top highlight for the connected shell outline', () => {
@@ -906,8 +913,8 @@ describe('UsagePage toolbar styles', () => {
     )
 
     for (const modalSource of [sessionLogoutModal, pageLogoutModal]) {
-      expect(modalSource).toMatch(/variant="secondary"\s+className=\{styles\.usagePillAction\}/)
-      expect(modalSource).toContain('className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`}')
+      expect(modalSource.match(/appearance="action"/g)).toHaveLength(2)
+      expect(modalSource).not.toContain('styles.usagePillAction')
     }
   })
 
@@ -921,12 +928,11 @@ describe('UsagePage toolbar styles', () => {
       usagePageStyles.indexOf('.sessionSettingsConfirmText')
     )
 
-    expect(usagePageStyles).toMatch(/\.settingsCompactAction\s*\{[\s\S]*?min-height:\s*32px;/)
-    expect(usagePageStyles).toMatch(/\.settingsCompactAction\s*\{[\s\S]*?padding:\s*7px 12px;/)
+    expect(usagePageStyles).not.toContain('.settingsCompactAction')
     expect(apiKeyButtonsBlock).not.toContain('min-height: 40px;')
     expect(sessionButtonBlock).not.toContain('min-height: 40px;')
-    expect(apiKeySettingsSource).toContain('styles.settingsCompactAction')
-    expect(sessionSettingsSource).toContain('styles.settingsCompactAction')
+    expect(apiKeySettingsSource.match(/appearance="action"/g)).toHaveLength(2)
+    expect(sessionSettingsSource.match(/appearance="action"/g)).toHaveLength(3)
   })
 
   it('contains wheel scrolling at overflowing card boundaries without trapping short lists', () => {
@@ -979,7 +985,9 @@ describe('UsagePage toolbar styles', () => {
 
   it('reflows the model pricing form from four to two to one column based on its container width', () => {
     expect(priceSettingsSource).toContain('className={`${styles.formField} ${styles.priceFormModelField}`}')
-    expect(priceSettingsSource).toContain('className={`${styles.usagePillAction} ${styles.priceFormAction}`}')
+    expect(priceSettingsSource).toContain('className={styles.priceFormAction}')
+    expect(priceSettingsSource).toContain('appearance="action"')
+    expect(styleRuleBlock(usagePageStyles, '.priceFormAction:global(.btn.btn-action)')).toMatch(/min-height:\s*40px;/)
     expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-name:\s*model-pricing-form;/)
     expect(usagePageStyles).toMatch(/\.priceForm\s*\{[\s\S]*?container-type:\s*inline-size;/)
     expect(usagePageStyles).toMatch(/\.formRow\s*\{[\s\S]*?display:\s*grid;/)
@@ -1291,69 +1299,47 @@ describe('UsagePage toolbar styles', () => {
     })
   })
 
-  it('provides reusable pill controls for usage subpages', () => {
+  it('provides reusable pill controls and global command actions for usage subpages', () => {
+    const actionButton = styleRuleBlock(componentsStyles, '.btn-action')
+
     expect(usagePageStyles).toMatch(/\.usagePillControl\s*\{[\s\S]*?border-radius:\s*999px;/)
-    expect(usagePageStyles).toMatch(/\.usagePillAction\s*\{[\s\S]*?border-radius:\s*999px;/)
-    expect(usagePageStyles).toMatch(/\.usagePillAction\s*\{[\s\S]*?font-size:\s*12px;/)
-    expect(usagePageStyles).toMatch(/\.usagePillAction:global\(\.btn\.btn-sm\)\s*\{[\s\S]*?min-height:\s*32px;[\s\S]*?padding:\s*7px 12px;[\s\S]*?font-size:\s*12px;/)
-    expect(usagePageStyles).toMatch(/\.usagePillActionDanger\s*\{[\s\S]*?color:/)
-    expect(usagePageStyles).not.toContain('&:global(.btn-danger):hover:not(:disabled)')
+    expect(actionButton).toMatch(/border-radius:\s*999px;/)
+    expect(actionButton).not.toMatch(/(?:^|\n)\s*(?:background(?:-color)?|border-color|color):/)
+    expect(componentsStyles).toMatch(/&\.btn-danger\s*\{[\s\S]*?background-color:\s*var\(--danger-color\);[\s\S]*?color:\s*#fff;/)
+    expect(usagePageStyles).not.toContain('.usagePillAction')
+    expect(usagePageStyles).not.toContain('.usagePillActionDanger')
     expect(usagePageStyles).toMatch(/:global\(\.input\)\s*\{[^}]*border-radius:\s*999px;/)
     expect(requestEventsSource).toContain('styles.usagePillControl')
-    expect(requestEventsSource).toContain('styles.usagePillAction')
+    expect(requestEventsSource).toContain('appearance="action"')
     expect(priceSettingsSource).toContain('styles.usagePillControl')
-    expect(priceSettingsSource).toContain('styles.usagePillAction')
-    expect(priceSettingsSource).toContain('styles.usagePillActionDanger')
+    expect(priceSettingsSource).not.toContain('styles.usagePillAction')
   })
 
   it('keeps the Request Event export menu styled and hoverable like the credential inspection control', () => {
-    const exportMenuBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsExportMenu {'),
-      usagePageStyles.indexOf('.requestEventsExportButton:global(.btn) {')
-    )
-    const exportButtonBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsExportButton:global(.btn) {'),
-      usagePageStyles.indexOf('.requestEventsExportButtonInner {')
-    )
+    const exportMenuBlock = styleRuleBlock(usagePageStyles, '.requestEventsExportMenu')
     const exportDropdownBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('.requestEventsExportDropdown {'),
       usagePageStyles.indexOf('.requestEventsToolbar {')
     )
     const clearFilterSlotBlock = styleRuleBlock(usagePageStyles, '.requestEventsFilterActionSlot')
-    const clearFilterButtonBlock = styleRuleBlock(usagePageStyles, '.requestEventsClearFiltersButton:global(.btn)')
-    const credentialRefreshActiveBlock = credentialStyles.slice(
-      credentialStyles.indexOf('.credentialRefreshButtonActive,'),
-      credentialStyles.indexOf('.credentialRefreshButtonInner {')
-    )
 
-    expect(requestEventsSource).toContain('styles.requestEventsExportButton')
-    expect(requestEventsSource).toContain('styles.requestEventsExportButtonInner')
+    expect(requestEventsSource.match(/<MainActionButton/g)).toHaveLength(2)
+    expect(requestEventsSource).not.toContain('styles.requestEventsExportButton')
+    expect(requestEventsSource).not.toContain('styles.requestEventsExportButtonInner')
     expect(requestEventsSource).toContain('<IconDownload size={12} aria-hidden="true" />')
     expect(requestEventsSource).toContain('styles.requestEventsFilterActionSlot')
-    expect(exportMenuBlock).toMatch(/min-height:\s*42px;/)
-    expect(exportMenuBlock).toMatch(/padding:\s*4px;/)
+    expect(exportMenuBlock).toMatch(/position:\s*relative;/)
+    expect(exportMenuBlock).toMatch(/display:\s*inline-flex;/)
     expect(exportMenuBlock).toMatch(/align-items:\s*center;/)
-    expect(exportMenuBlock).not.toMatch(/padding-bottom:\s*6px;/)
-    expect(exportMenuBlock).not.toMatch(/margin-bottom:\s*-6px;/)
-    expect(exportMenuBlock).toContain('&::after')
-    expect(exportMenuBlock).toMatch(/border-radius:\s*999px;/)
-    expect(exportButtonBlock).toMatch(/border:\s*0;/)
-    expect(exportButtonBlock).toMatch(/min-height:\s*32px;/)
-    expect(exportButtonBlock).toMatch(/padding:\s*7px 12px;/)
-    expect(exportButtonBlock).toMatch(/\.requestEventsExportButton:global\(\.btn\.btn-sm\)\s*\{[\s\S]*?min-height:\s*32px;[\s\S]*?padding:\s*7px 12px;[\s\S]*?font-size:\s*12px;/)
-    expect(credentialRefreshActiveBlock).toMatch(/background:\s*var\(--bg-primary\);/)
-    expect(exportButtonBlock).toMatch(/background:\s*var\(--bg-primary\);/)
-    expect(exportButtonBlock).toMatch(/&:global\(\.btn-secondary\),[\s\S]*?&:global\(\.btn-secondary\):hover:not\(:disabled\),[\s\S]*?&:global\(\.btn-secondary\)\[aria-expanded='true'\]\s*\{[\s\S]*?background:\s*var\(--bg-primary\);[\s\S]*?background-color:\s*var\(--bg-primary\);/)
-    expect(exportButtonBlock).toMatch(/font-size:\s*12px;/)
-    expect(exportButtonBlock).toMatch(/box-shadow:\s*0 8px 20px rgba\(0,\s*0,\s*0,\s*0\.1\);/)
+    expect(usagePageStyles).not.toContain('.requestEventsExportButton:global(.btn)')
+    expect(componentsStyles).toMatch(/\.main-action-button-shell\s*\{[\s\S]*?min-height:\s*42px;/)
+    expect(componentsStyles).toMatch(/\.btn\.btn-action\.main-action-button\s*\{[\s\S]*?min-height:\s*32px;/)
     expect(exportDropdownBlock).toMatch(/top:\s*calc\(100% \+ 6px\);/)
     expect(clearFilterSlotBlock).toMatch(/display:\s*flex;/)
     expect(clearFilterSlotBlock).toMatch(/align-items:\s*center;/)
     expect(clearFilterSlotBlock).toMatch(/align-self:\s*flex-end;/)
     expect(clearFilterSlotBlock).toMatch(/min-height:\s*40px;/)
-    expect(clearFilterButtonBlock).toMatch(/min-height:\s*32px;/)
-    expect(clearFilterButtonBlock).not.toContain('margin-bottom')
-    expect(usagePageStyles).toMatch(/\.requestEventsClearFiltersButton:global\(\.btn\.btn-sm\)\s*\{[\s\S]*?min-height:\s*32px;[\s\S]*?padding:\s*7px 12px;[\s\S]*?font-size:\s*12px;/)
+    expect(requestEventsSource).not.toContain('styles.requestEventsClearFiltersButton')
   })
 
   it('matches Request Event header action spacing to Auth Files actions', () => {
@@ -1365,9 +1351,10 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('matches the Request Event column visibility switch to Auth Files Enabled only', () => {
+    const visibilityStart = usagePageStyles.indexOf('.requestEventsColumnVisibilityControl {')
     const visibilitySwitchBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsColumnVisibilityControl {'),
-      usagePageStyles.indexOf('.requestEventsColumnSettingsAction:global(.btn.btn-sm) {')
+      visibilityStart,
+      usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)', visibilityStart)
     )
 
     expect(visibilitySwitchBlock).toMatch(/\.requestEventsColumnVisibilityTrack\s*\{[\s\S]*?width:\s*42px;[\s\S]*?height:\s*24px;/)
@@ -1377,6 +1364,8 @@ describe('UsagePage toolbar styles', () => {
     expect(visibilitySwitchBlock).toContain('transform: translateX(18px);')
     expect(requestEventsColumnSettingsSource).toContain('styles.requestEventsColumnVisibilityTrack')
     expect(requestEventsColumnSettingsSource).toContain('styles.requestEventsColumnVisibilityThumb')
+    expect(requestEventsColumnSettingsSource.match(/appearance="action"/g)).toHaveLength(2)
+    expect(usagePageStyles).not.toContain('.requestEventsColumnSettingsAction')
     expect(credentialStyles).toContain('background: linear-gradient(135deg, #2563eb 0%, #38bdf8 58%, #67e8f9 100%);')
   })
 
@@ -1413,9 +1402,8 @@ describe('Pricing rules component boundary', () => {
     expect(priceRulesStyles).toMatch(/\.ruleRow\s+:global\(\.form-group > label\)\s*\{[\s\S]*?font-size:\s*10px;/)
     expect(styleRuleBlock(priceRulesStyles, '.removeButton')).not.toMatch(/min-height:/)
     expect(styleRuleBlock(priceRulesStyles, '.removeButton')).toMatch(/margin-top:\s*20px;/)
-    expect(styleRuleBlock(priceRulesStyles, '.actionButton')).toMatch(/min-height:\s*32px;/)
-    expect(styleRuleBlock(priceRulesStyles, '.actionButton')).toMatch(/font-size:\s*12px;/)
-    expect(styleRuleBlock(priceRulesStyles, '.actionButton')).toMatch(/border-radius:\s*999px;/)
-    expect(priceRulesSource).toContain('${usageStyles.usagePillAction} ${usageStyles.usagePillActionDanger}')
+    expect(priceRulesStyles).not.toContain('.actionButton')
+    expect(priceRulesSource.match(/appearance="action"/g)).toHaveLength(4)
+    expect(priceRulesSource).not.toContain('usageStyles')
   })
 })

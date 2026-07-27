@@ -410,8 +410,10 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html.indexOf('aria-label="Columns"')).toBeLessThan(html.indexOf('>Export<'));
     expect(html.indexOf('>Export<')).toBeLessThan(html.indexOf('aria-label="Result"'));
     expect(html).toContain('aria-haspopup="menu"');
-    expect(html).toContain('_requestEventsExportButton_');
-    expect(html).toContain('_requestEventsExportButtonInner_');
+    expect(countOccurrences(html, 'class="main-action-button-shell')).toBe(2);
+    expect(countOccurrences(html, 'btn btn-primary btn-action main-action-button')).toBe(2);
+    expect(html).not.toContain('_requestEventsExportButton_');
+    expect(html).not.toContain('_requestEventsExportButtonInner_');
     expect(html).not.toContain('Export CSV');
     expect(html).not.toContain('Export JSON');
   });

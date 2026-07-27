@@ -86,9 +86,7 @@
 }
 
 .identityChip,
-.themeSwitcher,
-.logoutSwitcher,
-.refreshSwitcher {
+.themeSwitcher {
   display: inline-flex;
   align-items: stretch;
   min-height: var(--keeper-toolbar-control-height, 42px);
@@ -123,9 +121,7 @@
   white-space: nowrap;
 }
 
-.themePill,
-.logoutPill,
-.refreshPill {
+.themePill {
   border: 0;
   background: transparent;
   color: var(--text-secondary);
@@ -152,27 +148,12 @@
   }
 }
 
-.themePillActive,
-.logoutPillActive,
-.refreshPillActive,
-.refreshPillLoading {
+.themePillActive {
   background: var(--bg-primary);
   color: var(--text-primary);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
 }
 
-.logoutPill {
-  font-weight: 700;
-}
-
-.logoutPillInner,
-.refreshPillInner {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.refreshSpinner,
 .loadingOverlaySpinner {
   width: 12px;
   height: 12px;
@@ -351,11 +332,11 @@
 
   .usageRefreshSlot,
   .usageFilterActions,
-  .refreshSwitcher {
+  .refreshMainActionShell {
     width: 100%;
   }
 
-  .refreshPill {
+  .refreshMainActionButton {
     width: 100%;
   }
 }

@@ -72,7 +72,7 @@ export function RankingToolbar({
           onChange={(value) => onMetricChange(value as RankingMetric)}
           className={styles.metricSelect}
           ariaLabel={t('ranking.metric_label')}
-          dropdownMinWidth={190}
+          dropdownMinWidth={260}
           fullWidth
         />
       </div>

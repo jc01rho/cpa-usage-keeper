@@ -6,6 +6,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+import { MainActionButton } from '@/components/ui/MainActionButton';
 import { Modal } from '@/components/ui/Modal';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -1821,16 +1822,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 </button>
               </div>
             )}
-            <div className={styles.signOutSwitcher} role="group" aria-label={t('common.logout')}>
-              <button
-                type="button"
-                className={`${styles.signOutPill} ${styles.signOutPillActive}`.trim()}
-                onClick={handleRequestLogout}
-                disabled={loggingOut}
-              >
-                <span className={styles.signOutPillInner}>{loggingOut ? t('common.loading') : t('common.logout')}</span>
-              </button>
-            </div>
+            <MainActionButton
+              type="button"
+              aria-label={t('common.logout')}
+              onClick={handleRequestLogout}
+              disabled={loggingOut}
+              loading={loggingOut}
+            >
+              {loggingOut ? t('common.loading') : t('common.logout')}
+            </MainActionButton>
           </div>
         </header>
 
@@ -1948,27 +1948,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 )}
                 <div className={styles.usageRefreshSlot}>
                   <div className={styles.usageFilterActions}>
-                    <div className={styles.refreshSwitcher} role="group" aria-label={t('usage_stats.refresh')}>
-                      <button
-                        type="button"
-                        className={`${styles.refreshPill} ${styles.refreshPillActive} ${manualRefreshLoading ? styles.refreshPillLoading : ''}`.trim()}
-                        onClick={() => void handleManualRefresh().catch(() => {})}
-                        disabled={manualRefreshLoading}
-                        aria-busy={manualRefreshLoading}
-                      >
-                        {manualRefreshLoading ? (
-                          <span className={styles.refreshPillInner}>
-                            <LoadingSpinner size={12} className={styles.refreshSpinner} />
-                            <span>{t('common.loading')}</span>
-                          </span>
-                        ) : (
-                          <span className={styles.refreshPillInner}>
-                            <IconRefreshCw size={14} />
-                            <span>{t('usage_stats.refresh')}</span>
-                          </span>
-                        )}
-                      </button>
-                    </div>
+                    <MainActionButton
+                      type="button"
+                      shellClassName={styles.refreshMainActionShell}
+                      className={styles.refreshMainActionButton}
+                      onClick={() => void handleManualRefresh().catch(() => {})}
+                      disabled={manualRefreshLoading}
+                      loading={manualRefreshLoading}
+                    >
+                      {manualRefreshLoading ? t('common.loading') : (
+                        <>
+                          <IconRefreshCw size={14} />
+                          <span>{t('usage_stats.refresh')}</span>
+                        </>
+                      )}
+                    </MainActionButton>
                   </div>
                 </div>
               </div>
@@ -2061,8 +2055,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 onRetryLeaderboard={rankingData.refreshLeaderboard}
                 onPeriodChange={rankingData.setPeriod}
                 onMetricChange={rankingData.setMetric}
-                actionClassName={styles.usagePillAction}
-                dangerActionClassName={styles.usagePillActionDanger}
               />
             )}
 
@@ -2205,10 +2197,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         closeDisabled={loggingOut}
         footer={
           <>
-            <Button type="button" variant="secondary" className={styles.usagePillAction} onClick={() => setLogoutConfirmOpen(false)} disabled={loggingOut}>
+            <Button type="button" variant="secondary" appearance="action" onClick={() => setLogoutConfirmOpen(false)} disabled={loggingOut}>
               {t('common.cancel')}
             </Button>
-            <Button type="button" variant="danger" className={`${styles.usagePillAction} ${styles.usagePillActionDanger}`} onClick={() => void handleConfirmLogout()} loading={loggingOut}>
+            <Button type="button" variant="danger" appearance="action" onClick={() => void handleConfirmLogout()} loading={loggingOut}>
               {loggingOut ? t('common.loading') : t('usage_stats.logout_confirm_action')}
             </Button>
           </>

@@ -52,4 +52,12 @@ describe('pricing rule translations', () => {
     expect(i18n.getResourceBundle('zh', 'translation').usage_stats.model_price_rules_help_examples).toBe('示例：')
     expect(i18n.getResourceBundle('zh-TW', 'translation').usage_stats.model_price_rules_help_examples).toBe('範例：')
   })
+
+  it('capitalizes every word in English price sync actions only', () => {
+    expect(i18n.t('usage_stats.model_price_sync_select_all', { lng: 'en' })).toBe('Select All')
+    expect(i18n.t('usage_stats.model_price_sync_select_none', { lng: 'en' })).toBe('Clear Selection')
+    expect(i18n.t('usage_stats.model_price_sync_update_selected', { lng: 'en', count: 3 })).toBe('Update Selected (3)')
+    expect(i18n.t('usage_stats.model_price_sync_update_selected', { lng: 'zh', count: 3 })).toBe('更新所选（3）')
+    expect(i18n.t('usage_stats.model_price_sync_update_selected', { lng: 'zh-TW', count: 3 })).toBe('更新所選（3）')
+  })
 })

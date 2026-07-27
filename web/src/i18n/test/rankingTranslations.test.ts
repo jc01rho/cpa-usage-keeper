@@ -55,7 +55,7 @@ describe('Ranking translations', () => {
 
   it('describes joining as a manual retry state and locks the profile on first submission', () => {
     expect(i18n.t('ranking.status_joining', { lng: 'en' })).toBe('Registration pending');
-    expect(i18n.t('ranking.join_retry', { lng: 'en' })).toBe('Retry registration');
+    expect(i18n.t('ranking.join_retry', { lng: 'en' })).toBe('Retry Registration');
     expect(i18n.t('ranking.join_confirm_body', { lng: 'en' })).toContain('first submission');
     expect(i18n.t('ranking.join_confirm_body', { lng: 'en' })).not.toContain('successful registration');
   });
@@ -67,5 +67,56 @@ describe('Ranking translations', () => {
 
   it('clearly states that pausing stops ranking data uploads', () => {
     expect(i18n.t('ranking.pause_confirm_body', { lng: 'zh' })).toContain('停止同步排名数据');
+  });
+
+  it('capitalizes every word in English Ranking page actions', () => {
+    const expectedEnglishActions = {
+      'usage_stats.back_to_cpa': 'Back To CPA',
+      'usage_stats.back_to_cpa_aria': 'Back To CPA Management',
+      'ranking.privacy_title': 'Participation Is Optional',
+      'ranking.period_current_month': 'This Month',
+      'ranking.period_previous_month': 'Last Month',
+      'ranking.metric_label': 'Ranking Metric',
+      'ranking.join': 'Join Ranking',
+      'ranking.profile_action': 'My Ranking',
+      'ranking.join_confirm_action': 'Confirm And Join',
+      'ranking.join_retry': 'Retry Registration',
+      'ranking.sync_now': 'Sync Now',
+      'ranking.pause': 'Pause Participation',
+      'ranking.resume': 'Resume Participation',
+      'ranking.pause_confirm_action': 'Confirm Pause',
+      'ranking.exit': 'Exit Ranking',
+      'ranking.exit_confirm_action': 'Permanently Exit',
+    } as const;
+
+    for (const [key, label] of Object.entries(expectedEnglishActions)) {
+      expect(i18n.t(key, { lng: 'en' })).toBe(label);
+    }
+  });
+
+  it('keeps the localized Ranking action labels unchanged', () => {
+    expect(i18n.t('ranking.join', { lng: 'zh' })).toBe('参与排名');
+    expect(i18n.t('ranking.join', { lng: 'zh-TW' })).toBe('參與排名');
+    expect(i18n.t('ranking.pause', { lng: 'zh' })).toBe('暂停参与');
+    expect(i18n.t('ranking.pause', { lng: 'zh-TW' })).toBe('暫停參與');
+  });
+
+  it('capitalizes every word in English Ranking metric options only', () => {
+    const expectedEnglishMetrics = {
+      'ranking.metric_overall': 'Overall Ranking',
+      'ranking.metric_total_tokens': 'Total Token',
+      'ranking.metric_request_count': 'Requests',
+      'ranking.metric_cache_read_rate': 'Cache Read Rate',
+      'ranking.metric_ttft_average': 'Average Time To First Token',
+      'ranking.metric_latency_average': 'Average Total Latency',
+      'ranking.metric_peak_tpm': 'Peak TPM',
+      'ranking.metric_peak_rpm': 'Peak RPM',
+    } as const;
+
+    for (const [key, label] of Object.entries(expectedEnglishMetrics)) {
+      expect(i18n.t(key, { lng: 'en' })).toBe(label);
+    }
+    expect(i18n.t('ranking.metric_cache_read_rate', { lng: 'zh' })).toBe('缓存读取率');
+    expect(i18n.t('ranking.metric_cache_read_rate', { lng: 'zh-TW' })).toBe('快取讀取率');
   });
 });
