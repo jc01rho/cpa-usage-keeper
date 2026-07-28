@@ -364,7 +364,7 @@ func CleanupStorage(db *gorm.DB, now time.Time, options ...CleanupStorageOptions
 	if err := CleanupUsageActivityStats(db, now); err != nil {
 		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, err
 	}
-	// Latency 小时保留 31 天、自然日保留 365 天，并复用本轮最后一次 VACUUM。
+	// Latency 小时保留 3 天、自然日保留 365 天，并复用本轮最后一次 VACUUM。
 	if err := CleanupUsageLatencyStats(db, now); err != nil {
 		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageEventsDeleted: usageEventsDeleted}, err
 	}

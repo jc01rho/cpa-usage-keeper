@@ -18,11 +18,11 @@ import (
 	"gorm.io/plugin/dbresolver"
 )
 
-func TestAggregateUsageLatencyStatsKeepsHoursForThirtyOneDaysAndDaysForThreeHundredSixtyFiveDays(t *testing.T) {
-	// 小时只服务最长 30 天滚动窗口；自然日继续覆盖页面允许的最近 365 天。
+func TestAggregateUsageLatencyStatsKeepsHoursForThreeDaysAndDaysForThreeHundredSixtyFiveDays(t *testing.T) {
+	// 小时只服务最长 24 小时窗口并保留三天余量；自然日继续覆盖页面允许的最近 365 天。
 	db := openTestDatabase(t)
 	now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.Local)
-	hourCutoff := now.Add(-31 * 24 * time.Hour).Truncate(time.Hour)
+	hourCutoff := now.Add(-3 * 24 * time.Hour).Truncate(time.Hour)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	events := []entities.UsageEvent{
 		validLatencyEvent(1, "recent", now.Add(-time.Hour), 100, 900),
@@ -56,7 +56,7 @@ func TestAggregateUsageLatencyStatsKeepsHoursForThirtyOneDaysAndDaysForThreeHund
 }
 
 func TestCleanupStorageRemovesExpiredLatencyHourAndDayRows(t *testing.T) {
-	// 每日维护复用现有 cleanup/VACUUM，只删除31天前小时行和365天窗口外的自然日行。
+	// 每日维护复用现有 cleanup/VACUUM，只删除三天前小时行和365天窗口外的自然日行。
 	db := openTestDatabase(t)
 	now := time.Date(2026, 7, 26, 12, 30, 0, 0, time.Local)
 	templates := buildLatencyRowsForTest(t, []entities.UsageEvent{validLatencyEvent(1, "template", now, 100, 900)})
@@ -66,8 +66,8 @@ func TestCleanupStorageRemovesExpiredLatencyHourAndDayRows(t *testing.T) {
 	}
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	rows := []entities.UsageLatencyStat{
-		latencyRetentionRow(templateByType[entities.UsageLatencyBucketHour], "expired-hour", now.Add(-32*24*time.Hour).Truncate(time.Hour), now),
-		latencyRetentionRow(templateByType[entities.UsageLatencyBucketHour], "kept-hour", now.Add(-30*24*time.Hour).Truncate(time.Hour), now),
+		latencyRetentionRow(templateByType[entities.UsageLatencyBucketHour], "expired-hour", now.Add(-4*24*time.Hour).Truncate(time.Hour), now),
+		latencyRetentionRow(templateByType[entities.UsageLatencyBucketHour], "kept-hour", now.Add(-2*24*time.Hour).Truncate(time.Hour), now),
 		latencyRetentionRow(templateByType[entities.UsageLatencyBucketDay], "expired-day", today.AddDate(0, 0, -365), now),
 		latencyRetentionRow(templateByType[entities.UsageLatencyBucketDay], "kept-day", today.AddDate(0, 0, -364), now),
 	}
@@ -108,7 +108,7 @@ func TestCleanupUsageLatencyStatsUsesStoredTimezoneAtExactRetentionBoundary(t *t
 			}
 
 			// 这些边界由固定墙钟时间手工给出，避免用被测 retention helper 反推期望值。
-			hourCutoff := time.Date(2026, 6, 25, 12, 0, 0, 0, location)
+			hourCutoff := time.Date(2026, 7, 23, 12, 0, 0, 0, location)
 			dayCutoff := time.Date(2025, 7, 27, 0, 0, 0, 0, location)
 			rows := []entities.UsageLatencyStat{
 				latencyRetentionRow(templateByType[entities.UsageLatencyBucketHour], "expired-hour", hourCutoff.Add(-time.Hour), now),

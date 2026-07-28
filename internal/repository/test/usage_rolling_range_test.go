@@ -156,11 +156,12 @@ func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
 		}
 	}{
 		{
-			name: "twelve days excludes the partial left day", rangeName: "12d", days: 12,
+			name: "twelve days includes the start day", rangeName: "12d", days: 12,
 			wantBuckets: []struct {
 				bucket time.Time
 				tokens int64
 			}{
+				{bucket: time.Date(2026, 7, 15, 0, 0, 0, 0, location), tokens: 671_404_633},
 				{bucket: time.Date(2026, 7, 27, 0, 0, 0, 0, location), tokens: 222},
 			},
 		},
@@ -224,6 +225,11 @@ func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
 			}
 			if analysis.Granularity != repodto.AnalysisGranularityDaily {
 				t.Fatalf("expected daily granularity, got %q", analysis.Granularity)
+			}
+			wantRangeStart := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, location)
+			wantRangeEnd := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, location).AddDate(0, 0, 1)
+			if analysis.RangeStart == nil || !analysis.RangeStart.Equal(wantRangeStart) || analysis.RangeEnd == nil || !analysis.RangeEnd.Equal(wantRangeEnd) {
+				t.Fatalf("range = [%v, %v), want [%v, %v)", analysis.RangeStart, analysis.RangeEnd, wantRangeStart, wantRangeEnd)
 			}
 			if len(analysis.TokenUsage) != len(testCase.wantBuckets) {
 				t.Fatalf("token usage = %+v, want %d daily buckets", analysis.TokenUsage, len(testCase.wantBuckets))
