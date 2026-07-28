@@ -28,8 +28,8 @@ type aggregateRowBuilder struct {
 }
 
 const (
-	// HourRetentionDays 为最长 30 天滚动查询保留一天边界余量。
-	HourRetentionDays = 31
+	// HourRetentionDays 为最长 24 小时查询保留三天 hourly 数据。
+	HourRetentionDays = 3
 	// DayRetentionDays 覆盖页面允许选择的最近 365 个自然日。
 	DayRetentionDays = 365
 )

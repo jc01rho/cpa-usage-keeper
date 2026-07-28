@@ -14,7 +14,7 @@ import (
 	"gorm.io/plugin/dbresolver"
 )
 
-const analysisLatencyHourRangeMaxDays = 30
+const analysisLatencyHourRangeMax = 24 * time.Hour
 
 // BuildAnalysisLatencyDiagnosticsWithFilter 只读取现有 Latency 聚合行并在内存合并诊断结果。
 func BuildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (dto.AnalysisLatencyDiagnosticsRecord, error) {
@@ -35,9 +35,16 @@ func BuildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQuer
 	if err != nil {
 		return empty, err
 	}
-	// 两侧都向上取整：舍弃左侧不完整桶，并纳入右侧当前桶已经落入聚合表的数据。
-	alignedStart := alignAnalysisLatencyBucketEnd(start, bucketType)
-	alignedEnd := alignAnalysisLatencyBucketEnd(end, bucketType)
+	alignedStart := start
+	alignedEnd := end
+	if bucketType == entities.UsageLatencyBucketDay && !(filter.Range == "custom" && strings.TrimSpace(filter.CustomUnit) == "day") {
+		// 超过 24 小时的滚动范围与 Analysis 主数据共用完整自然日边界。
+		alignedStart, alignedEnd = analysisRollingDayWindow(start, end)
+	} else {
+		// 小时范围两侧向上取整；Custom + Day 已经由解析层提供完整自然日边界。
+		alignedStart = alignAnalysisLatencyBucketEnd(start, bucketType)
+		alignedEnd = alignAnalysisLatencyBucketEnd(end, bucketType)
+	}
 	if !alignedEnd.After(alignedStart) {
 		return empty, nil
 	}
@@ -79,7 +86,7 @@ func analysisLatencyBucketType(filter dto.UsageQueryFilter, start, end time.Time
 		// Custom 天已经是完整自然日区间，始终读取长期保留的 day 桶。
 		return entities.UsageLatencyBucketDay, nil
 	}
-	if end.Sub(start) <= analysisLatencyHourRangeMaxDays*24*time.Hour {
+	if end.Sub(start) <= analysisLatencyHourRangeMax {
 		return entities.UsageLatencyBucketHour, nil
 	}
 	return entities.UsageLatencyBucketDay, nil

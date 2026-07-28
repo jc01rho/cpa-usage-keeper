@@ -257,6 +257,17 @@ describe('Ranking table context styles', () => {
     expect(mobile).toMatch(/\.profileModal\s+:global\(\.modal-body\)\s*\{[\s\S]*?max-height:\s*min\(60dvh,/);
   });
 
+  it('adapts profile avatar columns to narrow mobile modal widths', () => {
+    const mobileStart = styles.indexOf('@include mobile');
+    const mobileEnd = styles.indexOf('@media (prefers-reduced-motion', mobileStart);
+    const mobile = styles.slice(mobileStart, mobileEnd);
+
+    expect(mobile).toMatch(
+      /\.profileModal\s+\.avatarGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(44px,\s*1fr\)\);/,
+    );
+    expect(mobile).not.toMatch(/\.profileModal\s+\.avatarGrid\s*\{[\s\S]*?repeat\(6,/);
+  });
+
   it('separates the destructive action from the normal profile actions and stacks cleanly on mobile', () => {
     const footer = rule('.profileActionFooter');
     expect(footer).toContain('display: flex;');

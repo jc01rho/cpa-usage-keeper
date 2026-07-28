@@ -145,10 +145,25 @@ func TestAnalysisLatencyRollupSupportsAllAnalysisRangeKinds(t *testing.T) {
 		rangeName string
 		start     time.Time
 		end       time.Time
+		wantDaily bool
+		skipHour  bool
 	}{
 		{
 			name: "rolling thirty days", rangeName: "30d",
-			start: time.Date(2026, 6, 26, 10, 30, 0, 0, location),
+			start:     time.Date(2026, 6, 26, 10, 30, 0, 0, location),
+			end:       time.Date(2026, 7, 26, 10, 30, 0, 0, location),
+			wantDaily: true,
+			skipHour:  true,
+		},
+		{
+			name: "rolling two days", rangeName: "2d",
+			start:     time.Date(2026, 7, 24, 10, 30, 0, 0, location),
+			end:       time.Date(2026, 7, 26, 10, 30, 0, 0, location),
+			wantDaily: true,
+		},
+		{
+			name: "rolling twenty four hours", rangeName: "24h",
+			start: time.Date(2026, 7, 25, 10, 30, 0, 0, location),
 			end:   time.Date(2026, 7, 26, 10, 30, 0, 0, location),
 		},
 		{
@@ -162,14 +177,20 @@ func TestAnalysisLatencyRollupSupportsAllAnalysisRangeKinds(t *testing.T) {
 			end:   time.Date(2026, 7, 25, 23, 59, 59, int(time.Second-time.Nanosecond), location),
 		},
 	} {
-		t.Run(testCase.name+" uses hour buckets", func(t *testing.T) {
+		bucketName := "hour"
+		if testCase.wantDaily {
+			bucketName = "day"
+		}
+		t.Run(testCase.name+" uses "+bucketName+" buckets", func(t *testing.T) {
 			db := openTestDatabase(t)
 			hourTTFT := int64(2600 + caseIndex*100)
 			dayTTFT := hourTTFT + 1
 			eventTime := testCase.start.Add(12*time.Hour + 10*time.Minute)
-			seedAnalysisLatencyRows(t, db, testCase.end, entities.UsageLatencyBucketHour, []entities.UsageEvent{
-				analysisLatencyEvent(int64(2201+caseIndex*10), "target", eventTime, hourTTFT, hourTTFT*10),
-			})
+			if !testCase.skipHour {
+				seedAnalysisLatencyRows(t, db, testCase.end, entities.UsageLatencyBucketHour, []entities.UsageEvent{
+					analysisLatencyEvent(int64(2201+caseIndex*10), "target", eventTime, hourTTFT, hourTTFT*10),
+				})
+			}
 			seedAnalysisLatencyRows(t, db, testCase.end, entities.UsageLatencyBucketDay, []entities.UsageEvent{
 				analysisLatencyEvent(int64(2202+caseIndex*10), "target", eventTime, dayTTFT, dayTTFT*10),
 			})
@@ -180,7 +201,11 @@ func TestAnalysisLatencyRollupSupportsAllAnalysisRangeKinds(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BuildAnalysisLatencyDiagnosticsWithFilter returned error: %v", err)
 			}
-			assertSingleAnalysisLatencyPoint(t, diagnostics, hourTTFT, hourTTFT*10)
+			wantTTFT := hourTTFT
+			if testCase.wantDaily {
+				wantTTFT = dayTTFT
+			}
+			assertSingleAnalysisLatencyPoint(t, diagnostics, wantTTFT, wantTTFT*10)
 		})
 	}
 }
