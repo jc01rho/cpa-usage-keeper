@@ -1426,6 +1426,15 @@ func TestUsageEventSpeedTPS(t *testing.T) {
 			want: usageEventFloat64Ptr(0.5),
 		},
 		{
+			name: "uses sub one hundred millisecond generation duration",
+			row: servicedto.UsageEventRecord{
+				LatencyMS:    120,
+				TTFTMS:       usageEventInt64Ptr(45),
+				OutputTokens: 3,
+			},
+			want: usageEventFloat64Ptr(40),
+		},
+		{
 			name: "uses full output tokens when reasoning is present",
 			row: servicedto.UsageEventRecord{
 				LatencyMS:       2045,
