@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -35,6 +36,8 @@ var (
 )
 
 type Config struct {
+	// AppHost 是 Web 服务监听主机；空值保持监听所有可用网络接口的现有行为。
+	AppHost string
 	// AppPort 是 Web 服务监听端口。
 	AppPort string
 	// AppBasePath 是 Web 服务部署子路径，空值表示根路径。
@@ -106,6 +109,7 @@ type Config struct {
 
 type LoadOptions struct {
 	EnvFile string
+	AppHost string
 }
 
 var executableDir = func() (string, error) {
@@ -118,6 +122,10 @@ var executableDir = func() (string, error) {
 
 func LoadFromEnv() (*Config, error) {
 	return Load(LoadOptions{})
+}
+
+func (cfg Config) ListenAddress() string {
+	return net.JoinHostPort(cfg.AppHost, cfg.AppPort)
 }
 
 func Load(options LoadOptions) (*Config, error) {
@@ -253,6 +261,7 @@ func Load(options LoadOptions) (*Config, error) {
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
 	cfg := &Config{
+		AppHost:                    strings.TrimSpace(os.Getenv("APP_HOST")),
 		AppPort:                    getString("APP_PORT", "8080"),
 		AppBasePath:                appBasePath,
 		CPAPublicURL:               strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
@@ -287,6 +296,9 @@ func Load(options LoadOptions) (*Config, error) {
 		LoginPassword:              strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
 		AuthSessionTTL:             authSessionTTL,
 		OpenRouterAPIKey:           strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")),
+	}
+	if appHost := strings.TrimSpace(options.AppHost); appHost != "" {
+		cfg.AppHost = appHost
 	}
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")
