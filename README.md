@@ -469,16 +469,6 @@ When CPA and Keeper share a browser origin, `CPA_PUBLIC_URL` can be omitted and 
 CPA_PUBLIC_URL=https://cpa.example.com
 ```
 
-## Star History
-
-<a href="https://www.star-history.com/?repos=willxup%2Fcpa-usage-keeper&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=willxup/cpa-usage-keeper&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=willxup/cpa-usage-keeper&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=willxup/cpa-usage-keeper&type=date&legend=top-left" />
- </picture>
-</a>
-
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
