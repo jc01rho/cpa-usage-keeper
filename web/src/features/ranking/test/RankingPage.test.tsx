@@ -22,6 +22,14 @@ const leaderboard: RankingLeaderboardResponse = {
   metric: 'overall',
   generated_at: '2026-07-24T04:05:00Z',
   stale: false,
+  score_explanation: {
+    version: 2,
+    texts: {
+      en: 'Overall score V2 from the ranking center.',
+      zh: '中心返回的综合分 V2。',
+      'zh-TW': '中心回傳的綜合分 V2。',
+    },
+  },
   entries: [
     {
       rank: 4,
@@ -145,6 +153,42 @@ describe('RankingPage', () => {
     expect(header?.querySelector('[data-ranking-metric]')).not.toBeNull();
     expect(title?.textContent).toContain('ranking.metric_overall');
     expect(title?.textContent).not.toContain('ranking.period_today');
+  });
+
+  it('shows the center explanation beside only a V2 overall title', async () => {
+    await renderPage();
+
+    const hint = container.querySelector<HTMLButtonElement>('[data-ranking-score-explanation]');
+    const tooltip = hint?.querySelector<HTMLElement>('[data-ranking-score-explanation-tooltip]');
+    expect(hint?.textContent).toContain('?');
+    expect(hint?.getAttribute('title')).toBeNull();
+    expect(hint?.getAttribute('aria-label')).toBe('ranking.score_explanation_label');
+    expect(hint?.getAttribute('aria-label')).not.toBe(tooltip?.textContent);
+    expect(hint?.getAttribute('aria-describedby')).toBe(tooltip?.id);
+    expect(hint?.getAttribute('aria-expanded')).toBe('false');
+    expect(tooltip?.getAttribute('role')).toBe('tooltip');
+    expect(tooltip?.textContent).toBe('Overall score V2 from the ranking center.');
+    await act(async () => hint?.click());
+    expect(hint?.getAttribute('aria-expanded')).toBe('true');
+
+    await renderPage({
+      metric: 'total_tokens',
+      leaderboard: { ...leaderboard, metric: 'total_tokens' },
+    });
+    expect(container.querySelector('[data-ranking-score-explanation]')).toBeNull();
+
+    await renderPage({ leaderboard: { ...leaderboard, score_explanation: undefined } });
+    expect(container.querySelector('[data-ranking-score-explanation]')).toBeNull();
+
+    await renderPage({
+      leaderboard: { ...leaderboard, score_explanation: { version: 2, texts: null } },
+    });
+    expect(container.querySelector('[data-ranking-score-explanation]')).toBeNull();
+
+    await renderPage({
+      leaderboard: { ...leaderboard, score_explanation: { version: 1, texts: { en: 'Legacy score' } } },
+    });
+    expect(container.querySelector('[data-ranking-score-explanation]')).toBeNull();
   });
 
   it('keeps the leaderboard as the only page card and moves participation into one large modal', async () => {
