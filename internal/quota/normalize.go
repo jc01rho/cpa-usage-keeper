@@ -431,7 +431,7 @@ func xaiWeeklyQuotaRow(config *XAIBillingConfig) (QuotaRow, bool) {
 	usedPercent := *config.CreditUsagePercent
 	limitReached := usedPercent >= 100
 	return QuotaRow{
-		Key:          "billing.weekly",
+		Key:          xaiWeeklyBillingQuotaKey,
 		Label:        "Weekly",
 		Scope:        "billing",
 		Metric:       "weekly",

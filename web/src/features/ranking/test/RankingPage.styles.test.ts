@@ -114,6 +114,16 @@ describe('Ranking table context styles', () => {
     expect(styles).toContain('.profilePrivacyHintOpen .profilePrivacyTooltip');
   });
 
+  it('reuses the participation question style beside the overall title', () => {
+    const titleTrack = rule('.leaderboardTitle :global(.keeper-card-title-track)');
+    const scoreHint = rule('.scoreExplanationHint');
+    expect(source).toContain('styles.profilePrivacyHint');
+    expect(source).toContain('styles.profilePrivacyTooltip');
+    expect(source).toContain('data-ranking-score-explanation');
+    expect(titleTrack).toContain('position: relative;');
+    expect(scoreHint).not.toContain('position: relative;');
+  });
+
   it('aligns the title with the top filters and keeps the profile entry directly below them', () => {
     const header = rule('.leaderboardHeader');
     expect(header).toContain('display: grid;');
