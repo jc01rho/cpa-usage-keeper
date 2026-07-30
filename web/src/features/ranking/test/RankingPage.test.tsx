@@ -148,6 +148,8 @@ describe('RankingPage', () => {
     expect(toolbar?.parentElement).toBe(header);
     expect(profile?.parentElement).toBe(header);
     expect(header?.children).toHaveLength(3);
+    expect(title?.compareDocumentPosition(toolbar as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(toolbar?.compareDocumentPosition(profile as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(toolbar?.querySelector('[data-ranking-toolbar]')).not.toBeNull();
     expect(header?.querySelector('[data-ranking-periods]')).not.toBeNull();
     expect(header?.querySelector('[data-ranking-metric]')).not.toBeNull();
@@ -224,6 +226,14 @@ describe('RankingPage', () => {
     expect(privacyHint?.getAttribute('aria-expanded')).toBe('false');
     expect(dialog?.querySelector('[data-ranking-upload-field]')).toBeNull();
     expect(dialog?.querySelectorAll('[data-ranking-avatar-option]')).toHaveLength(66);
+  });
+
+  it('keeps an accessible profile action name when mobile styling leaves only the active avatar visible', async () => {
+    await renderPage({ status: { status: 'active', display_name: 'Owner', avatar_id: 7 } });
+
+    const profileAction = container.querySelector<HTMLButtonElement>('[data-ranking-profile-action]');
+    expect(profileAction?.getAttribute('aria-label')).toBe('Owner · ranking.profile_action');
+    expect(profileAction?.querySelector('[data-ranking-profile-name]')?.textContent).toBe('Owner');
   });
 
   it('keeps a successful leaderboard visible when metadata loading fails', async () => {
