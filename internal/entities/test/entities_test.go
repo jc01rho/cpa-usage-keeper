@@ -15,6 +15,7 @@ func TestAllIncludesCoreModels(t *testing.T) {
 	items := All()
 	expected := []any{
 		&UsageEvent{},
+		&UsageEventArchive{},
 		&RedisUsageInbox{},
 		&ModelPriceSetting{},
 		&ModelPriceRule{},

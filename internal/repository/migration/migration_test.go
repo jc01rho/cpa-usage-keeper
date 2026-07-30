@@ -75,6 +75,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260726_usage_aggregation_checkpoints",
 		"20260726_usage_latency_stats",
 		"20260729_add_usage_event_client_metadata",
+		"20260730_create_usage_event_archive",
 	}
 	assertStringSlicesEqual(t, want, got)
 }
