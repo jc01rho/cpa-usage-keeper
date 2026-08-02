@@ -91,6 +91,15 @@ export const fetchRankingLeaderboard = (
   return requestRankingJSON<RankingLeaderboardResponse>(`/ranking/leaderboards?${query.toString()}`, { signal });
 };
 
+export const fetchLocalRankingLeaderboard = (
+  period: RankingPeriod,
+  metric: RankingMetric,
+  signal?: AbortSignal,
+) => {
+  const query = new URLSearchParams({ period, metric });
+  return requestRankingJSON<RankingLeaderboardResponse>(`/ranking/local/leaderboards?${query.toString()}`, { signal });
+};
+
 export const fetchRankingMetadata = (signal?: AbortSignal) => requestRankingJSON<RankingMetadataResponse>(
   '/ranking/leaderboards/metadata',
   { signal },

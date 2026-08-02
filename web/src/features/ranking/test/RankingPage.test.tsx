@@ -83,6 +83,7 @@ const leaderboard: RankingLeaderboardResponse = {
 };
 
 const defaultProps = {
+  scope: 'community' as const,
   period: 'today' as const,
   metric: 'overall' as const,
   status: { status: 'disabled' } as RankingStatusResponse,
@@ -135,7 +136,7 @@ describe('RankingPage', () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[data-ranking-profile-action]')?.click());
   };
 
-  it('keeps title, centered filters, and profile entry as independent header layout slots', async () => {
+  it('keeps metric, help, and period together while the community profile stays right aligned', async () => {
     await renderPage();
 
     const card = container.querySelector('article.card');
@@ -145,16 +146,36 @@ describe('RankingPage', () => {
     const profile = header?.querySelector('[data-ranking-profile-action-shell]');
 
     expect(title?.parentElement).toBe(header);
-    expect(toolbar?.parentElement).toBe(header);
+    expect(toolbar?.parentElement).toBe(title?.querySelector('.keeper-card-title-track'));
     expect(profile?.parentElement).toBe(header);
-    expect(header?.children).toHaveLength(3);
-    expect(title?.compareDocumentPosition(toolbar as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(toolbar?.compareDocumentPosition(profile as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(header?.children).toHaveLength(2);
+    expect(title?.compareDocumentPosition(profile as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(title?.querySelector('[data-ranking-metric-title]')).not.toBeNull();
+    expect(title?.querySelector('[data-ranking-score-explanation-slot]')).not.toBeNull();
+    expect(title?.querySelector('[role="heading"][aria-level="2"]')).not.toBeNull();
     expect(toolbar?.querySelector('[data-ranking-toolbar]')).not.toBeNull();
-    expect(header?.querySelector('[data-ranking-periods]')).not.toBeNull();
-    expect(header?.querySelector('[data-ranking-metric]')).not.toBeNull();
-    expect(title?.textContent).toContain('ranking.metric_overall');
-    expect(title?.textContent).not.toContain('ranking.period_today');
+    expect(toolbar?.querySelector('[data-ranking-period]')).not.toBeNull();
+    expect(header?.querySelector('[data-ranking-periods]')).toBeNull();
+    expect(toolbar?.querySelector('[data-ranking-metric]')).toBeNull();
+    expect(title?.textContent).toContain('ranking.metric_short_overall');
+    expect(title?.textContent).toContain('ranking.period_trigger_today');
+  });
+
+  it('removes the participation entry entirely from the local leaderboard', async () => {
+    await renderPage({
+      scope: 'local',
+      status: { status: 'active', display_name: 'Owner', avatar_id: 7 },
+      leaderboard: {
+        ...leaderboard,
+        entries: leaderboard.entries.map((entry) => ({ ...entry, value: Math.round(entry.value / 100) })),
+      },
+    });
+
+    expect(container.querySelector('[data-ranking-profile-action-shell]')).toBeNull();
+    expect(container.querySelector('[data-ranking-profile-action]')).toBeNull();
+    expect(container.querySelector('[data-ranking-participant-column]')?.textContent).toBe('ranking.api_key');
+    expect(container.textContent).toContain('93 PTS');
+    expect(container.textContent).not.toContain('93.25 PTS');
   });
 
   it('shows the center explanation beside only a V2 overall title', async () => {
@@ -181,6 +202,7 @@ describe('RankingPage', () => {
 
     await renderPage({ leaderboard: { ...leaderboard, score_explanation: undefined } });
     expect(container.querySelector('[data-ranking-score-explanation]')).toBeNull();
+    expect(container.querySelector('[data-ranking-score-explanation-slot]')).toBeNull();
 
     await renderPage({
       leaderboard: { ...leaderboard, score_explanation: { version: 2, texts: null } },
@@ -191,6 +213,52 @@ describe('RankingPage', () => {
       leaderboard: { ...leaderboard, score_explanation: { version: 1, texts: { en: 'Legacy score' } } },
     });
     expect(container.querySelector('[data-ranking-score-explanation]')).toBeNull();
+  });
+
+  it('keeps the overall help and period controls stable while another period loads', async () => {
+    await renderPage();
+
+    const helpSlot = container.querySelector('[data-ranking-score-explanation-slot]');
+    const periodControl = container.querySelector('[data-ranking-period]');
+    expect(helpSlot).not.toBeNull();
+    expect(periodControl).not.toBeNull();
+
+    await renderPage({
+      period: 'yesterday',
+      leaderboard,
+      leaderboardLoading: true,
+    });
+    expect(container.querySelector('[data-ranking-score-explanation-slot]')).toBe(helpSlot);
+    expect(container.querySelector('[data-ranking-period]')).toBe(periodControl);
+
+    await renderPage({
+      period: 'yesterday',
+      leaderboard: { ...leaderboard, period: 'yesterday', period_key: '2026-07-23' },
+      leaderboardLoading: false,
+    });
+    expect(container.querySelector('[data-ranking-score-explanation-slot]')).toBe(helpSlot);
+    expect(container.querySelector('[data-ranking-period]')).toBe(periodControl);
+
+    await renderPage({
+      period: 'yesterday',
+      metric: 'total_tokens',
+      leaderboard: null,
+      leaderboardLoading: true,
+    });
+    expect(container.querySelector('[data-ranking-score-explanation-slot]')).toBeNull();
+  });
+
+  it('changes ranking metrics from the title-shaped select', async () => {
+    const onMetricChange = vi.fn();
+    await renderPage({ onMetricChange });
+
+    const trigger = container.querySelector<HTMLButtonElement>('[data-ranking-metric-title] button');
+    await act(async () => trigger?.click());
+    const requestMetric = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'))
+      .find((option) => option.textContent?.includes('ranking.metric_request_count'));
+    await act(async () => requestMetric?.click());
+
+    expect(onMetricChange).toHaveBeenCalledWith('request_count');
   });
 
   it('keeps the leaderboard as the only page card and moves participation into one large modal', async () => {

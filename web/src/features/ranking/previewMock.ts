@@ -1,4 +1,5 @@
 import type { RankingDataAPI } from './hooks/useRankingData';
+import type { LocalRankingDataAPI } from './hooks/useLocalRankingData';
 import type {
   RankingDetailMetric,
   RankingLeaderboardEntry,
@@ -118,10 +119,13 @@ const buildEntry = (
   };
 };
 
-const buildLeaderboard = (period: RankingPeriod, metric: RankingMetric): RankingLeaderboardResponse => {
+const buildLeaderboard = (period: RankingPeriod, metric: RankingMetric, local = false): RankingLeaderboardResponse => {
   const direction = isLowerBetter(metric) ? 1 : -1;
   const entries = PARTICIPANTS
-    .map((participant) => buildEntry(participant, period, metric))
+    .map((participant) => {
+      const entry = buildEntry(participant, period, metric);
+      return local && metric === 'overall' ? { ...entry, value: Math.round(entry.value / 100) } : entry;
+    })
     .sort((left, right) => (left.value - right.value) * direction)
     .map((entry, index) => ({ ...entry, rank: index + 1 }));
   return {
@@ -205,9 +209,16 @@ export const createRankingPreviewAPI = (): RankingDataAPI => {
 };
 
 let previewAPI: RankingDataAPI | undefined;
+let localPreviewAPI: LocalRankingDataAPI | undefined;
 
 export const resolveRankingPreviewAPI = (enabled?: string): RankingDataAPI | undefined => {
   if (enabled !== 'true') return undefined;
   previewAPI ??= createRankingPreviewAPI();
   return previewAPI;
+};
+
+export const resolveLocalRankingPreviewAPI = (enabled?: string): LocalRankingDataAPI | undefined => {
+  if (enabled !== 'true') return undefined;
+  localPreviewAPI ??= { leaderboard: async (period, metric) => buildLeaderboard(period, metric, true) };
+  return localPreviewAPI;
 };

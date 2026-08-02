@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { createRankingPreviewAPI, resolveRankingPreviewAPI } from '../previewMock';
+import { createRankingPreviewAPI, resolveLocalRankingPreviewAPI, resolveRankingPreviewAPI } from '../previewMock';
 
 describe('Ranking preview mock', () => {
   it('stays disabled unless the local preview build explicitly enables it', () => {
     expect(resolveRankingPreviewAPI(undefined)).toBeUndefined();
     expect(resolveRankingPreviewAPI('false')).toBeUndefined();
+    expect(resolveLocalRankingPreviewAPI('false')).toBeUndefined();
     expect(resolveRankingPreviewAPI('true')).toBeDefined();
+  });
+
+  it('uses the 0-100 score scale for local preview boards', async () => {
+    const api = resolveLocalRankingPreviewAPI('true');
+    const board = await api?.leaderboard('today', 'overall');
+    expect(board?.entries[0]?.value).toBeLessThanOrEqual(100);
   });
 
   it('provides an active profile and complete leaderboard data for visual testing', async () => {
