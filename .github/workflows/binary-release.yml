@@ -241,7 +241,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum -- *.tar.gz *.zip > checksums.txt
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v3
@@ -252,6 +252,7 @@ jobs:
             dist/checksums.txt
 
   update-homebrew-tap:
+    if: github.repository == 'Willxup/cpa-usage-keeper'
     runs-on: ubuntu-24.04
     needs: publish-release
     steps:
@@ -270,7 +271,7 @@ jobs:
           version="${tag#v}"
 
           cd dist
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum -- *.tar.gz *.zip > checksums.txt
 
           arm_file="cpa-usage-keeper_${tag}_darwin_arm64.tar.gz"
           amd_file="cpa-usage-keeper_${tag}_darwin_amd64.tar.gz"
@@ -389,4 +390,3 @@ jobs:
 
           git commit -m "Update cpa-usage-keeper to ${GITHUB_REF_NAME}"
           git push
->>>>>>> upstream/main
