@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   exitRanking,
+  fetchLocalRankingLeaderboard,
   fetchRankingLeaderboard,
   fetchRankingMetadata,
   fetchRankingStatus,
@@ -38,6 +39,26 @@ describe('ranking API', () => {
     const [rawURL, init] = fetchMock.mock.calls[0];
     const url = new URL(String(rawURL), 'http://localhost');
     expect(url.pathname).toBe('/keeper/api/v1/ranking/leaderboards');
+    expect(url.search).toBe('?period=today&metric=overall');
+    expect(init).toMatchObject({ credentials: 'include', cache: 'no-store' });
+  });
+
+  it('uses the dedicated local leaderboard endpoint', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper/' });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({
+      period: 'today',
+      period_key: '2026-07-31',
+      metric: 'overall',
+      generated_at: '2026-07-31T04:00:00Z',
+      stale: false,
+      entries: [],
+    }));
+
+    await fetchLocalRankingLeaderboard('today', 'overall');
+
+    const [rawURL, init] = fetchMock.mock.calls[0];
+    const url = new URL(String(rawURL), 'http://localhost');
+    expect(url.pathname).toBe('/keeper/api/v1/ranking/local/leaderboards');
     expect(url.search).toBe('?period=today&metric=overall');
     expect(init).toMatchObject({ credentials: 'include', cache: 'no-store' });
   });

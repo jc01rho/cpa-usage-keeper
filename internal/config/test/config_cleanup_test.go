@@ -15,7 +15,7 @@ var isolatedConfigEnvKeys = []string{
 	"REDIS_QUEUE_ADDR", "REDIS_QUEUE_TLS", "REDIS_QUEUE_BATCH_SIZE", "REDIS_QUEUE_IDLE_INTERVAL",
 	"BACKUP_ENABLED", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
 	"REQUEST_TIMEOUT", "LOG_LEVEL", "LOG_FILE_ENABLED", "LOG_DIR", "LOG_RETENTION_DAYS",
-	"AUTH_ENABLED", "LOGIN_PASSWORD", "AUTH_SESSION_TTL", "TZ", "TLS_ENABLED", "TLS_CERT_FILE", "TLS_KEY_FILE",
+	"AUTH_ENABLED", "LOGIN_PASSWORD", "AUTH_SESSION_TTL", "TRUSTED_PROXY_CIDRS", "TZ", "TLS_ENABLED", "TLS_CERT_FILE", "TLS_KEY_FILE",
 	"TLS_SKIP_VERIFY", "QUOTA_REFRESH_WORKER_LIMIT",
 }
 
@@ -60,6 +60,9 @@ func isolateConfigEnv(t *testing.T) {
 		if err := os.Unsetenv(key); err != nil {
 			t.Fatalf("unset %s: %v", key, err)
 		}
+	}
+	if err := os.Setenv("LOGIN_PASSWORD", "test-login-password"); err != nil {
+		t.Fatalf("set test login password: %v", err)
 	}
 	t.Cleanup(func() {
 		time.Local = previousLocal
