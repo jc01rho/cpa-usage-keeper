@@ -23,7 +23,7 @@ func usageLatencyStatsMigration(db *gorm.DB) error {
 		return fmt.Errorf("database is nil")
 	}
 	// 建表独立提交；后续任一数据页失败时，已经完成的页面和 cursor 都必须保留。
-	if err := db.AutoMigrate(&entities.UsageLatencyStat{}); err != nil {
+	if err := db.AutoMigrate(&legacyUsageLatencyStat{}); err != nil {
 		return fmt.Errorf("create usage latency stats schema: %w", err)
 	}
 
@@ -54,7 +54,7 @@ func migrateUsageLatencyBatch(db *gorm.DB, now time.Time, targetEventID int64) (
 	processed := 0
 	err := db.Transaction(func(tx *gorm.DB) error {
 		// 通用 checkpoint migration 已预置 Latency 行；缺行说明升级前置条件不完整，不能猜测 cursor。
-		var checkpoint entities.UsageAggregationCheckpoint
+		var checkpoint legacyUsageAggregationCheckpoint
 		if err := tx.Where("name = ?", entities.UsageAggregationCheckpointLatency).Take(&checkpoint).Error; err != nil {
 			return fmt.Errorf("load usage latency migration checkpoint: %w", err)
 		}
@@ -64,7 +64,7 @@ func migrateUsageLatencyBatch(db *gorm.DB, now time.Time, targetEventID int64) (
 
 		// migration 与运行时共享同一固定字段投影，避免历史回填悄悄形成第二套数据契约。
 		var events []entities.UsageEvent
-		if err := tx.Select(entities.UsageAggregationEventProjectionColumns).
+		if err := tx.Select(legacyUsageAggregationEventProjectionColumns).
 			Where("id > ? AND id <= ?", checkpoint.LastAggregatedUsageEventID, targetEventID).
 			Order("id asc").
 			Limit(usageLatencyMigrationBatchSize).

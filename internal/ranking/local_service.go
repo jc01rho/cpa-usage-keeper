@@ -13,6 +13,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/service"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -32,13 +33,15 @@ var (
 
 // LocalRankingServiceOptions 只开放测试需要固定的项目时钟。
 type LocalRankingServiceOptions struct {
-	Now func() time.Time
+	Now        func() time.Time
+	InstanceID string
 }
 
 // LocalRankingService 以完整自然日快照维护本地 API Key 排行。
 type LocalRankingService struct {
-	db  *gorm.DB
-	now func() time.Time
+	db         *gorm.DB
+	now        func() time.Time
+	instanceID string
 
 	aggregateMu sync.Mutex
 
@@ -98,7 +101,8 @@ type localRankingRawAggregate struct {
 }
 
 type localRankingPopulationRow struct {
-	APIKeyID   int64 `gorm:"column:api_key_id"`
+	InstanceID string `gorm:"column:instance_id"`
+	APIKeyID   int64  `gorm:"column:api_key_id"`
 	APIKey     string
 	DisplayKey string
 	KeyAlias   string
@@ -115,7 +119,11 @@ func NewLocalRankingService(db *gorm.DB, options LocalRankingServiceOptions) (*L
 	if now == nil {
 		now = time.Now
 	}
-	return &LocalRankingService{db: db, now: now}, nil
+	instanceID := options.InstanceID
+	if instanceID == "" {
+		instanceID = entities.LegacyCPAInstanceID
+	}
+	return &LocalRankingService{db: db, now: now, instanceID: instanceID}, nil
 }
 
 // AggregateOnce 先结算到期完整日，再用一次数据库查询覆盖当前完整今日快照。
@@ -130,17 +138,41 @@ func (s *LocalRankingService) AggregateOnce(ctx context.Context) error {
 	defer s.aggregateMu.Unlock()
 
 	snapshotAt := timeutil.NormalizeStorageTime(s.now())
+	var instances []entities.CPAInstance
+	if err := s.db.Clauses(dbresolver.Read).WithContext(ctx).Where("enabled = ?", true).Order("created_at ASC, id ASC").Find(&instances).Error; err != nil {
+		return fmt.Errorf("list enabled instances for local ranking: %w", err)
+	}
+	if len(instances) == 0 {
+		instances = []entities.CPAInstance{{ID: s.instanceID, Enabled: true}}
+	}
+	for _, instance := range instances {
+		if instance.ID == s.instanceID {
+			if err := s.aggregateInstanceOnce(ctx, snapshotAt); err != nil {
+				return err
+			}
+			continue
+		}
+		worker, err := NewLocalRankingService(s.db, LocalRankingServiceOptions{Now: s.now, InstanceID: instance.ID})
+		if err != nil {
+			return err
+		}
+		if err := worker.aggregateInstanceOnce(ctx, snapshotAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *LocalRankingService) aggregateInstanceOnce(ctx context.Context, snapshotAt time.Time) error {
 	periodNow := snapshotAt.In(localRankingPeriodLocation)
 	if err := s.settlePendingLocalRankingDays(ctx, periodNow, snapshotAt); err != nil {
 		return err
 	}
-
 	today := localRankingTodayWindow(periodNow)
 	aggregates, err := s.aggregateLocalRankingWindow(ctx, today)
 	if err != nil {
 		return err
 	}
-	// 同一自然日直接比较上次成功结果，保留每轮一次 reader 扫描，同时避免无变化写入。
 	if s.lastDynamicDay == today.Key && slices.Equal(s.lastDynamicAggregates, aggregates) {
 		return nil
 	}
@@ -186,7 +218,8 @@ func (s *LocalRankingService) ensureLocalRankingPeriodState(ctx context.Context,
 	if s.periodStateLoaded {
 		return nil
 	}
-	setting, found, err := repository.GetAppSetting(ctx, s.db.Clauses(dbresolver.Read), localRankingPeriodStateSettingKey)
+	stateKey := localRankingPeriodStateSettingKey + "." + s.instanceID
+	setting, found, err := repository.GetAppSetting(ctx, s.db.Clauses(dbresolver.Read), stateKey)
 	if err != nil {
 		return err
 	}
@@ -209,7 +242,7 @@ func (s *LocalRankingService) ensureLocalRankingPeriodState(ctx context.Context,
 	// 首次启用从今天开始，直接把昨天标记为边界，绝不补齐上线前周期。
 	initial := localRankingPeriodState{LastSettledDay: localRankingStartOfDay(periodNow).AddDate(0, 0, -1).Format("2006-01-02")}
 	if err := s.db.Clauses(dbresolver.Write).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return saveLocalRankingPeriodStateTx(tx, initial, snapshotAt)
+		return saveLocalRankingPeriodStateTx(tx, s.instanceID, initial, snapshotAt)
 	}); err != nil {
 		return err
 	}
@@ -227,7 +260,7 @@ func (s *LocalRankingService) aggregateLocalRankingWindow(ctx context.Context, w
 WITH ranged_events AS (
 	SELECT api_group_key, timestamp, failed, latency_ms, ttft_ms, input_tokens, cache_read_tokens, total_tokens
 	FROM usage_events
-	WHERE %s
+	WHERE instance_id = ? AND %s
 ), five_minute_buckets AS (
 	SELECT
 		keys.id AS api_key_id,
@@ -243,7 +276,7 @@ WITH ranged_events AS (
 		SUM(CASE WHEN events.failed = 0 AND events.ttft_ms IS NOT NULL AND events.ttft_ms > 0 AND events.latency_ms > 0 THEN events.latency_ms ELSE 0 END) AS latency_sum_ms,
 		SUM(CASE WHEN events.failed = 0 AND events.ttft_ms IS NOT NULL AND events.ttft_ms > 0 AND events.latency_ms > 0 THEN 1 ELSE 0 END) AS latency_sample_count
 	FROM ranged_events AS events
-	JOIN cpa_api_keys AS keys ON keys.api_key = TRIM(events.api_group_key)
+	JOIN cpa_api_keys AS keys ON keys.instance_id = ? AND keys.api_key = TRIM(events.api_group_key)
 	GROUP BY keys.id, bucket_key
 )
 SELECT
@@ -264,7 +297,7 @@ FROM five_minute_buckets
 GROUP BY api_key_id
 ORDER BY api_key_id ASC`, predicate)
 	var rows []localRankingRawAggregate
-	if err := s.db.Clauses(dbresolver.Read).WithContext(ctx).Raw(query, arguments...).Scan(&rows).Error; err != nil {
+	if err := s.db.Clauses(dbresolver.Read).WithContext(ctx).Raw(query, append(append([]any{s.instanceID}, arguments...), s.instanceID)...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("aggregate local ranking day %s: %w", window.Key, err)
 	}
 	return rows, nil
@@ -282,7 +315,7 @@ func (s *LocalRankingService) replaceLocalRankingDay(
 	return s.db.Clauses(dbresolver.Write).WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		tx = tx.Session(&gorm.Session{NowFunc: func() time.Time { return snapshotAt }})
 		var existing []entities.LocalRankingPeriodStat
-		if err := tx.Where(
+		if err := tx.Where("instance_id = ?", s.instanceID).Where(
 			"(period_kind = ? AND period_key = ?) OR (period_kind = ? AND period_key = ?)",
 			entities.LocalRankingPeriodDay, window.Key,
 			entities.LocalRankingPeriodMonth, monthKey,
@@ -306,8 +339,8 @@ func (s *LocalRankingService) replaceLocalRankingDay(
 			month := localRankingMetricsFromStat(monthByKey[aggregate.APIKeyID])
 			month = replaceLocalRankingContribution(month, oldDay, newDay)
 			rows = append(rows,
-				localRankingStatFromMetrics(localRankingStatKey{Kind: entities.LocalRankingPeriodDay, Key: window.Key, APIKeyID: aggregate.APIKeyID}, newDay, snapshotAt),
-				localRankingStatFromMetrics(localRankingStatKey{Kind: entities.LocalRankingPeriodMonth, Key: monthKey, APIKeyID: aggregate.APIKeyID}, month, snapshotAt),
+				localRankingStatFromMetrics(s.instanceID, localRankingStatKey{Kind: entities.LocalRankingPeriodDay, Key: window.Key, APIKeyID: aggregate.APIKeyID}, newDay, snapshotAt),
+				localRankingStatFromMetrics(s.instanceID, localRankingStatKey{Kind: entities.LocalRankingPeriodMonth, Key: monthKey, APIKeyID: aggregate.APIKeyID}, month, snapshotAt),
 			)
 		}
 		sort.Slice(rows, func(left, right int) bool {
@@ -325,12 +358,12 @@ func (s *LocalRankingService) replaceLocalRankingDay(
 			}
 		}
 		if settledDay != "" {
-			if err := saveLocalRankingPeriodStateTx(tx, localRankingPeriodState{LastSettledDay: settledDay}, snapshotAt); err != nil {
+			if err := saveLocalRankingPeriodStateTx(tx, s.instanceID, localRankingPeriodState{LastSettledDay: settledDay}, snapshotAt); err != nil {
 				return err
 			}
 		}
 		if prune {
-			if err := pruneLocalRankingPeriodsTx(tx, snapshotAt.In(localRankingPeriodLocation)); err != nil {
+			if err := pruneLocalRankingPeriodsTx(tx, s.instanceID, snapshotAt.In(localRankingPeriodLocation)); err != nil {
 				return err
 			}
 		}
@@ -338,14 +371,14 @@ func (s *LocalRankingService) replaceLocalRankingDay(
 	})
 }
 
-func saveLocalRankingPeriodStateTx(tx *gorm.DB, state localRankingPeriodState, now time.Time) error {
+func saveLocalRankingPeriodStateTx(tx *gorm.DB, instanceID string, state localRankingPeriodState, now time.Time) error {
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("encode local ranking period state: %w", err)
 	}
 	value := string(encoded)
 	setting := entities.AppSetting{
-		SettingKey: localRankingPeriodStateSettingKey,
+		SettingKey: localRankingPeriodStateSettingKey + "." + instanceID,
 		Value:      &value,
 		ValueType:  entities.AppSettingValueTypeJSON,
 		CreatedAt:  now,
@@ -385,11 +418,11 @@ func replaceLocalRankingValue(total, previous, current int64) int64 {
 	return base + current
 }
 
-func pruneLocalRankingPeriodsTx(tx *gorm.DB, now time.Time) error {
+func pruneLocalRankingPeriodsTx(tx *gorm.DB, instanceID string, now time.Time) error {
 	windows := localRankingPeriodWindows(now)
 	dayKeys := []string{windows[0].Key, windows[1].Key}
 	monthKeys := []string{windows[2].Key, windows[3].Key}
-	result := tx.Where(
+	result := tx.Where("instance_id = ?", instanceID).Where(
 		"(period_kind = ? AND period_key NOT IN ?) OR (period_kind = ? AND period_key NOT IN ?)",
 		entities.LocalRankingPeriodDay, dayKeys, entities.LocalRankingPeriodMonth, monthKeys,
 	).Delete(&entities.LocalRankingPeriodStat{})
@@ -412,7 +445,11 @@ func (s *LocalRankingService) Leaderboard(ctx context.Context, period Leaderboar
 	if !ok {
 		return Leaderboard{}, ErrInvalidLeaderboard
 	}
-	rows, err := s.loadLocalRankingPopulation(ctx, window)
+	instanceID, present := service.InstanceFilterSelectionFromContext(ctx)
+	if !present {
+		instanceID = s.instanceID
+	}
+	rows, err := s.loadLocalRankingPopulation(ctx, window, instanceID)
 	if err != nil {
 		return Leaderboard{}, err
 	}
@@ -435,8 +472,9 @@ func (s *LocalRankingService) Leaderboard(ctx context.Context, period Leaderboar
 	return board, nil
 }
 
-func (s *LocalRankingService) loadLocalRankingPopulation(ctx context.Context, window localRankingPeriodWindow) ([]localRankingPopulationRow, error) {
+func (s *LocalRankingService) loadLocalRankingPopulation(ctx context.Context, window localRankingPeriodWindow, instanceID string) ([]localRankingPopulationRow, error) {
 	type row struct {
+		InstanceID         string    `gorm:"column:instance_id"`
 		APIKeyID           int64     `gorm:"column:api_key_id"`
 		APIKey             string    `gorm:"column:api_key"`
 		DisplayKey         string    `gorm:"column:display_key"`
@@ -456,19 +494,21 @@ func (s *LocalRankingService) loadLocalRankingPopulation(ctx context.Context, wi
 		UpdatedAt          time.Time `gorm:"column:updated_at"`
 	}
 	var loaded []row
-	if err := s.db.Clauses(dbresolver.Read).WithContext(ctx).
+	query := s.db.Clauses(dbresolver.Read).WithContext(ctx).
 		Table("local_ranking_period_stats AS stats").
-		Select("stats.api_key_id, keys.api_key, keys.display_key, keys.key_alias, stats.request_count, stats.success_count, stats.failure_count, stats.input_tokens, stats.cache_read_tokens, stats.total_tokens, stats.ttft_sum_ms, stats.ttft_sample_count, stats.latency_sum_ms, stats.latency_sample_count, stats.peak_5m_request_count, stats.peak_5m_total_tokens, stats.updated_at").
-		Joins("JOIN cpa_api_keys AS keys ON keys.id = stats.api_key_id").
-		Where("stats.period_kind = ? AND stats.period_key = ?", window.Kind, window.Key).
-		Order("stats.api_key_id ASC").
-		Scan(&loaded).Error; err != nil {
+		Select("stats.instance_id, stats.api_key_id, keys.api_key, keys.display_key, keys.key_alias, stats.request_count, stats.success_count, stats.failure_count, stats.input_tokens, stats.cache_read_tokens, stats.total_tokens, stats.ttft_sum_ms, stats.ttft_sample_count, stats.latency_sum_ms, stats.latency_sample_count, stats.peak_5m_request_count, stats.peak_5m_total_tokens, stats.updated_at").
+		Joins("JOIN cpa_api_keys AS keys ON keys.instance_id = stats.instance_id AND keys.id = stats.api_key_id").
+		Where("stats.period_kind = ? AND stats.period_key = ?", window.Kind, window.Key)
+	if instanceID != "" {
+		query = query.Where("stats.instance_id = ?", instanceID)
+	}
+	if err := query.Order("stats.instance_id ASC, stats.api_key_id ASC").Scan(&loaded).Error; err != nil {
 		return nil, fmt.Errorf("load local ranking population: %w", err)
 	}
 	result := make([]localRankingPopulationRow, 0, len(loaded))
 	for _, item := range loaded {
 		result = append(result, localRankingPopulationRow{
-			APIKeyID: item.APIKeyID, APIKey: item.APIKey, DisplayKey: item.DisplayKey, KeyAlias: item.KeyAlias, UpdatedAt: item.UpdatedAt,
+			InstanceID: item.InstanceID, APIKeyID: item.APIKeyID, APIKey: item.APIKey, DisplayKey: item.DisplayKey, KeyAlias: item.KeyAlias, UpdatedAt: item.UpdatedAt,
 			localRankingMetrics: localRankingMetrics{
 				RequestCount: item.RequestCount, SuccessCount: item.SuccessCount, FailureCount: item.FailureCount,
 				InputTokens: item.InputTokens, CacheReadTokens: item.CacheReadTokens, TotalTokens: item.TotalTokens,

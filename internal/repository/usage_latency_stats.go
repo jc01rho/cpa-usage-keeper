@@ -18,12 +18,16 @@ const usageLatencyAggregationBatchSize = 1000
 
 // AggregateUsageLatencyStats 循环执行有界页面，供没有后台 Runner 的兼容路径完整追赶。
 func AggregateUsageLatencyStats(ctx context.Context, db *gorm.DB, now time.Time) error {
+	return AggregateUsageLatencyStatsForInstance(ctx, db, entities.LegacyCPAInstanceID, now)
+}
+
+func AggregateUsageLatencyStatsForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
 	normalizedNow := timeutil.NormalizeStorageTime(now)
 	for {
-		processed, err := AggregateUsageLatencyStatsBatch(ctx, db, normalizedNow)
+		processed, err := AggregateUsageLatencyStatsBatchForInstance(ctx, db, instanceID, normalizedNow)
 		if err != nil {
 			return err
 		}
@@ -35,18 +39,22 @@ func AggregateUsageLatencyStats(ctx context.Context, db *gorm.DB, now time.Time)
 
 // AggregateUsageLatencyStatsBatch 读取一页事件、在内存构建 Latency rows，再用独立事务推进水位。
 func AggregateUsageLatencyStatsBatch(ctx context.Context, db *gorm.DB, now time.Time) (int, error) {
+	return AggregateUsageLatencyStatsBatchForInstance(ctx, db, entities.LegacyCPAInstanceID, now)
+}
+
+func AggregateUsageLatencyStatsBatchForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) (int, error) {
 	if db == nil {
 		return 0, fmt.Errorf("database is nil")
 	}
-	targetEventID, err := LoadUsageAggregationTargetEventID(ctx, db)
+	targetEventID, err := LoadUsageAggregationTargetEventIDForInstance(ctx, db, instanceID)
 	if err != nil {
 		return 0, err
 	}
-	snapshot, err := LoadUsageAggregationCheckpointSnapshot(ctx, db)
+	snapshot, err := LoadUsageAggregationCheckpointSnapshotForInstance(ctx, db, instanceID)
 	if err != nil {
 		return 0, err
 	}
-	events, err := LoadUsageAggregationEventPage(ctx, db, snapshot.LatencyCursor, targetEventID, usageLatencyAggregationBatchSize)
+	events, err := LoadUsageAggregationEventPageForInstance(ctx, db, instanceID, snapshot.LatencyCursor, targetEventID, usageLatencyAggregationBatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -58,7 +66,7 @@ func AggregateUsageLatencyStatsBatch(ctx context.Context, db *gorm.DB, now time.
 		return 0, err
 	}
 	nextCursor := events[len(events)-1].ID
-	if err := ApplyUsageLatencyAggregationPage(ctx, db, snapshot.LatencyCursor, nextCursor, rows, now); err != nil {
+	if err := ApplyUsageLatencyAggregationPageForInstance(ctx, db, instanceID, snapshot.LatencyCursor, nextCursor, rows, now); err != nil {
 		return 0, err
 	}
 	return len(events), nil
@@ -66,6 +74,10 @@ func AggregateUsageLatencyStatsBatch(ctx context.Context, db *gorm.DB, now time.
 
 // CleanupUsageLatencyStats 删除页面查询范围之外的 hour/day 行，防止聚合 BLOB 跨年增长。
 func CleanupUsageLatencyStats(db *gorm.DB, now time.Time) error {
+	return CleanupUsageLatencyStatsForInstance(db, entities.LegacyCPAInstanceID, now)
+}
+
+func CleanupUsageLatencyStatsForInstance(db *gorm.DB, instanceID string, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -75,7 +87,12 @@ func CleanupUsageLatencyStats(db *gorm.DB, now time.Time) error {
 			return err
 		}
 		// bucket_start 使用 storageTime 保存项目本地墙钟时间；清理参数必须保持同一种文本格式。
-		if err := db.Where("bucket_type = ? AND bucket_start < ?", bucketType, timeutil.FormatStorageTime(cutoff)).Delete(&entities.UsageLatencyStat{}).Error; err != nil {
+		query := db.Where("bucket_type = ? AND bucket_start < ?", bucketType, timeutil.FormatStorageTime(cutoff))
+		// Task 2 前的 migration fixture 仍会调用维护入口；只有最终 schema 才追加实例谓词。
+		if db.Migrator().HasColumn("usage_latency_stats", "instance_id") {
+			query = query.Where("instance_id = ?", instanceID)
+		}
+		if err := query.Delete(&entities.UsageLatencyStat{}).Error; err != nil {
 			return fmt.Errorf("cleanup usage latency %s stats: %w", bucketType, err)
 		}
 	}
@@ -84,6 +101,10 @@ func CleanupUsageLatencyStats(db *gorm.DB, now time.Time) error {
 
 // ApplyUsageLatencyAggregationPage 在独立短事务内合并 Latency rows 并推进自己的水位。
 func ApplyUsageLatencyAggregationPage(ctx context.Context, db *gorm.DB, expectedCursor, nextCursor int64, rows []entities.UsageLatencyStat, now time.Time) error {
+	return ApplyUsageLatencyAggregationPageForInstance(ctx, db, entities.LegacyCPAInstanceID, expectedCursor, nextCursor, rows, now)
+}
+
+func ApplyUsageLatencyAggregationPageForInstance(ctx context.Context, db *gorm.DB, instanceID string, expectedCursor, nextCursor int64, rows []entities.UsageLatencyStat, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -99,6 +120,6 @@ func ApplyUsageLatencyAggregationPage(ctx context.Context, db *gorm.DB, expected
 			return err
 		}
 		// cursor 最后条件推进，冲突时回滚本页已经写入的全部 hour/day rows。
-		return AdvanceUsageAggregationCheckpoint(ctx, tx, entities.UsageAggregationCheckpointLatency, expectedCursor, nextCursor, normalizedNow)
+		return AdvanceUsageAggregationCheckpointForInstance(ctx, tx, instanceID, entities.UsageAggregationCheckpointLatency, expectedCursor, nextCursor, normalizedNow)
 	})
 }

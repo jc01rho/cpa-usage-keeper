@@ -17,6 +17,10 @@ const (
 
 // LoadUsageAggregationTargetEventID 用 Reader 固定本轮开始时可见的最大事件 ID。
 func LoadUsageAggregationTargetEventID(ctx context.Context, db *gorm.DB) (int64, error) {
+	return LoadUsageAggregationTargetEventIDForInstance(ctx, db, entities.LegacyCPAInstanceID)
+}
+
+func LoadUsageAggregationTargetEventIDForInstance(ctx context.Context, db *gorm.DB, instanceID string) (int64, error) {
 	if db == nil {
 		return 0, fmt.Errorf("database is nil")
 	}
@@ -24,6 +28,7 @@ func LoadUsageAggregationTargetEventID(ctx context.Context, db *gorm.DB) (int64,
 	var targetEventID int64
 	if err := db.Clauses(dbresolver.Read).WithContext(ctx).
 		Model(&entities.UsageEvent{}).
+		Where("instance_id = ?", instanceID).
 		Select("COALESCE(MAX(id), 0)").
 		Scan(&targetEventID).Error; err != nil {
 		return 0, fmt.Errorf("load usage aggregation target event id: %w", err)
@@ -33,6 +38,10 @@ func LoadUsageAggregationTargetEventID(ctx context.Context, db *gorm.DB) (int64,
 
 // LoadUsageAggregationEventPage 用固定投影从 Reader 加载 afterID 与 targetID 之间的一页事件。
 func LoadUsageAggregationEventPage(ctx context.Context, db *gorm.DB, afterID, targetID int64, limit int) ([]entities.UsageEvent, error) {
+	return LoadUsageAggregationEventPageForInstance(ctx, db, entities.LegacyCPAInstanceID, afterID, targetID, limit)
+}
+
+func LoadUsageAggregationEventPageForInstance(ctx context.Context, db *gorm.DB, instanceID string, afterID, targetID int64, limit int) ([]entities.UsageEvent, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
@@ -55,7 +64,7 @@ func LoadUsageAggregationEventPage(ctx context.Context, db *gorm.DB, afterID, ta
 	if err := db.Clauses(dbresolver.Read).WithContext(ctx).
 		Model(&entities.UsageEvent{}).
 		Select(entities.UsageAggregationEventProjectionColumns).
-		Where("id > ? AND id <= ?", afterID, targetID).
+		Where("instance_id = ? AND id > ? AND id <= ?", instanceID, afterID, targetID).
 		Order("id asc").
 		Limit(limit).
 		Find(&events).Error; err != nil {

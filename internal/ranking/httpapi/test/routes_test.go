@@ -188,6 +188,12 @@ func TestRankingLeaderboardValidatesAndForwardsSelection(t *testing.T) {
 		t.Fatalf("leaderboard response allowed browser caching: %+v", response.Header())
 	}
 
+	filtered := httptest.NewRecorder()
+	router.ServeHTTP(filtered, httptest.NewRequest(http.MethodGet, "/api/v1/ranking/leaderboards?period=today&metric=overall&instance_id=all", nil))
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("instance-filtered leaderboard status=%d body=%s", filtered.Code, filtered.Body.String())
+	}
+
 	invalid := httptest.NewRecorder()
 	router.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/api/v1/ranking/leaderboards?period=all&metric=overall", nil))
 	if invalid.Code != http.StatusBadRequest {

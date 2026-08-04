@@ -10,7 +10,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const overviewDimensionsPredicate = "bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ? AND service_tier = ? AND response_service_tier = ? AND reasoning_effort = ? AND endpoint = ? AND executor_type = ?"
+const (
+	overviewDimensionsPredicate         = "bucket_start = ? AND api_group_key = ? AND model = ? AND auth_index = ? AND model_alias = ? AND service_tier = ? AND response_service_tier = ? AND reasoning_effort = ? AND endpoint = ? AND executor_type = ?"
+	overviewInstanceDimensionsPredicate = "instance_id = ? AND " + overviewDimensionsPredicate
+)
 
 // ApplyRows 用同一套五维唯一键把 hourly 和 daily 增量写入当前事务。
 func ApplyRows(tx *gorm.DB, hourlyRows []entities.UsageOverviewHourlyStat, dailyRows []entities.UsageOverviewDailyStat, now time.Time) error {
@@ -30,10 +33,13 @@ func ApplyRows(tx *gorm.DB, hourlyRows []entities.UsageOverviewHourlyStat, daily
 }
 
 func applyHourlyRow(tx *gorm.DB, row entities.UsageOverviewHourlyStat, now time.Time) error {
+	if row.InstanceID == "" {
+		row.InstanceID = entities.LegacyCPAInstanceID
+	}
 	updates := tokenStatUpdates(row.RequestCount, row.SuccessCount, row.FailureCount, row.InputTokens, row.OutputTokens, row.ReasoningTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, row.TotalTokens, now)
-	args := hourlyDimensionArgs(row)
+	predicate, args, scoped := hourlyDimensionMatch(tx, row)
 	// update-first 避免正常累计走唯一索引冲突路径并消耗自增 ID。
-	result := tx.Model(&entities.UsageOverviewHourlyStat{}).Where(overviewDimensionsPredicate, args...).Updates(updates)
+	result := tx.Model(&entities.UsageOverviewHourlyStat{}).Where(predicate, args...).Updates(updates)
 	if result.Error != nil {
 		return fmt.Errorf("update usage overview hourly stat: %w", result.Error)
 	}
@@ -43,9 +49,13 @@ func applyHourlyRow(tx *gorm.DB, row entities.UsageOverviewHourlyStat, now time.
 
 	row.CreatedAt = timeutil.NormalizeStorageTime(now)
 	row.UpdatedAt = timeutil.NormalizeStorageTime(now)
-	if insertErr := tx.Create(&row).Error; insertErr != nil {
+	create := tx
+	if !scoped {
+		create = create.Omit("InstanceID")
+	}
+	if insertErr := create.Create(&row).Error; insertErr != nil {
 		// 并发创建相同 key 时只重试一次完整五维 UPDATE。
-		retryResult := tx.Model(&entities.UsageOverviewHourlyStat{}).Where(overviewDimensionsPredicate, args...).Updates(updates)
+		retryResult := tx.Model(&entities.UsageOverviewHourlyStat{}).Where(predicate, args...).Updates(updates)
 		if retryResult.Error != nil {
 			return fmt.Errorf("insert usage overview hourly stat: %w; retry update: %v", insertErr, retryResult.Error)
 		}
@@ -57,10 +67,13 @@ func applyHourlyRow(tx *gorm.DB, row entities.UsageOverviewHourlyStat, now time.
 }
 
 func applyDailyRow(tx *gorm.DB, row entities.UsageOverviewDailyStat, now time.Time) error {
+	if row.InstanceID == "" {
+		row.InstanceID = entities.LegacyCPAInstanceID
+	}
 	updates := tokenStatUpdates(row.RequestCount, row.SuccessCount, row.FailureCount, row.InputTokens, row.OutputTokens, row.ReasoningTokens, row.CachedTokens, row.CacheReadTokens, row.CacheCreationTokens, row.TotalTokens, now)
-	args := dailyDimensionArgs(row)
+	predicate, args, scoped := dailyDimensionMatch(tx, row)
 	// daily 使用与 hourly 完全相同的最终唯一键和 update-first 语义。
-	result := tx.Model(&entities.UsageOverviewDailyStat{}).Where(overviewDimensionsPredicate, args...).Updates(updates)
+	result := tx.Model(&entities.UsageOverviewDailyStat{}).Where(predicate, args...).Updates(updates)
 	if result.Error != nil {
 		return fmt.Errorf("update usage overview daily stat: %w", result.Error)
 	}
@@ -70,8 +83,12 @@ func applyDailyRow(tx *gorm.DB, row entities.UsageOverviewDailyStat, now time.Ti
 
 	row.CreatedAt = timeutil.NormalizeStorageTime(now)
 	row.UpdatedAt = timeutil.NormalizeStorageTime(now)
-	if insertErr := tx.Create(&row).Error; insertErr != nil {
-		retryResult := tx.Model(&entities.UsageOverviewDailyStat{}).Where(overviewDimensionsPredicate, args...).Updates(updates)
+	create := tx
+	if !scoped {
+		create = create.Omit("InstanceID")
+	}
+	if insertErr := create.Create(&row).Error; insertErr != nil {
+		retryResult := tx.Model(&entities.UsageOverviewDailyStat{}).Where(predicate, args...).Updates(updates)
 		if retryResult.Error != nil {
 			return fmt.Errorf("insert usage overview daily stat: %w; retry update: %v", insertErr, retryResult.Error)
 		}
@@ -82,18 +99,26 @@ func applyDailyRow(tx *gorm.DB, row entities.UsageOverviewDailyStat, now time.Ti
 	return nil
 }
 
-func hourlyDimensionArgs(row entities.UsageOverviewHourlyStat) []any {
-	return []any{
+func hourlyDimensionMatch(tx *gorm.DB, row entities.UsageOverviewHourlyStat) (string, []any, bool) {
+	args := []any{
 		timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias,
 		row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType,
 	}
+	if tx.Migrator().HasColumn("usage_overview_hourly_stats", "instance_id") {
+		return overviewInstanceDimensionsPredicate, append([]any{row.InstanceID}, args...), true
+	}
+	return overviewDimensionsPredicate, args, false
 }
 
-func dailyDimensionArgs(row entities.UsageOverviewDailyStat) []any {
-	return []any{
+func dailyDimensionMatch(tx *gorm.DB, row entities.UsageOverviewDailyStat) (string, []any, bool) {
+	args := []any{
 		timeutil.FormatStorageTime(row.BucketStart), row.APIGroupKey, row.Model, row.AuthIndex, row.ModelAlias,
 		row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType,
 	}
+	if tx.Migrator().HasColumn("usage_overview_daily_stats", "instance_id") {
+		return overviewInstanceDimensionsPredicate, append([]any{row.InstanceID}, args...), true
+	}
+	return overviewDimensionsPredicate, args, false
 }
 
 func tokenStatUpdates(requestCount, successCount, failureCount, inputTokens, outputTokens, reasoningTokens, cachedTokens, cacheReadTokens, cacheCreationTokens, totalTokens int64, now time.Time) map[string]any {

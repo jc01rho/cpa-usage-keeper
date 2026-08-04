@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -42,6 +45,7 @@ type analysisTokenUsage struct {
 }
 
 type analysisCompositionItem struct {
+	InstanceID          string  `json:"instance_id,omitempty"`
 	Key                 string  `json:"key"`
 	Label               string  `json:"label"`
 	TotalTokens         int64   `json:"total_tokens"`
@@ -64,6 +68,7 @@ type analysisHeatmap struct {
 }
 
 type analysisHeatmapCell struct {
+	InstanceID          string  `json:"instance_id,omitempty"`
 	APIKey              string  `json:"api_key"`
 	Model               string  `json:"model"`
 	InputTokens         int64   `json:"input_tokens"`
@@ -131,8 +136,9 @@ type analysisLatencyDiagnostics struct {
 }
 
 type analysisAPIKeyInfo struct {
-	ID    string
-	Label string
+	ID         string
+	InstanceID string
+	Label      string
 }
 
 func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider) {
@@ -209,19 +215,54 @@ func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map
 	if provider == nil {
 		return map[string]analysisAPIKeyInfo{}, nil
 	}
-	rows, err := provider.ListCPAAPIKeys(c.Request.Context())
+	rows, err := provider.ListCPAAPIKeys(contextWithRequestInstanceFilter(c.Request.Context(), c))
 	if err != nil {
 		writeInternalError(c, "list api key options failed", err)
 		return nil, err
 	}
-	infos := make(map[string]analysisAPIKeyInfo, len(rows))
-	for _, row := range rows {
-		infos[row.APIKey] = analysisAPIKeyInfo{
-			ID:    strconv.FormatInt(row.ID, 10),
-			Label: helper.CPAAPIKeyDisplayName(row),
+	if historical, ok := provider.(interface {
+		ListCPAAPIKeysForInstance(context.Context, string) ([]entities.CPAAPIKey, error)
+	}); ok {
+		selection := instanceFilterFromGin(c)
+		rows, err = historical.ListCPAAPIKeysForInstance(c.Request.Context(), selection.InstanceID)
+		if err != nil {
+			writeInternalError(c, "list api key options failed", err)
+			return nil, err
 		}
 	}
+	infos := make(map[string]analysisAPIKeyInfo, len(rows)*2)
+	uniqueByFingerprint := make(map[string]analysisAPIKeyInfo, len(rows))
+	ambiguousFingerprints := make(map[string]struct{})
+	for _, row := range rows {
+		fingerprint := strings.TrimSpace(row.APIKey)
+		label := helper.RedactSensitiveValue(fingerprint)
+		if !row.IsDeleted {
+			label = helper.CPAAPIKeyDisplayName(row)
+		}
+		info := analysisAPIKeyInfo{
+			ID:         strconv.FormatInt(row.ID, 10),
+			InstanceID: row.InstanceID,
+			Label:      label,
+		}
+		infos[apiKeyInfoLookupKey(row.InstanceID, fingerprint)] = info
+		if _, duplicate := uniqueByFingerprint[fingerprint]; duplicate {
+			delete(uniqueByFingerprint, fingerprint)
+			ambiguousFingerprints[fingerprint] = struct{}{}
+			continue
+		}
+		if _, duplicate := ambiguousFingerprints[fingerprint]; duplicate {
+			continue
+		}
+		uniqueByFingerprint[fingerprint] = info
+	}
+	for fingerprint, info := range uniqueByFingerprint {
+		infos[fingerprint] = info
+	}
 	return infos, nil
+}
+
+func apiKeyInfoLookupKey(instanceID, fingerprint string) string {
+	return strings.TrimSpace(instanceID) + "\x00" + strings.TrimSpace(fingerprint)
 }
 
 func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map[string]analysisAPIKeyInfo) analysisResponse {
@@ -312,8 +353,8 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		key := helper.RedactSensitiveValue(item.Key)
 		label := item.Key
 		if apiKeyInfos != nil {
-			key = analysisAPIKeyResponseKey(item.Key, apiKeyInfos)
-			label = analysisAPIKeyLabel(item.Key, apiKeyInfos)
+			key = analysisAPIKeyResponseKeyForInstance(item.InstanceID, item.Key, apiKeyInfos)
+			label = analysisAPIKeyLabelForInstance(item.InstanceID, item.Key, apiKeyInfos)
 		} else if item.Label != "" {
 			label = item.Label
 		}
@@ -322,6 +363,7 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 			percent = (float64(item.TotalTokens) / float64(total)) * 100
 		}
 		payload = append(payload, analysisCompositionItem{
+			InstanceID:          item.InstanceID,
 			Key:                 key,
 			Label:               label,
 			TotalTokens:         item.TotalTokens,
@@ -339,10 +381,30 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 	return payload
 }
 
+func analysisAPIKeyResponseKeyForInstance(instanceID, apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+	if info, ok := apiKeyInfos[apiKeyInfoLookupKey(instanceID, apiKey)]; ok && info.ID != "" {
+		return info.ID
+	}
+	if instanceID == "" {
+		return analysisAPIKeyResponseKey(apiKey, apiKeyInfos)
+	}
+	return helper.RedactSensitiveValue(apiKey)
+}
+
 func analysisAPIKeyResponseKey(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
 	// Analysis 的结构标识使用 CPA API Key id，展示文案独立走别名/脱敏 key，避免脱敏值碰撞。
 	if info, ok := apiKeyInfos[apiKey]; ok && info.ID != "" {
 		return info.ID
+	}
+	return helper.RedactSensitiveValue(apiKey)
+}
+
+func analysisAPIKeyLabelForInstance(instanceID, apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+	if info, ok := apiKeyInfos[apiKeyInfoLookupKey(instanceID, apiKey)]; ok && info.Label != "" {
+		return info.Label
+	}
+	if instanceID == "" {
+		return analysisAPIKeyLabel(apiKey, apiKeyInfos)
 	}
 	return helper.RedactSensitiveValue(apiKey)
 }
@@ -360,8 +422,8 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 	modelRequests := map[string]int64{}
 	maxTokens := int64(0)
 	for _, cell := range cells {
-		apiKey := analysisAPIKeyResponseKey(cell.APIKey, apiKeyInfos)
-		apiKeyLabels[apiKey] = analysisAPIKeyLabel(cell.APIKey, apiKeyInfos)
+		apiKey := analysisAPIKeyResponseKeyForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
+		apiKeyLabels[apiKey] = analysisAPIKeyLabelForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
 		apiRequests[apiKey] += cell.Requests
 		modelRequests[cell.Model] += cell.Requests
 		if cell.TotalTokens > maxTokens {
@@ -376,8 +438,9 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 		if maxTokens > 0 {
 			intensity = float64(cell.TotalTokens) / float64(maxTokens)
 		}
-		apiKey := analysisAPIKeyResponseKey(cell.APIKey, apiKeyInfos)
+		apiKey := analysisAPIKeyResponseKeyForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
 		payloadCells = append(payloadCells, analysisHeatmapCell{
+			InstanceID:          cell.InstanceID,
 			APIKey:              apiKey,
 			Model:               cell.Model,
 			InputTokens:         cell.InputTokens,

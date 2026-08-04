@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/ranking"
+	servicepkg "cpa-usage-keeper/internal/service"
 )
 
 type centerStub struct {
@@ -100,16 +102,18 @@ type aggregateRange struct {
 }
 
 type aggregatorStub struct {
-	metrics     ranking.Metrics
-	latestID    int64
-	latestByDay map[string]int64
-	err         error
-	mu          sync.Mutex
-	ranges      []aggregateRange
-	latest      int
+	metrics        ranking.Metrics
+	latestID       int64
+	latestByDay    map[string]int64
+	err            error
+	mu             sync.Mutex
+	ranges         []aggregateRange
+	latest         int
+	lastInstanceID string
 }
 
-func (s *aggregatorStub) AggregateDay(_ context.Context, start, end time.Time) (ranking.Metrics, error) {
+func (s *aggregatorStub) AggregateDayForInstance(_ context.Context, instanceID string, start, end time.Time) (ranking.Metrics, error) {
+	s.lastInstanceID = instanceID
 	s.mu.Lock()
 	s.ranges = append(s.ranges, aggregateRange{start: start, end: end})
 	s.mu.Unlock()
@@ -119,7 +123,8 @@ func (s *aggregatorStub) AggregateDay(_ context.Context, start, end time.Time) (
 	return s.metrics, nil
 }
 
-func (s *aggregatorStub) LatestEventID(_ context.Context, start, _ time.Time) (int64, error) {
+func (s *aggregatorStub) LatestEventIDForInstance(_ context.Context, instanceID string, start, _ time.Time) (int64, error) {
+	s.lastInstanceID = instanceID
 	s.mu.Lock()
 	s.latest++
 	s.mu.Unlock()
@@ -301,6 +306,57 @@ func TestServicePausedParticipantCanExitPermanently(t *testing.T) {
 	}
 	if status.Status != ranking.StatusDeleted || center.deleteCalls != 1 {
 		t.Fatalf("paused exit result = %+v, delete calls=%d", status, center.deleteCalls)
+	}
+}
+
+func TestCommunityLeaderboardReadScopeChangesInstanceAnnotationButScheduledAggregationStaysLegacy(t *testing.T) {
+	store := ranking.NewStore(openRankingDatabase(t))
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	center := &centerStub{leaderboard: func(_ context.Context, period ranking.LeaderboardPeriod, metric ranking.LeaderboardMetric) (ranking.Leaderboard, error) {
+		return ranking.Leaderboard{Period: period, Metric: metric, Entries: []ranking.LeaderboardEntry{{ParticipantID: "remote", DisplayName: "Remote", AvatarID: 1, Value: 10}}}, nil
+	}}
+	aggregator := &aggregatorStub{}
+	service, err := ranking.NewService(store, aggregator, center)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := service.Leaderboard(context.Background(), ranking.LeaderboardToday, ranking.MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := service.Leaderboard(servicepkg.ContextWithInstanceFilter(context.Background(), instanceA), ranking.LeaderboardToday, ranking.MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := service.Leaderboard(servicepkg.ContextWithInstanceFilter(context.Background(), ""), ranking.LeaderboardToday, ranking.MetricTotalTokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.Entries[0].InstanceID != entities.LegacyCPAInstanceID || selected.Entries[0].InstanceID != instanceA || all.Entries[0].InstanceID != "" {
+		t.Fatalf("legacy=%+v selected=%+v all=%+v", legacy.Entries, selected.Entries, all.Entries)
+	}
+	if center.leaderboardCalls != 1 {
+		t.Fatalf("instance annotation should reuse shared center board, calls=%d", center.leaderboardCalls)
+	}
+
+	seedActiveState(t, store, 1)
+	center.metadata = func(context.Context) (ranking.LeaderboardMetadata, error) {
+		return ranking.LeaderboardMetadata{
+			ProtocolVersion: 1, MetricsVersion: 1, PeriodTimezone: "UTC", AvatarCatalogVersion: 1, AvatarCount: 66, ReadMarkerVersion: 1,
+			Periods: []ranking.LeaderboardPeriodMetadata{
+				{Period: ranking.LeaderboardToday, PeriodKey: "2026-08-03"},
+				{Period: ranking.LeaderboardYesterday, PeriodKey: "2026-08-02"},
+				{Period: ranking.LeaderboardCurrentMonth, PeriodKey: "2026-08"},
+				{Period: ranking.LeaderboardPreviousMonth, PeriodKey: "2026-07"},
+			},
+			Metrics: []ranking.LeaderboardMetric{ranking.MetricTotalTokens, ranking.MetricRequestCount, ranking.MetricCacheReadRate, ranking.MetricTTFTAverage, ranking.MetricLatencyAverage, ranking.MetricPeakTPM, ranking.MetricPeakRPM, ranking.MetricOverall},
+		}, nil
+	}
+	if err := service.SyncNow(context.Background()); err != nil {
+		t.Fatalf("sync now: %v", err)
+	}
+	if aggregator.lastInstanceID != entities.LegacyCPAInstanceID {
+		t.Fatalf("scheduled community aggregation instance=%q", aggregator.lastInstanceID)
 	}
 }
 

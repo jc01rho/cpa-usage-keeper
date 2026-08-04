@@ -18,10 +18,10 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 		"Select(usageEventProjectionColumns).Order(\"timestamp DESC, id DESC\")",
 		"Select(projection).\n\t\tOrder(\"timestamp asc\")",
 		"usageOverviewBoundaryEventProjectionColumns = \"api_group_key, model, model_alias, timestamp, failed, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
-		"usageOverviewRealtimeEventProjectionColumns = \"api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
+		"usageOverviewRealtimeEventProjectionColumns = \"instance_id, api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\"",
 	)
 	assertFileContains(t, "usage_recent_event_cache.go",
-		"Select(\"api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\")",
+		"Select(\"instance_id, api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens\")",
 	)
 
 	assertFileDoesNotContain(t, "usage_identities.go",
@@ -35,8 +35,8 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 	)
 
 	assertFileContains(t, "redis_usage_inbox.go",
-		"Select(redisUsageInboxProcessingColumns).Where(\"status = ? OR status = ?\"",
-		"Select(redisUsageInboxProcessingColumns).Where(\"status = ?\"",
+		"Select(redisUsageInboxProcessingColumns).Where(\"instance_id = ?\", instanceID).Where(\"status = ? OR status = ?\"",
+		"Select(redisUsageInboxProcessingColumns).Where(\"instance_id = ? AND status = ?\", instanceID",
 	)
 	assertFileContains(t, "pricing.go",
 		"Select(modelPriceSettingColumns)",

@@ -72,6 +72,7 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 
 ## Features
 
+- [Keeper export operator runbook](docs/keeper-export.md) — migration, credentials, ingestion, recovery, and release operations.
 - Persist CPA usage data in SQLite, with optional scheduled backups
 - Track requests, tokens, cost, cache usage, success rate, RPM/TPM, and latency, with filters for time range, model, API Key, source, and result
 - Inspect and export request-level events with configurable table columns
@@ -105,6 +106,7 @@ Docker Compose is the recommended deployment method. Use the full stack when dep
 | Windows | [Windows binary](#windows-binary) | `amd64`, `arm64` |
 
 Login protection is enabled by default. Configure `LOGIN_PASSWORD` before starting Keeper, or explicitly set `AUTH_ENABLED=false` only when access is reliably isolated by the deployment environment.
+
 
 ## Project Structure
 

@@ -22,6 +22,10 @@ const (
 
 // AggregateUsageOverviewStats 按 usage_events 自增 ID 增量推进既有 Overview 小时/天统计。
 func AggregateUsageOverviewStats(ctx context.Context, db *gorm.DB, now time.Time) error {
+	return AggregateUsageOverviewStatsForInstance(ctx, db, entities.LegacyCPAInstanceID, now)
+}
+
+func AggregateUsageOverviewStatsForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -29,7 +33,7 @@ func AggregateUsageOverviewStats(ctx context.Context, db *gorm.DB, now time.Time
 	normalizedNow := timeutil.NormalizeStorageTime(now)
 	for {
 		// 完整入口只循环调用新的 Load、BuildRows、Apply 单批边界，不保留第二套查询。
-		processed, err := AggregateUsageOverviewStatsBatch(ctx, db, normalizedNow)
+		processed, err := AggregateUsageOverviewStatsBatchForInstance(ctx, db, instanceID, normalizedNow)
 		if err != nil {
 			return err
 		}
@@ -42,11 +46,15 @@ func AggregateUsageOverviewStats(ctx context.Context, db *gorm.DB, now time.Time
 
 // AggregateUsageOverviewStatsBatch 执行一次 Reader 事件页和一次独立 Overview 写事务。
 func AggregateUsageOverviewStatsBatch(ctx context.Context, db *gorm.DB, now time.Time) (int, error) {
+	return AggregateUsageOverviewStatsBatchForInstance(ctx, db, entities.LegacyCPAInstanceID, now)
+}
+
+func AggregateUsageOverviewStatsBatchForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) (int, error) {
 	if db == nil {
 		return 0, fmt.Errorf("database is nil")
 	}
 	normalizedNow := timeutil.NormalizeStorageTime(now)
-	return aggregateUsageOverviewStatsBatch(ctx, db, normalizedNow, usageOverviewAggregationBatchSize)
+	return aggregateUsageOverviewStatsBatch(ctx, db, instanceID, normalizedNow, usageOverviewAggregationBatchSize)
 }
 
 // UsageOverviewAggregationCursor 返回已提交 Overview checkpoint，供兼容 gate 调用。
@@ -76,17 +84,17 @@ func HasPendingUsageOverviewAggregation(ctx context.Context, db *gorm.DB) (bool,
 }
 
 // aggregateUsageOverviewStatsBatch 保留可变 limit 供既有内部测试使用，生产上限仍为 1000。
-func aggregateUsageOverviewStatsBatch(ctx context.Context, db *gorm.DB, now time.Time, limit int) (int, error) {
+func aggregateUsageOverviewStatsBatch(ctx context.Context, db *gorm.DB, instanceID string, now time.Time, limit int) (int, error) {
 	// 每个兼容 batch 固定开始时可见的 target，不在单页内追逐后来提交的事件。
-	targetEventID, err := LoadUsageAggregationTargetEventID(ctx, db)
+	targetEventID, err := LoadUsageAggregationTargetEventIDForInstance(ctx, db, instanceID)
 	if err != nil {
 		return 0, err
 	}
-	snapshot, err := LoadUsageAggregationCheckpointSnapshot(ctx, db)
+	snapshot, err := LoadUsageAggregationCheckpointSnapshotForInstance(ctx, db, instanceID)
 	if err != nil {
 		return 0, err
 	}
-	events, err := LoadUsageAggregationEventPage(ctx, db, snapshot.OverviewCursor, targetEventID, limit)
+	events, err := LoadUsageAggregationEventPageForInstance(ctx, db, instanceID, snapshot.OverviewCursor, targetEventID, limit)
 	if err != nil {
 		return 0, err
 	}
@@ -96,7 +104,7 @@ func aggregateUsageOverviewStatsBatch(ctx context.Context, db *gorm.DB, now time
 
 	// Overview 纯计算仍由原 BuildRows 唯一负责，输入事件页不被修改。
 	hourlyRows, dailyRows, maxEventID := overview.BuildRows(events)
-	if err := ApplyUsageOverviewAggregationPage(ctx, db, snapshot.OverviewCursor, maxEventID, hourlyRows, dailyRows, now); err != nil {
+	if err := ApplyUsageOverviewAggregationPageForInstance(ctx, db, instanceID, snapshot.OverviewCursor, maxEventID, hourlyRows, dailyRows, now); err != nil {
 		return 0, err
 	}
 	return len(events), nil
@@ -104,6 +112,10 @@ func aggregateUsageOverviewStatsBatch(ctx context.Context, db *gorm.DB, now time
 
 // ApplyUsageOverviewAggregationPage 在独立短事务内写两种 rows 并条件推进 Overview 水位。
 func ApplyUsageOverviewAggregationPage(ctx context.Context, db *gorm.DB, expectedCursor, nextCursor int64, hourly []entities.UsageOverviewHourlyStat, daily []entities.UsageOverviewDailyStat, now time.Time) error {
+	return ApplyUsageOverviewAggregationPageForInstance(ctx, db, entities.LegacyCPAInstanceID, expectedCursor, nextCursor, hourly, daily, now)
+}
+
+func ApplyUsageOverviewAggregationPageForInstance(ctx context.Context, db *gorm.DB, instanceID string, expectedCursor, nextCursor int64, hourly []entities.UsageOverviewHourlyStat, daily []entities.UsageOverviewDailyStat, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -114,6 +126,6 @@ func ApplyUsageOverviewAggregationPage(ctx context.Context, db *gorm.DB, expecte
 			return err
 		}
 		// cursor 最后推进，冲突错误会让 GORM 回滚刚写入的两类 rows。
-		return AdvanceUsageAggregationCheckpoint(ctx, tx, entities.UsageAggregationCheckpointOverview, expectedCursor, nextCursor, normalizedNow)
+		return AdvanceUsageAggregationCheckpointForInstance(ctx, tx, instanceID, entities.UsageAggregationCheckpointOverview, expectedCursor, nextCursor, normalizedNow)
 	})
 }

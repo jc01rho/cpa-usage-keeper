@@ -20,6 +20,7 @@ const maxCPAAPIKeyAliasLength = 128
 
 type cpaAPIKeyResponse struct {
 	ID           string  `json:"id"`
+	InstanceID   string  `json:"instanceId"`
 	KeyAlias     string  `json:"keyAlias"`
 	DisplayKey   string  `json:"displayKey"`
 	Label        string  `json:"label"`
@@ -32,6 +33,7 @@ type cpaAPIKeyListResponse struct {
 
 type cpaAPIKeySettingsResponse struct {
 	ID           string  `json:"id"`
+	InstanceID   string  `json:"instanceId"`
 	APIKey       string  `json:"apiKey"`
 	KeyAlias     string  `json:"keyAlias"`
 	DisplayKey   string  `json:"displayKey"`
@@ -44,8 +46,9 @@ type cpaAPIKeySettingsListResponse struct {
 }
 
 type cpaAPIKeyOption struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID         string `json:"id"`
+	InstanceID string `json:"instanceId"`
+	Label      string `json:"label"`
 }
 
 type cpaAPIKeyOptionsResponse struct {
@@ -122,7 +125,7 @@ func listCPAAPIKeyRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]cp
 	if provider == nil {
 		return []cpaAPIKeyResponse{}, nil
 	}
-	rows, err := provider.ListCPAAPIKeys(c.Request.Context())
+	rows, err := provider.ListCPAAPIKeys(contextWithRequestInstanceFilter(c.Request.Context(), c))
 	if err != nil {
 		writeInternalError(c, "list api keys failed", err)
 		return nil, err
@@ -138,7 +141,7 @@ func listCPAAPIKeySettingsRows(c *gin.Context, provider service.CPAAPIKeyProvide
 	if provider == nil {
 		return []cpaAPIKeySettingsResponse{}, nil
 	}
-	rows, err := provider.ListCPAAPIKeys(c.Request.Context())
+	rows, err := provider.ListCPAAPIKeys(contextWithRequestInstanceFilter(c.Request.Context(), c))
 	if err != nil {
 		writeInternalError(c, "list api key settings failed", err)
 		return nil, err
@@ -154,7 +157,7 @@ func listCPAAPIKeyOptionRows(c *gin.Context, provider service.CPAAPIKeyProvider)
 	if provider == nil {
 		return []cpaAPIKeyOption{}, nil
 	}
-	rows, err := provider.ListCPAAPIKeys(c.Request.Context())
+	rows, err := provider.ListCPAAPIKeys(contextWithRequestInstanceFilter(c.Request.Context(), c))
 	if err != nil {
 		writeInternalError(c, "list api key options failed", err)
 		return nil, err
@@ -175,6 +178,7 @@ func toCPAAPIKeyResponse(row entities.CPAAPIKey) cpaAPIKeyResponse {
 	}
 	return cpaAPIKeyResponse{
 		ID:           strconv.FormatInt(row.ID, 10),
+		InstanceID:   row.InstanceID,
 		KeyAlias:     row.KeyAlias,
 		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
 		Label:        label,
@@ -191,6 +195,7 @@ func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsRespon
 	}
 	return cpaAPIKeySettingsResponse{
 		ID:           strconv.FormatInt(row.ID, 10),
+		InstanceID:   row.InstanceID,
 		APIKey:       row.APIKey,
 		KeyAlias:     row.KeyAlias,
 		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
@@ -202,8 +207,9 @@ func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsRespon
 func toCPAAPIKeyOption(row entities.CPAAPIKey) cpaAPIKeyOption {
 	label := helper.CPAAPIKeyDisplayName(row)
 	return cpaAPIKeyOption{
-		ID:    strconv.FormatInt(row.ID, 10),
-		Label: label,
+		ID:         strconv.FormatInt(row.ID, 10),
+		InstanceID: row.InstanceID,
+		Label:      label,
 	}
 }
 

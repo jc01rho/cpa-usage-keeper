@@ -9,4 +9,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
+      # Persistent SQLite/WAL/backups. Stop Keeper and back up this volume before
+      # keeper-export/v1 migrations; restore the backup before an older binary.
+      # See docs/keeper-export.md.
       - ./data:/data

@@ -19,6 +19,7 @@ const (
 
 // rowKey 使用可比较的存储时间字符串表示最终唯一键。
 type rowKey struct {
+	InstanceID  string
 	BucketType  entities.UsageLatencyBucketType
 	BucketStart string
 	APIGroupKey string
@@ -99,6 +100,9 @@ func PrepareRows(db *gorm.DB, rows []entities.UsageLatencyStat, now time.Time) (
 	keys := make([]rowKey, 0, len(rows))
 	rowByKey := make(map[rowKey]entities.UsageLatencyStat, len(rows))
 	for _, row := range rows {
+		if row.InstanceID == "" {
+			row.InstanceID = entities.LegacyCPAInstanceID
+		}
 		key := latencyRowKey(row)
 		if _, exists := rowByKey[key]; exists {
 			return nil, fmt.Errorf("duplicate latency row key %+v", key)
@@ -110,16 +114,25 @@ func PrepareRows(db *gorm.DB, rows []entities.UsageLatencyStat, now time.Time) (
 		rowByKey[key] = row
 	}
 
-	// 每块最多 200 个三字段 key，并在读取后立即完成合并，避免整页旧 BLOB 同时常驻内存。
+	// Historical migration tables do not have instance_id yet.
+	scoped := db.Migrator().HasColumn("usage_latency_stats", "instance_id")
 	prepared := make([]entities.UsageLatencyStat, 0, len(keys))
 	for start := 0; start < len(keys); start += loadKeyBatchSize {
 		end := min(start+loadKeyBatchSize, len(keys))
 		values := make([][]any, 0, end-start)
 		for _, key := range keys[start:end] {
-			values = append(values, []any{key.BucketType, key.BucketStart, key.APIGroupKey})
+			if scoped {
+				values = append(values, []any{key.InstanceID, key.BucketType, key.BucketStart, key.APIGroupKey})
+			} else {
+				values = append(values, []any{key.BucketType, key.BucketStart, key.APIGroupKey})
+			}
 		}
 		var existing []entities.UsageLatencyStat
-		if err := db.Where("(bucket_type, bucket_start, api_group_key) IN ?", values).Find(&existing).Error; err != nil {
+		query := db.Where("(bucket_type, bucket_start, api_group_key) IN ?", values)
+		if scoped {
+			query = db.Where("(instance_id, bucket_type, bucket_start, api_group_key) IN ?", values)
+		}
+		if err := query.Find(&existing).Error; err != nil {
 			return nil, fmt.Errorf("load latency rows [%d:%d]: %w", start, end, err)
 		}
 		existingByKey := make(map[rowKey]entities.UsageLatencyStat, len(existing))
@@ -159,8 +172,11 @@ func WritePreparedRows(tx *gorm.DB, rows []entities.UsageLatencyStat) error {
 		}
 		seen[key] = struct{}{}
 		if row.ID > 0 {
-			// 只更新累计字段和 UpdatedAt，保留旧行 ID/CreatedAt。
-			result := tx.Model(&entities.UsageLatencyStat{}).Where("id = ?", row.ID).Updates(map[string]any{
+			query := tx.Model(&entities.UsageLatencyStat{}).Where("id = ?", row.ID)
+			if tx.Migrator().HasColumn("usage_latency_stats", "instance_id") {
+				query = query.Where("instance_id = ?", row.InstanceID)
+			}
+			result := query.Updates(map[string]any{
 				"sample_count":   row.SampleCount,
 				"max_ttft_ms":    row.MaxTTFTMS,
 				"max_latency_ms": row.MaxLatencyMS,
@@ -178,7 +194,11 @@ func WritePreparedRows(tx *gorm.DB, rows []entities.UsageLatencyStat) error {
 			}
 			continue
 		}
-		if err := tx.Create(&row).Error; err != nil {
+		create := tx
+		if !tx.Migrator().HasColumn("usage_latency_stats", "instance_id") {
+			create = create.Omit("InstanceID")
+		}
+		if err := create.Create(&row).Error; err != nil {
 			return fmt.Errorf("insert latency row: %w", err)
 		}
 	}
@@ -186,7 +206,7 @@ func WritePreparedRows(tx *gorm.DB, rows []entities.UsageLatencyStat) error {
 }
 
 func latencyRowKey(row entities.UsageLatencyStat) rowKey {
-	return rowKey{BucketType: row.BucketType, BucketStart: timeutil.FormatStorageTime(row.BucketStart), APIGroupKey: row.APIGroupKey}
+	return rowKey{InstanceID: row.InstanceID, BucketType: row.BucketType, BucketStart: timeutil.FormatStorageTime(row.BucketStart), APIGroupKey: row.APIGroupKey}
 }
 
 func decodeLatencyRow(row entities.UsageLatencyStat) (decodedRow, error) {

@@ -14,6 +14,11 @@ import (
 func TestAllIncludesCoreModels(t *testing.T) {
 	items := All()
 	expected := []any{
+		&CPAInstance{},
+		&CPAInstanceCredential{},
+		&CPAUsageDelivery{},
+		&CPAUsageStreamWatermark{},
+		&CPAMetadataSnapshot{},
 		&UsageEvent{},
 		&UsageEventArchive{},
 		&RedisUsageInbox{},
@@ -154,7 +159,7 @@ func assertUsageOverviewDimensionIndex(t *testing.T, db *gorm.DB, table string, 
 	if err := db.Raw("PRAGMA index_info(" + name + ")").Scan(&rows).Error; err != nil {
 		t.Fatalf("load index %s columns: %v", name, err)
 	}
-	want := []string{"bucket_start", "api_group_key", "model", "auth_index", "model_alias", "service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"}
+	want := []string{"instance_id", "bucket_start", "api_group_key", "model", "auth_index", "model_alias", "service_tier", "response_service_tier", "reasoning_effort", "endpoint", "executor_type"}
 	got := make([]string, len(rows))
 	for index, row := range rows {
 		got[index] = row.Name

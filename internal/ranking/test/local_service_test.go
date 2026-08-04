@@ -11,6 +11,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/ranking"
 	"cpa-usage-keeper/internal/repository"
+	servicepkg "cpa-usage-keeper/internal/service"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -324,6 +325,90 @@ func TestLocalRankingOverallUsesCommunityDimensionQuantization(t *testing.T) {
 		}
 	}
 	t.Fatalf("missing first API key from overall board: %+v", board.Entries)
+}
+
+func TestLocalRankingScheduledAggregationGeneratesEnabledInstances(t *testing.T) {
+	db := openLocalRankingDatabase(t, "local-ranking-generation-instances.db")
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	if err := db.Create([]entities.CPAInstance{{ID: instanceA, DisplayName: "A", Enabled: true, CreatedAt: now, UpdatedAt: now}, {ID: instanceB, DisplayName: "B", Enabled: true, CreatedAt: now, UpdatedAt: now}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	keys := []entities.CPAAPIKey{{InstanceID: instanceA, APIKey: "same-fingerprint", DisplayKey: "sk-...same", KeyAlias: "A"}, {InstanceID: instanceB, APIKey: "same-fingerprint", DisplayKey: "sk-...same", KeyAlias: "B"}}
+	if err := db.Create(&keys).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{InstanceID: instanceA, EventKey: "same", APIGroupKey: "same-fingerprint", Timestamp: now.Add(-time.Minute), TotalTokens: 10}, {InstanceID: instanceB, EventKey: "same", APIGroupKey: "same-fingerprint", Timestamp: now.Add(-time.Minute), TotalTokens: 20}}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := ranking.NewLocalRankingService(db, ranking.LocalRankingServiceOptions{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AggregateOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var rows []entities.LocalRankingPeriodStat
+	periodKey := now.In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02")
+	if err := db.Where("period_kind = ? AND period_key = ? AND instance_id IN ?", entities.LocalRankingPeriodDay, periodKey, []string{instanceA, instanceB}).Order("instance_id").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].TotalTokens != 10 || rows[1].TotalTokens != 20 {
+		t.Fatalf("generated rows=%+v", rows)
+	}
+}
+
+func TestLocalLeaderboardReadsSpecificAndAllInstanceScopes(t *testing.T) {
+	db := openLocalRankingDatabase(t, "local-ranking-instances.db")
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	if err := db.Create([]entities.CPAInstance{
+		{ID: instanceA, DisplayName: "A", Enabled: true, CreatedAt: now, UpdatedAt: now},
+		{ID: instanceB, DisplayName: "B", Enabled: true, CreatedAt: now, UpdatedAt: now},
+	}).Error; err != nil {
+		t.Fatalf("seed instances: %v", err)
+	}
+	keys := []entities.CPAAPIKey{
+		{InstanceID: instanceA, APIKey: "same-fingerprint", DisplayKey: "sk-...aaaa", KeyAlias: "A"},
+		{InstanceID: instanceB, APIKey: "same-fingerprint", DisplayKey: "sk-...bbbb", KeyAlias: "B"},
+	}
+	if err := db.Create(&keys).Error; err != nil {
+		t.Fatalf("seed keys: %v", err)
+	}
+	periodKey := now.In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02")
+	stats := []entities.LocalRankingPeriodStat{
+		{InstanceID: instanceA, PeriodKind: entities.LocalRankingPeriodDay, PeriodKey: periodKey, APIKeyID: keys[0].ID, RequestCount: 1, TotalTokens: 100, UpdatedAt: now},
+		{InstanceID: instanceB, PeriodKind: entities.LocalRankingPeriodDay, PeriodKey: periodKey, APIKeyID: keys[1].ID, RequestCount: 1, TotalTokens: 200, UpdatedAt: now},
+	}
+	if err := db.Create(&stats).Error; err != nil {
+		t.Fatalf("seed stats: %v", err)
+	}
+	service, err := ranking.NewLocalRankingService(db, ranking.LocalRankingServiceOptions{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boardFor := func(instanceID string) ranking.Leaderboard {
+		ctx := servicepkg.ContextWithInstanceFilter(context.Background(), instanceID)
+		board, err := service.Leaderboard(ctx, ranking.LeaderboardToday, ranking.MetricTotalTokens)
+		if err != nil {
+			t.Fatalf("leaderboard %q: %v", instanceID, err)
+		}
+		return board
+	}
+	boardA := boardFor(instanceA)
+	boardB := boardFor(instanceB)
+	boardAll := boardFor("")
+	if len(boardA.Entries) != 1 || boardA.Entries[0].InstanceID != instanceA || boardA.Entries[0].DisplayName != "A" || boardA.Entries[0].Value != 100 {
+		t.Fatalf("board A=%+v", boardA.Entries)
+	}
+	if len(boardB.Entries) != 1 || boardB.Entries[0].InstanceID != instanceB || boardB.Entries[0].DisplayName != "B" || boardB.Entries[0].Value != 200 {
+		t.Fatalf("board B=%+v", boardB.Entries)
+	}
+	if len(boardAll.Entries) != 2 || boardAll.Entries[0].InstanceID != instanceB || boardAll.Entries[1].InstanceID != instanceA || boardAll.Entries[0].ParticipantID == boardAll.Entries[1].ParticipantID {
+		t.Fatalf("board all=%+v", boardAll.Entries)
+	}
 }
 
 func openLocalRankingDatabase(t *testing.T, name string) *gorm.DB {

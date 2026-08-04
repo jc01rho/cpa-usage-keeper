@@ -12,6 +12,49 @@ import (
 	"cpa-usage-keeper/internal/repository"
 )
 
+func TestAggregatorScopesCommunityRankingByInstance(t *testing.T) {
+	db := openRankingDatabase(t)
+	futureInstanceID := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.CPAInstance{ID: futureInstanceID, DisplayName: "Future", Enabled: true, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		t.Fatalf("seed future instance: %v", err)
+	}
+	events := []entities.UsageEvent{
+		{InstanceID: entities.LegacyCPAInstanceID, EventKey: "legacy-ranking", Timestamp: now, TotalTokens: 100},
+		{InstanceID: futureInstanceID, EventKey: "future-ranking", Timestamp: now.Add(time.Minute), TotalTokens: 900},
+	}
+	if err := db.Create(&events).Error; err != nil {
+		t.Fatalf("seed instance ranking events: %v", err)
+	}
+	start := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 1)
+	aggregator := ranking.NewAggregator(db)
+
+	legacy, err := aggregator.AggregateDay(context.Background(), start, end)
+	if err != nil {
+		t.Fatalf("aggregate legacy ranking: %v", err)
+	}
+	legacyLatest, err := aggregator.LatestEventID(context.Background(), start, end)
+	if err != nil {
+		t.Fatalf("load legacy latest event: %v", err)
+	}
+	if legacy.RequestCount != 1 || legacy.TotalTokens != 100 || legacyLatest != events[0].ID {
+		t.Fatalf("legacy ranking crossed instances: metrics=%+v latest=%d want_latest=%d", legacy, legacyLatest, events[0].ID)
+	}
+
+	future, err := aggregator.AggregateDayForInstance(context.Background(), futureInstanceID, start, end)
+	if err != nil {
+		t.Fatalf("aggregate future ranking: %v", err)
+	}
+	futureLatest, err := aggregator.LatestEventIDForInstance(context.Background(), futureInstanceID, start, end)
+	if err != nil {
+		t.Fatalf("load future latest event: %v", err)
+	}
+	if future.RequestCount != 1 || future.TotalTokens != 900 || futureLatest != events[1].ID {
+		t.Fatalf("future ranking crossed instances: metrics=%+v latest=%d want_latest=%d", future, futureLatest, events[1].ID)
+	}
+}
+
 func TestAggregatorBuildsOneUTCDayFromUsageEvents(t *testing.T) {
 	db := openRankingDatabase(t)
 	start := time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC)

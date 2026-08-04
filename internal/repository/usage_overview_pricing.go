@@ -78,6 +78,9 @@ func loadUsageOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter
 	query = query.
 		Select(selectColumns).
 		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end))
+	if instanceID := strings.TrimSpace(filter.InstanceID); instanceID != "" {
+		query = query.Where("instance_id = ?", instanceID)
+	}
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}

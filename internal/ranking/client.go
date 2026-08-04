@@ -121,6 +121,7 @@ const (
 )
 
 type LeaderboardEntry struct {
+	InstanceID      string                      `json:"instanceId,omitempty"`
 	Rank            uint16                      `json:"rank"`
 	ParticipantID   string                      `json:"participant_id"`
 	DisplayName     string                      `json:"display_name"`

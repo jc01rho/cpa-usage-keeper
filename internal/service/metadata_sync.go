@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service/providermetadata"
 	"cpa-usage-keeper/internal/timeutil"
@@ -45,7 +46,7 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 			s.usageAggregation.NotifyUsageIdentitiesChanged()
 		} else {
 			// 没有 notifier 的既有构造路径继续在返回前补算历史 identity 事件。
-			aggregateErr = repository.AggregateUsageIdentityStats(ctx, s.db, fetchedAt)
+			aggregateErr = repository.AggregateUsageIdentityStatsForInstance(ctx, s.db, entities.LegacyCPAInstanceID, fetchedAt)
 			// 错误包装保持 main 对兼容调用方的稳定文本。
 			if aggregateErr != nil {
 				aggregateErr = fmt.Errorf("aggregate usage identity stats: %w", aggregateErr)

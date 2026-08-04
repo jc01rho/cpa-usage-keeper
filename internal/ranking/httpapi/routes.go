@@ -118,7 +118,7 @@ func RegisterRoutes(router gin.IRoutes, provider Provider) {
 			return
 		}
 		query := c.Request.URL.Query()
-		if len(query) != 2 || len(query["period"]) != 1 || len(query["metric"]) != 1 {
+		if !validRankingQueryKeys(query, "period", "metric") || len(query["period"]) != 1 || len(query["metric"]) != 1 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_leaderboard_selection"})
 			return
 		}
@@ -142,7 +142,7 @@ func RegisterRoutes(router gin.IRoutes, provider Provider) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ranking_unavailable"})
 			return
 		}
-		if len(c.Request.URL.Query()) != 0 {
+		if !validRankingQueryKeys(c.Request.URL.Query()) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_metadata_request"})
 			return
 		}
@@ -153,6 +153,24 @@ func RegisterRoutes(router gin.IRoutes, provider Provider) {
 		}
 		c.JSON(http.StatusOK, metadata)
 	})
+}
+
+func validRankingQueryKeys(query map[string][]string, required ...string) bool {
+	allowed := map[string]struct{}{"instance_id": {}}
+	for _, key := range required {
+		allowed[key] = struct{}{}
+	}
+	for key, values := range query {
+		if _, ok := allowed[key]; !ok || len(values) != 1 {
+			return false
+		}
+	}
+	for _, key := range required {
+		if len(query[key]) != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func setNoStoreHeaders(c *gin.Context) {

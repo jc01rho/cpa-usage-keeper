@@ -62,6 +62,47 @@ func TestCPAAPIKeyRoutesReturnDisplayDataWithoutRawKeys(t *testing.T) {
 	}
 }
 
+func TestCPAAPIKeyListIncludesInstanceIdentityAndScopesCollidingKeys(t *testing.T) {
+	db := openCPAAPIKeyAPITestDatabase(t)
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	for _, instance := range []entities.CPAInstance{{ID: instanceA, DisplayName: "A", Enabled: true, CreatedAt: now, UpdatedAt: now}, {ID: instanceB, DisplayName: "B", Enabled: true, CreatedAt: now, UpdatedAt: now}} {
+		if err := db.Create(&instance).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, instanceID := range []string{instanceA, instanceB} {
+		if err := repository.SyncCPAAPIKeysForInstance(db, instanceID, []string{"akf1_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	instanceService := service.NewCPAInstanceServiceWithDB(repository.NewCPAInstanceRepository(db))
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAInstances: instanceService, CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{query: "instance_id=" + instanceA, want: []string{`"instanceId":"` + instanceA + `"`}},
+		{query: "instance_id=all", want: []string{`"instanceId":"` + instanceA + `"`, `"instanceId":"` + instanceB + `"`}},
+	} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys?"+tc.query, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(response.Body.String(), want) {
+				t.Fatalf("missing %s in %s", want, response.Body.String())
+			}
+		}
+		if tc.query == "instance_id="+instanceA && strings.Contains(response.Body.String(), instanceB) {
+			t.Fatalf("instance B leaked into A response: %s", response.Body.String())
+		}
+	}
+}
+
 func TestCPAAPIKeySettingsRouteReturnsRawKeys(t *testing.T) {
 	db := openCPAAPIKeyAPITestDatabase(t)
 	syncedAt := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)

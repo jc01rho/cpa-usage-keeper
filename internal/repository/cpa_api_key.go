@@ -11,6 +11,10 @@ import (
 )
 
 func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
+	return SyncCPAAPIKeysForInstance(db, entities.LegacyCPAInstanceID, keys, syncedAt)
+}
+
+func SyncCPAAPIKeysForInstance(db *gorm.DB, instanceID string, keys []string, syncedAt time.Time) error {
 	seen := make(map[string]struct{}, len(keys))
 	uniqueKeys := make([]string, 0, len(keys))
 	for _, key := range keys {
@@ -31,7 +35,7 @@ func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
 			APIKey    string
 			IsDeleted bool
 		}
-		if err := tx.Model(&entities.CPAAPIKey{}).Select("id, api_key, is_deleted").Find(&existingRows).Error; err != nil {
+		if err := tx.Model(&entities.CPAAPIKey{}).Select("id, api_key, is_deleted").Where("instance_id = ?", instanceID).Find(&existingRows).Error; err != nil {
 			return err
 		}
 
@@ -63,6 +67,7 @@ func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
 				continue
 			}
 			toCreate = append(toCreate, entities.CPAAPIKey{
+				InstanceID:   instanceID,
 				APIKey:       key,
 				DisplayKey:   helper.RedactSensitiveValue(key),
 				IsDeleted:    false,
@@ -88,25 +93,59 @@ func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
 		if len(staleIDs) == 0 {
 			return nil
 		}
-		return tx.Model(&entities.CPAAPIKey{}).Where("id IN ?", staleIDs).Updates(map[string]any{"is_deleted": true, "updated_at": syncedAt}).Error
+		return tx.Model(&entities.CPAAPIKey{}).Where("instance_id = ? AND id IN ?", instanceID, staleIDs).Updates(map[string]any{"is_deleted": true, "updated_at": syncedAt}).Error
 	})
 }
 
 func ListActiveCPAAPIKeys(db *gorm.DB) ([]entities.CPAAPIKey, error) {
+	return ListActiveCPAAPIKeysForInstance(db, "")
+}
+
+func ListCPAAPIKeysForInstance(db *gorm.DB, instanceID string) ([]entities.CPAAPIKey, error) {
 	var rows []entities.CPAAPIKey
-	err := db.Where("is_deleted = ?", false).Order("id asc").Find(&rows).Error
+	query := db
+	if instanceID = strings.TrimSpace(instanceID); instanceID != "" {
+		query = query.Where("instance_id = ?", instanceID)
+	}
+	err := query.Order("instance_id asc, id asc").Find(&rows).Error
+	return rows, err
+}
+
+func ListActiveCPAAPIKeysForInstance(db *gorm.DB, instanceID string) ([]entities.CPAAPIKey, error) {
+	var rows []entities.CPAAPIKey
+	query := db.Where("is_deleted = ?", false)
+	if instanceID = strings.TrimSpace(instanceID); instanceID != "" {
+		query = query.Where("instance_id = ?", instanceID)
+	}
+	err := query.Order("instance_id asc, id asc").Find(&rows).Error
 	return rows, err
 }
 
 func FindActiveCPAAPIKeyByID(db *gorm.DB, id int64) (entities.CPAAPIKey, error) {
+	return FindActiveCPAAPIKeyByIDForInstance(db, id, "")
+}
+
+func FindActiveCPAAPIKeyByIDForInstance(db *gorm.DB, id int64, instanceID string) (entities.CPAAPIKey, error) {
 	var row entities.CPAAPIKey
-	err := db.Where("id = ? AND is_deleted = ?", id, false).First(&row).Error
+	query := db.Where("id = ? AND is_deleted = ?", id, false)
+	if instanceID = strings.TrimSpace(instanceID); instanceID != "" {
+		query = query.Where("instance_id = ?", instanceID)
+	}
+	err := query.First(&row).Error
 	return row, err
 }
 
 func FindActiveCPAAPIKeyByValue(db *gorm.DB, apiKey string) (entities.CPAAPIKey, error) {
+	return FindActiveCPAAPIKeyByValueForInstance(db, apiKey, "")
+}
+
+func FindActiveCPAAPIKeyByValueForInstance(db *gorm.DB, apiKey, instanceID string) (entities.CPAAPIKey, error) {
 	var row entities.CPAAPIKey
-	err := db.Where("api_key = ? AND is_deleted = ?", apiKey, false).First(&row).Error
+	query := db.Where("api_key = ? AND is_deleted = ?", apiKey, false)
+	if instanceID = strings.TrimSpace(instanceID); instanceID != "" {
+		query = query.Where("instance_id = ?", instanceID)
+	}
+	err := query.Order("instance_id asc, id asc").First(&row).Error
 	return row, err
 }
 

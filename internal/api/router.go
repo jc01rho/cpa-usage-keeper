@@ -49,14 +49,18 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
-	UsageIdentity service.UsageIdentityProvider
-	Quota         QuotaProvider
-	CPAAPIKeys    service.CPAAPIKeyProvider
-	AuthFiles     service.AuthFilesManagementProvider
-	RequestLogs   service.RequestLogProvider
-	Ranking       rankinghttpapi.Provider
-	LocalRanking  rankinghttpapi.LocalProvider
-	Status        StatusRouteConfig
+	UsageExport    service.UsageExportProvider
+	MetadataExport service.MetadataExportProvider
+	MetadataStatus service.MetadataStatusProvider
+	UsageIdentity  service.UsageIdentityProvider
+	CPAInstances   CPAInstanceProvider
+	Quota          QuotaProvider
+	CPAAPIKeys     service.CPAAPIKeyProvider
+	AuthFiles      service.AuthFilesManagementProvider
+	RequestLogs    service.RequestLogProvider
+	Ranking        rankinghttpapi.Provider
+	LocalRanking   rankinghttpapi.LocalProvider
+	Status         StatusRouteConfig
 }
 
 func NewRouter(
@@ -81,17 +85,27 @@ func NewRouter(
 
 	apiV1 := appGroup.Group("/api/v1")
 	apiV1.Use(unauthenticatedLoginRequestLimits(basePath))
-	apiV1.Use(requestIntentMiddleware())
 	if debugAPIRoutesEnabled() {
 		registerPingRoutes(apiV1)
 	}
 
-	authGroup := apiV1.Group("/auth")
+	var instanceProvider CPAInstanceProvider
+	if len(optionalProviders) > 0 {
+		instanceProvider = optionalProviders[0].CPAInstances
+	}
+	registerExportAuthRoutes(apiV1, instanceProvider)
+
+	browserAPI := apiV1.Group("")
+	browserAPI.Use(requestIntentMiddleware())
+	authGroup := browserAPI.Group("/auth")
 	if authHandler == nil {
 		authHandler = NewAuthHandler(authConfig, nil)
 	}
 	authHandler.registerRoutes(authGroup)
 
+	var usageExportProvider service.UsageExportProvider
+	var metadataExportProvider service.MetadataExportProvider
+	var metadataStatusProvider service.MetadataStatusProvider
 	var usageIdentityProvider service.UsageIdentityProvider
 	var quotaProvider QuotaProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
@@ -101,6 +115,9 @@ func NewRouter(
 	var localRankingProvider rankinghttpapi.LocalProvider
 	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
+		usageExportProvider = optionalProviders[0].UsageExport
+		metadataExportProvider = optionalProviders[0].MetadataExport
+		metadataStatusProvider = optionalProviders[0].MetadataStatus
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
@@ -111,16 +128,19 @@ func NewRouter(
 		statusConfig = optionalProviders[0].Status
 	}
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
+	registerUsageExportRoutes(apiV1, usageExportProvider, instanceProvider)
+	registerMetadataExportRoutes(apiV1, metadataExportProvider, instanceProvider)
 	requestLogDownloadTokens := newRequestLogDownloadTokenStore()
 
-	registerUsageEventRequestLogDownloadTokenRoutes(apiV1, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
+	registerUsageEventRequestLogDownloadTokenRoutes(browserAPI, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
 
-	versionProtected := apiV1.Group("")
+	versionProtected := browserAPI.Group("")
 	versionProtected.Use(authHandler.roleMiddleware(auth.RoleAdmin, auth.RoleAPIKeyViewer))
 	registerVersionRoutes(versionProtected)
 
-	adminProtected := apiV1.Group("")
+	adminProtected := browserAPI.Group("")
 	adminProtected.Use(authHandler.adminMiddleware())
+	adminProtected.Use(instanceFilterMiddleware(instanceProvider))
 	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
 	registerUpdateRoutes(adminProtected, nil)
 	registerUsageOverviewRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
@@ -133,6 +153,8 @@ func NewRouter(
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
+	registerInstanceRoutes(adminProtected, instanceProvider)
+	registerMetadataStatusRoutes(adminProtected, metadataStatusProvider)
 	if rankingProvider != nil {
 		rankinghttpapi.RegisterRoutes(adminProtected, rankingProvider)
 	}
@@ -140,8 +162,9 @@ func NewRouter(
 		rankinghttpapi.RegisterLocalRoutes(adminProtected, localRankingProvider)
 	}
 
-	keyViewerProtected := apiV1.Group("")
+	keyViewerProtected := browserAPI.Group("")
 	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
+	keyViewerProtected.Use(instanceFilterMiddleware(instanceProvider))
 	registerKeyOverviewRoute(keyViewerProtected, usageProvider, cpaAPIKeyProvider, authHandler)
 	registerKeyActivityRoute(keyViewerProtected, usageProvider, cpaAPIKeyProvider, authHandler)
 

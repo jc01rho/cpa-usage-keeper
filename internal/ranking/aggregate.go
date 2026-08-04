@@ -22,8 +22,13 @@ func NewAggregator(db *gorm.DB) *Aggregator {
 	return &Aggregator{db: db}
 }
 
-// AggregateDay 只处理中心时区的一个自然日，并在 SQLite 内完成固定五分钟分桶与最终汇总。
+// AggregateDay 保留既有社区榜单行为，并显式聚合 Legacy CPA 实例。
 func (a *Aggregator) AggregateDay(ctx context.Context, start, end time.Time) (Metrics, error) {
+	return a.AggregateDayForInstance(ctx, entities.LegacyCPAInstanceID, start, end)
+}
+
+// AggregateDayForInstance 只处理可信实例在中心时区的一个自然日，并在 SQLite 内完成固定五分钟分桶与最终汇总。
+func (a *Aggregator) AggregateDayForInstance(ctx context.Context, instanceID string, start, end time.Time) (Metrics, error) {
 	if a == nil || a.db == nil {
 		return Metrics{}, fmt.Errorf("ranking aggregator is not configured")
 	}
@@ -55,7 +60,7 @@ WITH five_minute_buckets AS (
 		SUM(CASE WHEN failed = 0 AND ttft_ms IS NOT NULL AND ttft_ms > 0 AND latency_ms > 0 THEN latency_ms ELSE 0 END) AS latency_sum_ms,
 		SUM(CASE WHEN failed = 0 AND ttft_ms IS NOT NULL AND ttft_ms > 0 AND latency_ms > 0 THEN 1 ELSE 0 END) AS latency_sample_count
 	FROM usage_events
-	WHERE %s
+	WHERE instance_id = ? AND %s
 	GROUP BY bucket_key
 )
 SELECT
@@ -76,9 +81,10 @@ SELECT
 	COALESCE(MAX(total_tokens), 0) AS peak_5m_total_tokens
 FROM five_minute_buckets`, timePredicate)
 	// CTE 以 WITH 开头，dbresolver 无法自动识别为 SELECT，必须显式路由到只读池。
+	queryArguments := append([]any{instanceID}, timeArguments...)
 	if err := a.db.Clauses(dbresolver.Read).WithContext(ctx).Raw(
 		query,
-		timeArguments...,
+		queryArguments...,
 	).Scan(&metrics).Error; err != nil {
 		return Metrics{}, fmt.Errorf("aggregate ranking usage day: %w", err)
 	}
@@ -89,6 +95,10 @@ FROM five_minute_buckets`, timePredicate)
 }
 
 func (a *Aggregator) LatestEventID(ctx context.Context, start, end time.Time) (int64, error) {
+	return a.LatestEventIDForInstance(ctx, entities.LegacyCPAInstanceID, start, end)
+}
+
+func (a *Aggregator) LatestEventIDForInstance(ctx context.Context, instanceID string, start, end time.Time) (int64, error) {
 	if a == nil || a.db == nil {
 		return 0, fmt.Errorf("ranking aggregator is not configured")
 	}
@@ -99,6 +109,7 @@ func (a *Aggregator) LatestEventID(ctx context.Context, start, end time.Time) (i
 	var latestID int64
 	if err := a.db.Clauses(dbresolver.Read).WithContext(ctx).
 		Model(&entities.UsageEvent{}).
+		Where("instance_id = ?", instanceID).
 		Where(timePredicate, timeArguments...).
 		Select("COALESCE(MAX(id), 0)").
 		Scan(&latestID).Error; err != nil {

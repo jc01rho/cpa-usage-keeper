@@ -12,6 +12,7 @@ import (
 )
 
 type ListUsageIdentitiesRequest struct {
+	InstanceID string
 	AuthType   *entities.UsageIdentityAuthType
 	ActiveOnly *bool
 	Types      []string
@@ -80,16 +81,17 @@ func NewUsageIdentityServiceWithOptions(db *gorm.DB, recentUsage *repository.Usa
 
 func (s *usageIdentityService) ListUsageIdentities(ctx context.Context) ([]entities.UsageIdentity, error) {
 	// identities 页面需要全量历史，包含已删除身份，用于展示 deleted 状态和统计数据。
-	return repository.ListUsageIdentities(ctx, s.db)
+	return repository.ListUsageIdentitiesForInstance(ctx, s.db, InstanceFilterFromContext(ctx))
 }
 
 func (s *usageIdentityService) ListActiveUsageIdentities(ctx context.Context) ([]entities.UsageIdentity, error) {
 	// source 解析和筛选只需要活跃身份，过滤条件下推到 repository 的 SQL 查询中执行。
-	return repository.ListActiveUsageIdentities(ctx, s.db)
+	return repository.ListActiveUsageIdentitiesForInstance(ctx, s.db, InstanceFilterFromContext(ctx))
 }
 
 func (s *usageIdentityService) ListActiveUsageIdentitiesPage(ctx context.Context, request ListUsageIdentitiesRequest) (ListUsageIdentitiesResponse, error) {
 	items, total, typeCounts, err := repository.ListActiveUsageIdentitiesPage(ctx, s.db, repository.ListUsageIdentitiesPageRequest{
+		InstanceID: request.InstanceID,
 		AuthType:   request.AuthType,
 		ActiveOnly: request.ActiveOnly,
 		Types:      request.Types,

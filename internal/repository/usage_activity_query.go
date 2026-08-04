@@ -22,6 +22,10 @@ const (
 
 // QueryUsageActivityGrid 按 grain 生成固定 364 格，并用 dataEnd 限制尚未开始的未来桶。
 func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.UsageActivityGrain, referenceEnd, dataEnd time.Time, apiGroupKey string) (dto.UsageActivityGridRecord, error) {
+	return QueryUsageActivityGridForInstance(ctx, db, "", grain, referenceEnd, dataEnd, apiGroupKey)
+}
+
+func QueryUsageActivityGridForInstance(ctx context.Context, db *gorm.DB, instanceID string, grain entities.UsageActivityGrain, referenceEnd, dataEnd time.Time, apiGroupKey string) (dto.UsageActivityGridRecord, error) {
 	// result 先记录请求 grain，错误路径也能保留调用上下文。
 	result := dto.UsageActivityGridRecord{Grain: grain}
 	// nil 数据库无法读取 Activity rows。
@@ -77,6 +81,9 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 	// 查询只读取当前 grain 和 364 个精确起点；IN 不依赖带 offset 文本的字典序。
 	query := db.WithContext(ctx).
 		Where("grain = ? AND bucket_start IN ?", grain, bucketStarts)
+	if instanceID = strings.TrimSpace(instanceID); instanceID != "" {
+		query = query.Where("instance_id = ?", instanceID)
+	}
 	// API group 非空时按 canonical key 精确过滤，与 CPA API Key scope 一致。
 	if normalizedAPIGroupKey := strings.TrimSpace(apiGroupKey); normalizedAPIGroupKey != "" {
 		query = query.Where("api_group_key = ?", normalizedAPIGroupKey)

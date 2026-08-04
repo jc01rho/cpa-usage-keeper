@@ -136,7 +136,7 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_overview_daily_stats_api_model_bucket",
 		"idx_usage_overview_daily_stats_auth_bucket",
 		"idx_usage_overview_daily_stats_model_alias_bucket",
-		"uniq_usage_activity_stats_grain_start_api",
+		"uniq_usage_activity_stats_instance_grain_start_api",
 		"idx_usage_activity_stats_api_grain_start",
 		"idx_usage_activity_stats_grain_end",
 	} {

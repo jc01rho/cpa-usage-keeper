@@ -75,6 +75,10 @@ const (
 	migrationCreateUsageEventArchive = "20260730_create_usage_event_archive"
 	// migrationLocalRankingStats 创建固定四周期的本地排行累计。
 	migrationLocalRankingStats = "20260731_local_ranking_stats"
+	// migrationKeeperInstances seeds the deterministic legacy namespace and scopes all source-sensitive storage.
+	migrationKeeperInstances = "20260803_keeper_instances"
+	// migrationKeeperMetadataSnapshots persists exact-body metadata revision state per instance/category.
+	migrationKeeperMetadataSnapshots = "20260803_keeper_metadata_snapshots"
 )
 
 type schemaMigration struct {
@@ -190,6 +194,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventClientMetadata, run: addUsageEventClientMetadataMigration},
 		{version: migrationCreateUsageEventArchive, run: createUsageEventArchiveMigration},
 		{version: migrationLocalRankingStats, run: localRankingStatsMigration},
+		{version: migrationKeeperInstances, run: keeperInstancesMigration},
+		{version: migrationKeeperMetadataSnapshots, run: keeperMetadataSnapshotsMigration},
 	}
 }
 

@@ -187,7 +187,7 @@ func TestOpenDatabaseCreatesUsageActivitySchema(t *testing.T) {
 	sort.Strings(columns)
 	wantColumns := []string{
 		"api_group_key", "bucket_end", "bucket_start", "cache_creation_tokens", "cache_read_tokens",
-		"created_at", "failure_count", "grain", "id", "input_tokens", "output_tokens",
+		"created_at", "failure_count", "grain", "id", "input_tokens", "instance_id", "output_tokens",
 		"reasoning_tokens", "success_count", "total_tokens", "updated_at",
 	}
 	sort.Strings(wantColumns)
@@ -195,7 +195,7 @@ func TestOpenDatabaseCreatesUsageActivitySchema(t *testing.T) {
 		t.Fatalf("unexpected activity columns:\n got: %v\nwant: %v", columns, wantColumns)
 	}
 
-	assertUsageActivityIndexColumns(t, db, "uniq_usage_activity_stats_grain_start_api", []string{"grain", "bucket_start", "api_group_key"}, true)
+	assertUsageActivityIndexColumns(t, db, "uniq_usage_activity_stats_instance_grain_start_api", []string{"instance_id", "grain", "bucket_start", "api_group_key"}, true)
 	assertUsageActivityIndexColumns(t, db, "idx_usage_activity_stats_api_grain_start", []string{"api_group_key", "grain", "bucket_start"}, false)
 	assertUsageActivityIndexColumns(t, db, "idx_usage_activity_stats_grain_end", []string{"grain", "bucket_end"}, false)
 

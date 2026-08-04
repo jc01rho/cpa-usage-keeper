@@ -12,6 +12,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"cpa-usage-keeper/internal/entities"
+	servicepkg "cpa-usage-keeper/internal/service"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -34,8 +36,8 @@ type CenterAPI interface {
 }
 
 type UsageAggregator interface {
-	AggregateDay(context.Context, time.Time, time.Time) (Metrics, error)
-	LatestEventID(context.Context, time.Time, time.Time) (int64, error)
+	AggregateDayForInstance(context.Context, string, time.Time, time.Time) (Metrics, error)
+	LatestEventIDForInstance(context.Context, string, time.Time, time.Time) (int64, error)
 }
 
 type LocalStatus struct {
@@ -52,6 +54,7 @@ type LocalStatus struct {
 type Service struct {
 	store      *Store
 	aggregator UsageAggregator
+	instanceID string
 	center     CenterAPI
 	readCache  *readCache
 	now        func() time.Time
@@ -82,6 +85,10 @@ func WithRandom(random io.Reader) ServiceOption {
 }
 
 func NewService(store *Store, aggregator UsageAggregator, center CenterAPI, options ...ServiceOption) (*Service, error) {
+	return NewServiceForInstance(store, aggregator, center, entities.LegacyCPAInstanceID, options...)
+}
+
+func NewServiceForInstance(store *Store, aggregator UsageAggregator, center CenterAPI, instanceID string, options ...ServiceOption) (*Service, error) {
 	if store == nil || store.db == nil {
 		return nil, fmt.Errorf("ranking store is required")
 	}
@@ -91,9 +98,12 @@ func NewService(store *Store, aggregator UsageAggregator, center CenterAPI, opti
 	if center == nil {
 		return nil, fmt.Errorf("ranking center client is required")
 	}
-	service := &Service{store: store, aggregator: aggregator, center: center, readCache: newReadCache(), now: time.Now, random: rand.Reader}
+	service := &Service{store: store, aggregator: aggregator, instanceID: strings.TrimSpace(instanceID), center: center, readCache: newReadCache(), now: time.Now, random: rand.Reader}
 	for _, option := range options {
 		option(service)
+	}
+	if service.instanceID == "" {
+		return nil, fmt.Errorf("ranking instance ID is required")
 	}
 	return service, nil
 }
@@ -363,15 +373,30 @@ func (s *Service) Leaderboard(ctx context.Context, period LeaderboardPeriod, met
 		return Leaderboard{}, fmt.Errorf("invalid leaderboard selection")
 	}
 	now := s.now()
-	if cached, ok := s.readCache.leaderboard(period, metric, now); ok {
-		return cached, nil
+	board, ok := s.readCache.leaderboard(period, metric, now)
+	if !ok {
+		var err error
+		board, err = s.center.Leaderboard(ctx, period, metric)
+		if err != nil {
+			return Leaderboard{}, err
+		}
+		s.readCache.storeLeaderboard(period, metric, board, now)
 	}
-	board, err := s.center.Leaderboard(ctx, period, metric)
-	if err != nil {
-		return Leaderboard{}, err
+	instanceID, present := servicepkg.InstanceFilterSelectionFromContext(ctx)
+	if !present {
+		instanceID = s.instanceID
 	}
-	s.readCache.storeLeaderboard(period, metric, board, now)
-	return board, nil
+	return annotateLeaderboardInstance(board, instanceID), nil
+}
+
+func annotateLeaderboardInstance(board Leaderboard, instanceID string) Leaderboard {
+	entries := make([]LeaderboardEntry, len(board.Entries))
+	copy(entries, board.Entries)
+	for index := range entries {
+		entries[index].InstanceID = instanceID
+	}
+	board.Entries = entries
+	return board
 }
 
 func (s *Service) LeaderboardMetadata(ctx context.Context) (LeaderboardMetadata, error) {
@@ -509,7 +534,7 @@ func (s *Service) syncActiveLocked(ctx context.Context, state State) error {
 	var previousErr error
 	joinedBeforeToday := state.ParticipationStartedAt != nil && state.ParticipationStartedAt.Before(todayStart)
 	if joinedBeforeToday && now.Before(todayStart.Add(2*time.Hour)) {
-		yesterdayEventID, err := s.aggregator.LatestEventID(ctx, yesterdayStart, todayStart)
+		yesterdayEventID, err := s.aggregator.LatestEventIDForInstance(ctx, s.instanceID, yesterdayStart, todayStart)
 		if err != nil {
 			_ = s.recordError(ctx, err)
 			previousErr = err
@@ -536,7 +561,7 @@ func (s *Service) syncActiveLocked(ctx context.Context, state State) error {
 		}
 	}
 
-	latestEventID, err := s.aggregator.LatestEventID(ctx, todayStart, periodNow)
+	latestEventID, err := s.aggregator.LatestEventIDForInstance(ctx, s.instanceID, todayStart, periodNow)
 	if err != nil {
 		_ = s.recordError(ctx, err)
 		return errors.Join(previousErr, err)
@@ -559,7 +584,7 @@ func (s *Service) syncActiveLocked(ctx context.Context, state State) error {
 }
 
 func (s *Service) submitRangeLocked(ctx context.Context, start, end time.Time, periodTimezone, dayKey string, complete bool, completeEventID int64, snapshotAt time.Time) (ReportReceipt, error) {
-	metrics, err := s.aggregator.AggregateDay(ctx, start, end)
+	metrics, err := s.aggregator.AggregateDayForInstance(ctx, s.instanceID, start, end)
 	if err != nil {
 		_ = s.recordError(ctx, err)
 		return ReportReceipt{}, err

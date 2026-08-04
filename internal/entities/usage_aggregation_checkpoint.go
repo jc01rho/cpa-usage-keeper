@@ -13,12 +13,14 @@ const (
 	// UsageAggregationCheckpointLatency 对应 Latency hour/day 的已提交水位。
 	UsageAggregationCheckpointLatency UsageAggregationCheckpointName = "latency"
 	// UsageAggregationEventProjectionColumns 是运行时和 Latency migration 共用的事件读取契约。
-	UsageAggregationEventProjectionColumns = "id, api_group_key, model, model_alias, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, timestamp, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+	UsageAggregationEventProjectionColumns = "id, instance_id, api_group_key, model, model_alias, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, timestamp, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 )
 
 // UsageAggregationCheckpoint 用一张表保存三个独立 cursor，避免同构 checkpoint 表继续增长。
 type UsageAggregationCheckpoint struct {
-	// Name 同时是业务类型和主键，每个聚合只能推进自己的行。
+	// InstanceID scopes each independent aggregation cursor set.
+	InstanceID string `gorm:"type:text;primaryKey;default:00000000-0000-7000-8000-000000000000"`
+	// Name 同时是业务类型和复合主键，每个聚合只能推进自己的行。
 	Name UsageAggregationCheckpointName `gorm:"type:text;primaryKey;check:chk_usage_aggregation_checkpoints_name,name IN ('overview','activity','latency')"`
 	// LastAggregatedUsageEventID 记录该类已经完整提交的最大 usage event ID。
 	LastAggregatedUsageEventID int64 `gorm:"not null;default:0"`

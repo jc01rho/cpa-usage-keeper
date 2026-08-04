@@ -30,6 +30,7 @@ var allGrains = []entities.UsageActivityGrain{
 }
 
 type aggregateKey struct {
+	InstanceID string
 	// Grain 区分四套互不混用的边界。
 	Grain entities.UsageActivityGrain
 	// BucketStart 与 grain 一起唯一决定 bucket_end。
@@ -70,12 +71,12 @@ func BuildRows(events []entities.UsageEvent, now time.Time) ([]entities.UsageAct
 				return nil, fmt.Errorf("build usage activity %s bucket: %w", grain, err)
 			}
 			// 唯一 key 不包含 bucket_end，因为 grain/start 已唯一决定真实终点。
-			key := aggregateKey{Grain: grain, BucketStart: bucket.Start, APIGroupKey: apiGroupKey}
+			key := aggregateKey{InstanceID: event.InstanceID, Grain: grain, BucketStart: bucket.Start, APIGroupKey: apiGroupKey}
 			// 第一次遇到 key 时创建稀疏行并保存真实边界。
 			row := rowsByKey[key]
 			if row == nil {
 				row = &entities.UsageActivityStat{
-					Grain: grain, BucketStart: bucket.Start, BucketEnd: bucket.End, APIGroupKey: apiGroupKey,
+					InstanceID: event.InstanceID, Grain: grain, BucketStart: bucket.Start, BucketEnd: bucket.End, APIGroupKey: apiGroupKey,
 				}
 				rowsByKey[key] = row
 			}
@@ -109,6 +110,9 @@ func BuildRows(events []entities.UsageEvent, now time.Time) ([]entities.UsageAct
 	}
 	// 稳定排序让 migration、运行时、测试和故障注入使用相同写入顺序。
 	sort.Slice(rows, func(left, right int) bool {
+		if rows[left].InstanceID != rows[right].InstanceID {
+			return rows[left].InstanceID < rows[right].InstanceID
+		}
 		// grain 不同时先按固定字符串顺序排列。
 		if rows[left].Grain != rows[right].Grain {
 			return rows[left].Grain < rows[right].Grain

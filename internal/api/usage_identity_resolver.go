@@ -19,7 +19,7 @@ func newUsageIdentityResolver(identities []entities.UsageIdentity) usageIdentity
 		if identity.IsDeleted {
 			continue
 		}
-		key := strings.TrimSpace(identity.Identity)
+		key := usageIdentityResolverKey(identity.InstanceID, identity.Identity)
 		if key == "" {
 			continue
 		}
@@ -50,7 +50,11 @@ func resolvedUsageIdentityFromEntity(item entities.UsageIdentity) resolvedUsageI
 }
 
 func (r usageIdentityResolver) resolveByAuthIndex(authIndex string) (resolvedUsageIdentity, bool) {
-	key := strings.TrimSpace(authIndex)
+	return r.resolveByInstanceAndAuthIndex("", authIndex)
+}
+
+func (r usageIdentityResolver) resolveByInstanceAndAuthIndex(instanceID, authIndex string) (resolvedUsageIdentity, bool) {
+	key := usageIdentityResolverKey(instanceID, authIndex)
 	if key == "" {
 		return resolvedUsageIdentity{}, false
 	}
@@ -61,4 +65,12 @@ func (r usageIdentityResolver) resolveByAuthIndex(authIndex string) (resolvedUsa
 		return resolvedUsageIdentityFromEntity(identity), true
 	}
 	return resolvedUsageIdentity{}, false
+}
+
+func usageIdentityResolverKey(instanceID, authIndex string) string {
+	instanceID = strings.TrimSpace(instanceID)
+	if instanceID == "" {
+		instanceID = entities.LegacyCPAInstanceID
+	}
+	return instanceID + "\x00" + strings.TrimSpace(authIndex)
 }

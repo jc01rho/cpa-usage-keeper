@@ -1420,6 +1420,42 @@ func TestBuildUsageOverviewRealtimeWithFilterUsesRecentCacheFallbackLabels(t *te
 	}
 }
 
+func TestBuildUsageOverviewRealtimeAllInstanceFallbackKeepsCollidingAPIKeysSeparate(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-all-instances.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	now := time.Date(2026, 8, 3, 12, 30, 0, 0, time.UTC)
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	if err := db.Create([]entities.CPAInstance{{ID: instanceA, DisplayName: "A", Enabled: true, CreatedAt: now, UpdatedAt: now}, {ID: instanceB, DisplayName: "B", Enabled: true, CreatedAt: now, UpdatedAt: now}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{
+		{InstanceID: instanceA, EventKey: "same", APIGroupKey: "same-fingerprint", Model: "same-model", AuthIndex: "same-auth", Timestamp: now.Add(-time.Minute), TotalTokens: 10},
+		{InstanceID: instanceB, EventKey: "same", APIGroupKey: "same-fingerprint", Model: "same-model", AuthIndex: "same-auth", Timestamp: now.Add(-time.Minute), TotalTokens: 20},
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+	realtime, err := BuildUsageOverviewRealtimeWithFilterAndRecentCache(db, dto.UsageQueryFilter{RealtimeWindow: "15m", RealtimeEndTime: &now}, nil, emptyPricingResolverForTest())
+	if err != nil {
+		t.Fatalf("build realtime: %v", err)
+	}
+	if len(realtime.CurrentUsage.APIKeys) != 2 {
+		t.Fatalf("api keys collapsed: %+v", realtime.CurrentUsage.APIKeys)
+	}
+	byInstance := map[string]int64{}
+	for _, item := range realtime.CurrentUsage.APIKeys {
+		byInstance[item.InstanceID] = item.Tokens
+	}
+	if byInstance[instanceA] != 10 || byInstance[instanceB] != 20 {
+		t.Fatalf("per-instance current usage=%+v", byInstance)
+	}
+}
+
 func TestBuildUsageOverviewRealtimeWithFilterFallsBackToDBWhenRecentCacheIsNil(t *testing.T) {
 	withRepositoryTestLocation(t, "UTC")
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-overview-realtime-db-fallback.db")})

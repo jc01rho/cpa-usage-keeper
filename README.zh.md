@@ -68,6 +68,7 @@ CPA Usage Keeper 是面向 [CLIProxyAPI（CPA）](https://github.com/router-for-
 
 ## 功能特性
 
+- [Keeper 导出运维手册](docs/keeper-export.md) — 迁移、凭据、接收、恢复与发布操作。
 - 将 CPA 用量持久保存到 SQLite，并支持可选的定时备份
 - 统计请求量、Token、成本、缓存、成功率、RPM/TPM 和延迟，并可按时间、模型、API Key、来源及结果筛选
 - 查看和导出请求级事件，并自定义表格列

@@ -24,6 +24,9 @@ func ApplyRows(tx *gorm.DB, rows []entities.UsageActivityStat, now time.Time) er
 }
 
 func applyRow(tx *gorm.DB, row entities.UsageActivityStat, now time.Time) error {
+	if row.InstanceID == "" {
+		row.InstanceID = entities.LegacyCPAInstanceID
+	}
 	// 先按最终唯一键尝试增量 UPDATE，避免依赖 SQLite 专属 upsert 语法。
 	updates := map[string]any{
 		// bucket_end 始终刷新为统一 helper 计算出的真实终点。
@@ -47,10 +50,15 @@ func applyRow(tx *gorm.DB, row entities.UsageActivityStat, now time.Time) error 
 		// updated_at 使用本次聚合固定 now。
 		"updated_at": timeutil.FormatStorageTime(now),
 	}
-	// sortableTime serializer 落库为固定 UTC 字符串，因此唯一键查询也使用同一格式。
-	result := tx.Model(&entities.UsageActivityStat{}).
-		Where("grain = ? AND bucket_start = ? AND api_group_key = ?", row.Grain, timeutil.FormatSortableStorageTime(row.BucketStart), row.APIGroupKey).
-		Updates(updates)
+	// Historical migrations call this store before instance_id exists.
+	predicate := "grain = ? AND bucket_start = ? AND api_group_key = ?"
+	args := []any{row.Grain, timeutil.FormatSortableStorageTime(row.BucketStart), row.APIGroupKey}
+	scoped := tx.Migrator().HasColumn("usage_activity_stats", "instance_id")
+	if scoped {
+		predicate = "instance_id = ? AND " + predicate
+		args = append([]any{row.InstanceID}, args...)
+	}
+	result := tx.Model(&entities.UsageActivityStat{}).Where(predicate, args...).Updates(updates)
 	// UPDATE 失败时禁止继续 INSERT，避免掩盖数据库错误。
 	if result.Error != nil {
 		return fmt.Errorf("update usage activity row: %w", result.Error)
@@ -64,7 +72,11 @@ func applyRow(tx *gorm.DB, row entities.UsageActivityStat, now time.Time) error 
 	row.CreatedAt = timeutil.NormalizeStorageTime(now)
 	row.UpdatedAt = timeutil.NormalizeStorageTime(now)
 	// 任何约束或 trigger 错误都返回给上层事务。
-	if err := tx.Create(&row).Error; err != nil {
+	create := tx
+	if !scoped {
+		create = create.Omit("InstanceID")
+	}
+	if err := create.Create(&row).Error; err != nil {
 		return fmt.Errorf("insert usage activity row: %w", err)
 	}
 	// 新行创建成功，当前 row 的累计完成。

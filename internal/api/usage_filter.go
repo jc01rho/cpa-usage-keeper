@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"cpa-usage-keeper/internal/timeutil"
 
@@ -81,6 +82,7 @@ func parseUsageTimeFilterQueryWithOptions(req *http.Request, anchor time.Time, i
 	startTime := normalizedRange.StartTime
 	endTime := normalizedRange.EndTime
 	filter := servicedto.UsageFilter{
+		InstanceID:   serviceInstanceFilter(req),
 		Range:        normalizedRange.Range,
 		RangeUnit:    string(normalizedRange.Unit),
 		RangeCount:   normalizedRange.Count,
@@ -99,6 +101,13 @@ func parseUsageTimeFilterQueryWithOptions(req *http.Request, anchor time.Time, i
 		filter.APIKeyID = apiKeyID
 	}
 	return filter, nil
+}
+
+func serviceInstanceFilter(req *http.Request) string {
+	if req == nil {
+		return ""
+	}
+	return service.InstanceFilterFromContext(req.Context())
 }
 
 func parseUsageAPIKeyID(value string) (string, error) {
@@ -189,6 +198,7 @@ func parseUsageRealtimeFilterQueryWithClientAPIKey(req *http.Request, anchor tim
 		}
 	}
 	filter := servicedto.UsageFilter{
+		InstanceID:     serviceInstanceFilter(req),
 		RealtimeWindow: realtimeWindow,
 		APIKeyID:       apiKeyID,
 	}

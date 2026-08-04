@@ -25,7 +25,7 @@ func usageActivityStatsMigration(db *gorm.DB) error {
 	// migration 开始时固定 now，确保所有 batch 使用相同 retention cutoff。
 	now := timeutil.NormalizeStorageTime(time.Now())
 	// 先幂等创建最终 Activity 表、checkpoint 和索引。
-	if err := db.AutoMigrate(&entities.UsageActivityStat{}, &entities.UsageActivityAggregationCheckpoint{}); err != nil {
+	if err := db.AutoMigrate(&legacyUsageActivityStat{}, &entities.UsageActivityAggregationCheckpoint{}); err != nil {
 		return fmt.Errorf("create usage activity schema: %w", err)
 	}
 

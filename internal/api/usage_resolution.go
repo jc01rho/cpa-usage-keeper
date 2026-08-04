@@ -16,5 +16,5 @@ func loadUsageResolutionData(
 	}
 
 	// Request Events 的 Source 下拉和 Credentials 的展示解析只需要活跃身份，直接调用 SQL 层 active-only 查询。
-	return usageIdentityProvider.ListActiveUsageIdentities(c.Request.Context())
+	return usageIdentityProvider.ListActiveUsageIdentities(contextWithRequestInstanceFilter(c.Request.Context(), c))
 }

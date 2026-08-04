@@ -32,6 +32,7 @@ const (
 
 // RecentUsageEvent 是 Overview 边界补偿和 realtime 共用的最近事件最小投影。
 type RecentUsageEvent struct {
+	InstanceID string
 	// Timestamp 是事件时间，所有入缓存路径都会先归一化到项目配置时区。
 	Timestamp time.Time
 	// APIGroupKey 保留 Overview / KeyOverview 的 API Key 作用域过滤条件。
@@ -108,6 +109,7 @@ type UsageRecentEventCache struct {
 }
 
 type recentUsageEventLoadRow struct {
+	InstanceID string
 	// 这个结构只列出缓存真正需要的列，避免启动加载把 usage_events 大字段读进内存。
 	APIGroupKey         string
 	Provider            string
@@ -322,6 +324,7 @@ func (c *UsageRecentEventCache) appendEvents(events []entities.UsageEvent) {
 	for _, event := range events {
 		// 这里刻意不带 event_key/request_id，它们不参与 Overview/realtime 计算。
 		rows = append(rows, recentUsageEventLoadRow{
+			InstanceID:  event.InstanceID,
 			APIGroupKey: event.APIGroupKey,
 			Provider:    event.Provider,
 			AuthType:    event.AuthType,
@@ -366,6 +369,10 @@ func (c *UsageRecentEventCache) appendEvents(events []entities.UsageEvent) {
 
 // Events 返回缓存中落在指定窗口内的事件；覆盖判断由调用方按 queryNow 统一调度。
 func (c *UsageRecentEventCache) Events(start, end time.Time, includeEnd bool, apiGroupKey string) ([]RecentUsageEvent, bool) {
+	return c.EventsForInstance("", start, end, includeEnd, apiGroupKey)
+}
+
+func (c *UsageRecentEventCache) EventsForInstance(instanceID string, start, end time.Time, includeEnd bool, apiGroupKey string) ([]RecentUsageEvent, bool) {
 	// nil cache 表示缓存对象不可用，调用方可以按自己的策略 fallback。
 	if c == nil {
 		return nil, false
@@ -382,8 +389,12 @@ func (c *UsageRecentEventCache) Events(start, end time.Time, includeEnd bool, ap
 	defer c.mu.RUnlock()
 	// API Group 过滤在缓存内完成，KeyOverview 和 Overview 共用同一份缓存。
 	apiGroupKey = strings.TrimSpace(apiGroupKey)
+	instanceID = strings.TrimSpace(instanceID)
 	result := make([]RecentUsageEvent, 0)
 	for _, event := range c.events {
+		if instanceID != "" && event.InstanceID != instanceID {
+			continue
+		}
 		// 每条事件再归一化一次，防止测试直接构造的时间没有走入库规范化。
 		timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
 		// 左边界始终是闭区间。
@@ -410,6 +421,10 @@ func (c *UsageRecentEventCache) Events(start, end time.Time, includeEnd bool, ap
 
 // EventsSince 返回从 start 起的缓存事件，供 Overview 当前右边界规避 now/end 轻微漂移。
 func (c *UsageRecentEventCache) EventsSince(start time.Time, apiGroupKey string) ([]RecentUsageEvent, bool) {
+	return c.EventsSinceForInstance("", start, apiGroupKey)
+}
+
+func (c *UsageRecentEventCache) EventsSinceForInstance(instanceID string, start time.Time, apiGroupKey string) ([]RecentUsageEvent, bool) {
 	// nil cache 表示缓存对象不可用，Overview 当前右边界可回到 DB 旧路径。
 	if c == nil {
 		return nil, false
@@ -421,8 +436,12 @@ func (c *UsageRecentEventCache) EventsSince(start time.Time, apiGroupKey string)
 	defer c.mu.RUnlock()
 	// API Group 过滤在缓存层完成。
 	apiGroupKey = strings.TrimSpace(apiGroupKey)
+	instanceID = strings.TrimSpace(instanceID)
 	result := make([]RecentUsageEvent, 0)
 	for _, event := range c.events {
+		if instanceID != "" && event.InstanceID != instanceID {
+			continue
+		}
 		// 当前右边界只要求 timestamp >= start，不添加 end 上限。
 		timestamp := timeutil.NormalizeStorageTime(event.Timestamp)
 		if timestamp.Before(start) {
@@ -452,7 +471,7 @@ func loadUsageRecentEventCacheRows(db *gorm.DB, start time.Time) ([]recentUsageE
 	var rows []recentUsageEventLoadRow
 	// 只 select 最近缓存和 realtime 必需字段，避免大字段进入 70 分钟内存窗口。
 	if err := db.Model(&entities.UsageEvent{}).
-		Select("api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
+		Select("instance_id, api_group_key, provider, auth_type, model, model_alias, timestamp, source, auth_index, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, failed, generate, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens").
 		// 启动加载只取 retention 左边界之后的数据。
 		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
 		// 按时间排序让后续剪枝和调试输出更直观。
@@ -476,6 +495,7 @@ func (c *UsageRecentEventCache) recentEventFromRowLocked(row recentUsageEventLoa
 	// auth_type 决定 fallback label 的来源：auth file 用 source，ai provider 用 provider。
 	identityKind, fallbackLabel := usageRecentIdentityFallback(row.AuthType, row.Source, row.Provider)
 	return RecentUsageEvent{
+		InstanceID: row.InstanceID,
 		// timestamp 进入缓存前统一到项目存储时区。
 		Timestamp: timeutil.NormalizeStorageTime(row.Timestamp),
 		// 高频重复字符串通过池化复用，降低缓存内存占用。
@@ -634,6 +654,7 @@ func recentUsageEventToEntity(event RecentUsageEvent) entities.UsageEvent {
 	// Overview 聚合已有实体处理函数，这里把缓存投影还原成最小 UsageEvent。
 	generate := event.Generate
 	result := entities.UsageEvent{
+		InstanceID:          event.InstanceID,
 		APIGroupKey:         event.APIGroupKey,
 		Model:               event.Model,
 		Timestamp:           event.Timestamp,
