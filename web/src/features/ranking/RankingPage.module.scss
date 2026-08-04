@@ -353,6 +353,34 @@
   width: 32px;
 }
 
+.localProfileAvatarButton {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+  .avatar {
+    width: 100%;
+    height: 100%;
+  }
+
+  &:hover {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 18%, transparent);
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
 .syncFacts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1013,6 +1041,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .avatarOption,
+  .localProfileAvatarButton,
   .table tbody tr {
     transition: none;
   }

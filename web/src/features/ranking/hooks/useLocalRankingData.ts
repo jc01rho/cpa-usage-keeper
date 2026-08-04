@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchLocalRankingLeaderboard, RankingApiError } from '../api';
-import type { RankingLeaderboardResponse, RankingMetric, RankingPeriod } from '../types';
+import { fetchLocalRankingLeaderboard, RankingApiError, updateLocalRankingProfile } from '../api';
+import type {
+  LocalRankingProfileRequest,
+  LocalRankingProfileResponse,
+  RankingLeaderboardResponse,
+  RankingMetric,
+  RankingPeriod,
+} from '../types';
 
 export const LOCAL_RANKING_POLL_INTERVAL_MS = 60_000;
 
@@ -10,11 +16,33 @@ export interface LocalRankingDataAPI {
     metric: RankingMetric,
     signal?: AbortSignal,
   ) => Promise<RankingLeaderboardResponse>;
+  updateProfile?: (
+    participantID: string,
+    profile: LocalRankingProfileRequest,
+    signal?: AbortSignal,
+  ) => Promise<LocalRankingProfileResponse>;
 }
 
-const defaultAPI: LocalRankingDataAPI = { leaderboard: fetchLocalRankingLeaderboard };
+const defaultAPI: LocalRankingDataAPI = {
+  leaderboard: fetchLocalRankingLeaderboard,
+  updateProfile: updateLocalRankingProfile,
+};
 const isAbortError = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const leaderboardKey = (period: RankingPeriod, metric: RankingMetric) => `${period}:${metric}`;
+type LocalRankingProfilePatch = Partial<Pick<LocalRankingProfileResponse, 'key_alias' | 'display_name' | 'avatar_id'>>;
+const applyLocalProfile = (
+  board: RankingLeaderboardResponse,
+  participantID: string,
+  profile: LocalRankingProfilePatch,
+): RankingLeaderboardResponse => ({
+  ...board,
+  entries: board.entries.map((entry) => entry.participant_id === participantID
+    ? {
+      ...entry,
+      ...profile,
+    }
+    : entry),
+});
 
 export interface UseLocalRankingDataOptions {
   enabled: boolean;
@@ -92,6 +120,35 @@ export function useLocalRankingData({
     [loadLeaderboard, metric, period],
   );
 
+  const patchProfileCache = useCallback((participantID: string, profile: LocalRankingProfilePatch) => {
+    // 设置页和排行弹窗共用 Key 资料；同步废弃旧读取并更新所有已加载榜单投影。
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    generationRef.current += 1;
+    setLoading(false);
+    for (const [key, cachedBoard] of cacheRef.current) {
+      cacheRef.current.set(key, applyLocalProfile(cachedBoard, participantID, profile));
+    }
+    setLeaderboard((current) => current ? applyLocalProfile(current, participantID, profile) : current);
+  }, []);
+
+  const updateProfile = useCallback(async (
+    participantID: string,
+    profile: LocalRankingProfileRequest,
+    signal?: AbortSignal,
+  ) => {
+    const update = api.updateProfile ?? defaultAPI.updateProfile;
+    if (!update) throw new Error('local ranking profile API is not configured');
+    try {
+      const updated = await update(participantID, profile, signal);
+      patchProfileCache(updated.participant_id, updated);
+      return updated;
+    } catch (updateError) {
+      if (updateError instanceof RankingApiError && updateError.status === 401) onAuthRequired?.();
+      throw updateError;
+    }
+  }, [api, onAuthRequired, patchProfileCache]);
+
   useEffect(() => {
     if (!enabled) {
       controllerRef.current?.abort();
@@ -114,5 +171,12 @@ export function useLocalRankingData({
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  return { leaderboard, leaderboardLoading: loading, leaderboardError: error, refreshLeaderboard };
+  return {
+    leaderboard,
+    leaderboardLoading: loading,
+    leaderboardError: error,
+    refreshLeaderboard,
+    updateProfile,
+    patchProfileCache,
+  };
 }

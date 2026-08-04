@@ -106,6 +106,12 @@ const defaultProps = {
   onRetryStatus: vi.fn(async () => null),
   onRetryMetadata: vi.fn(async () => null),
   onRetryLeaderboard: vi.fn(async () => null),
+  onUpdateLocalProfile: vi.fn(async (participantID: string, profile: { key_alias: string; avatar_id: number }) => ({
+    participant_id: participantID,
+    key_alias: profile.key_alias,
+    display_name: profile.key_alias,
+    avatar_id: profile.avatar_id,
+  })),
   onPeriodChange: vi.fn(),
   onMetricChange: vi.fn(),
 };
@@ -176,6 +182,66 @@ describe('RankingPage', () => {
     expect(container.querySelector('[data-ranking-participant-column]')?.textContent).toBe('ranking.api_key');
     expect(container.textContent).toContain('93 PTS');
     expect(container.textContent).not.toContain('93.25 PTS');
+  });
+
+  it('opens the same local Key editor from podium and table avatars and saves alias with avatar', async () => {
+    const onUpdateLocalProfile = vi.fn(async (participantID: string, profile: { key_alias: string; avatar_id: number }) => ({
+      participant_id: participantID,
+      key_alias: profile.key_alias,
+      display_name: profile.key_alias,
+      avatar_id: profile.avatar_id,
+    }));
+    const localLeaderboard: RankingLeaderboardResponse = {
+      ...leaderboard,
+      entries: leaderboard.entries.map((entry, index) => ({
+        ...entry,
+        participant_id: String(index + 1),
+        display_name: index === 0 ? 'Primary' : entry.display_name,
+        key_alias: index === 0 ? 'Primary' : '',
+        value: Math.round(entry.value / 100),
+      })),
+    };
+    await renderPage({ scope: 'local', leaderboard: localLeaderboard, onUpdateLocalProfile });
+
+    expect(container.querySelectorAll('[data-ranking-podium] [data-ranking-local-profile-edit]')).toHaveLength(3);
+    expect(container.querySelectorAll('tbody [data-ranking-local-profile-edit]')).toHaveLength(5);
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-ranking-podium-rank="1"] [data-ranking-local-profile-edit]')?.click());
+
+    const aliasInput = document.querySelector<HTMLInputElement>('input[name="local-ranking-key-alias"]');
+    expect(aliasInput?.value).toBe('Primary');
+    expect(aliasInput?.placeholder).toBe('');
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      valueSetter?.call(aliasInput, 'Renamed');
+      aliasInput?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-avatar-option="42"]')?.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-ranking-local-profile-save]')?.click());
+
+    expect(onUpdateLocalProfile).toHaveBeenCalledWith('1', { key_alias: 'Renamed', avatar_id: 42 });
+  });
+
+  it('uses the masked Key as the placeholder only when no alias exists', async () => {
+    const localLeaderboard: RankingLeaderboardResponse = {
+      ...leaderboard,
+      entries: leaderboard.entries.map((entry, index) => ({
+        ...entry,
+        participant_id: String(index + 1),
+        display_name: index === 0 ? 'sk-*********alpha' : entry.display_name,
+        key_alias: '',
+      })),
+    };
+    await renderPage({ scope: 'local', leaderboard: localLeaderboard });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-ranking-podium-rank="1"] [data-ranking-local-profile-edit]')?.click());
+
+    const aliasInput = document.querySelector<HTMLInputElement>('input[name="local-ranking-key-alias"]');
+    expect(aliasInput?.value).toBe('');
+    expect(aliasInput?.placeholder).toBe('sk-*********alpha');
+  });
+
+  it('keeps Community leaderboard avatars non-editable', async () => {
+    await renderPage();
+    expect(container.querySelector('[data-ranking-local-profile-edit]')).toBeNull();
   });
 
   it('shows the center explanation beside only a V2 overall title', async () => {

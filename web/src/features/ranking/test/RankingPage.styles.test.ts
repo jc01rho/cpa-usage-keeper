@@ -44,6 +44,16 @@ describe('Ranking table context styles', () => {
     expect(thirdPlace).not.toContain('var(--warning-bg)');
   });
 
+  it('gives editable local avatars a button reset and visible keyboard focus', () => {
+    const trigger = rule('.localProfileAvatarButton');
+    expect(trigger).toContain('appearance: none;');
+    expect(trigger).toContain('padding: 0;');
+    expect(trigger).toContain('border-radius: 50%;');
+    expect(trigger).toContain('cursor: pointer;');
+    expect(trigger).toContain('&:focus-visible');
+    expect(trigger).toContain('outline: 2px solid var(--primary-color);');
+  });
+
   it('uses distinct green success and red error feedback treatments', () => {
     const success = rule('\n.successBox {');
     const groupedError = styles.indexOf('\n.errorBox {');

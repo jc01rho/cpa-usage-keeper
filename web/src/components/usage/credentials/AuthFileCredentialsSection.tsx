@@ -14,8 +14,8 @@ import { deleteAuthFiles, fetchQuotaAutoRefreshSettings, fetchUsageQuotaResetCre
 import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse, UsageQuotaResetCreditsResponse } from '@/lib/types'
 import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
-import { CredentialProviderFilterIcon } from './CredentialProviderFilterBar'
-import { CredentialBadge, CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
+import { CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
+import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 
 type Translate = (key: string, options?: Record<string, string>) => string
 type InspectionIndicatorTone = 'idle' | 'running' | 'completed'
@@ -287,6 +287,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
         return (
           <CredentialRowShell
             key={rowKey}
+            icon={<ProviderBrandIcon providerType={row.identity.type} size={30} ariaLabel={row.typeLabel} />}
             title={onSaveAlias ? (
               <CredentialAliasEditor
                 identityId={row.identity.id}
@@ -298,9 +299,8 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 onSaveAlias={onSaveAlias}
               />
             ) : <span {...filenameTooltipTargetProps}>{row.displayName}</span>}
-            subtitle={(
+            subtitle={row.planTypeLabel || row.remainingDaysLabel || row.priorityLabel ? (
               <span className={styles.credentialIdentityBadges}>
-                <CredentialBadge>{row.typeLabel}</CredentialBadge>
                 {row.planTypeLabel && <CredentialPlanBadge tone={row.planTypeTone}>{row.planTypeLabel}</CredentialPlanBadge>}
                 {row.remainingDaysLabel && row.expiresAtLabel
                   ? (
@@ -335,7 +335,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                   : row.remainingDaysLabel && <span className={styles.credentialRemainingDaysBadge}>{row.remainingDaysLabel}</span>}
                 {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
               </span>
-            )}
+            ) : undefined}
             badges={null}
             metrics={(
               <>
@@ -1488,7 +1488,7 @@ function InspectionResultRow({ result }: { result: UsageQuotaInspectionResult })
   return (
     <div className={styles.credentialInspectionResultRow}>
       <span className={styles.credentialInspectionTypeIcon}>
-        <CredentialProviderFilterIcon provider={result.type} />
+        <ProviderBrandIcon providerType={result.type} size={20} />
       </span>
       <span className={styles.credentialInspectionIdentity}>
         <strong>{result.name || result.file_name || '-'}</strong>
@@ -1547,7 +1547,16 @@ function formatInspectionDate(value: string | undefined): string {
 }
 
 function CredentialPlanBadge({ children, tone = 'neutral' }: { children: string; tone?: PlanTypeTone }) {
-  return <span className={`${styles.credentialPlanBadge} ${styles[`credentialPlanBadge${capitalize(tone)}`]}`.trim()}>{children}</span>
+  const hasPremiumMotion = tone !== 'free' && tone !== 'neutral'
+
+  return (
+    <span className={`${styles.credentialPlanBadge} ${styles[`credentialPlanBadge${capitalize(tone)}`]}`.trim()}>
+      {/* 将 A5 的流动底纹和日冕拆到独立 transform 图层，避免逐帧重绘渐变。 */}
+      {hasPremiumMotion && <span className={styles.credentialPlanBadgeFlow} aria-hidden="true" />}
+      {hasPremiumMotion && <span className={styles.credentialPlanBadgeCorona} aria-hidden="true" />}
+      <span className={styles.credentialPlanBadgeLabel}>{children}</span>
+    </span>
+  )
 }
 
 function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: QuotaUsageMode; onChange: (mode: QuotaUsageMode) => void }) {

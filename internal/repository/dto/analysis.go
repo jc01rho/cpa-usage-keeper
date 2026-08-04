@@ -22,6 +22,13 @@ type AnalysisTokenUsageBucketRecord struct {
 	CostAvailable       bool
 }
 
+type AnalysisModelUsageRecord struct {
+	Bucket      time.Time
+	Model       string
+	TotalTokens int64
+	Requests    int64
+}
+
 type AnalysisCompositionRecord struct {
 	InstanceID          string
 	Key                 string
@@ -107,6 +114,7 @@ type AnalysisRecord struct {
 	RangeStart            *time.Time
 	RangeEnd              *time.Time
 	TokenUsage            []AnalysisTokenUsageBucketRecord
+	ModelUsage            []AnalysisModelUsageRecord
 	APIKeyComposition     []AnalysisCompositionRecord
 	ModelComposition      []AnalysisCompositionRecord
 	AuthFilesComposition  []AnalysisCompositionRecord

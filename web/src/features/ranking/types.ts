@@ -39,11 +39,22 @@ export interface RankingLeaderboardEntry {
   rank: number;
   participant_id: string;
   display_name: string;
+  key_alias?: string;
   avatar_id: number;
   value: number;
   rate_numerator?: number;
   rate_denominator?: number;
   metrics?: Partial<Record<RankingDetailMetric, number>>;
+}
+
+export interface LocalRankingProfileRequest {
+  key_alias: string;
+  avatar_id: number;
+}
+
+export interface LocalRankingProfileResponse extends LocalRankingProfileRequest {
+  participant_id: string;
+  display_name: string;
 }
 
 export interface RankingScoreExplanation {

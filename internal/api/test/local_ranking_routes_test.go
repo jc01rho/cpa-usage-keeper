@@ -21,6 +21,11 @@ func (s *adminLocalRankingProviderStub) Leaderboard(context.Context, ranking.Lea
 	return ranking.Leaderboard{Entries: []ranking.LeaderboardEntry{}}, nil
 }
 
+func (s *adminLocalRankingProviderStub) UpdateProfile(_ context.Context, id int64, keyAlias string, avatarID uint8) (ranking.LocalProfile, error) {
+	s.calls++
+	return ranking.LocalProfile{ParticipantID: "42", KeyAlias: keyAlias, DisplayName: keyAlias, AvatarID: avatarID}, nil
+}
+
 func TestLocalRankingRouteIsAdminOnly(t *testing.T) {
 	sessions := auth.NewSessionManager(time.Hour)
 	adminToken, _, err := sessions.Create()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,9 +16,24 @@ import (
 )
 
 type localRankingProviderStub struct {
-	period ranking.LeaderboardPeriod
-	metric ranking.LeaderboardMetric
-	err    error
+	period          ranking.LeaderboardPeriod
+	metric          ranking.LeaderboardMetric
+	err             error
+	profileID       int64
+	profileAlias    string
+	profileAvatarID uint8
+}
+
+func (s *localRankingProviderStub) UpdateProfile(_ context.Context, id int64, keyAlias string, avatarID uint8) (ranking.LocalProfile, error) {
+	s.profileID = id
+	s.profileAlias = keyAlias
+	s.profileAvatarID = avatarID
+	if s.err != nil {
+		return ranking.LocalProfile{}, s.err
+	}
+	return ranking.LocalProfile{
+		ParticipantID: strconv.FormatInt(id, 10), KeyAlias: strings.TrimSpace(keyAlias), DisplayName: strings.TrimSpace(keyAlias), AvatarID: avatarID,
+	}, nil
 }
 
 func (s *localRankingProviderStub) Leaderboard(_ context.Context, period ranking.LeaderboardPeriod, metric ranking.LeaderboardMetric) (ranking.Leaderboard, error) {
@@ -29,6 +45,24 @@ func (s *localRankingProviderStub) Leaderboard(_ context.Context, period ranking
 	return ranking.Leaderboard{
 		Period: period, PeriodKey: "2026-07-31", Metric: metric, GeneratedAt: time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC), Entries: []ranking.LeaderboardEntry{},
 	}, nil
+}
+
+func TestLocalRankingProfileRouteUpdatesAliasAndAvatar(t *testing.T) {
+	provider := &localRankingProviderStub{}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/ranking/local/profiles/42", strings.NewReader(`{"key_alias":"  Primary  ","avatar_id":17}`))
+	request.Header.Set("Content-Type", "application/json")
+	localRankingRouter(provider).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || provider.profileID != 42 || provider.profileAlias != "  Primary  " || provider.profileAvatarID != 17 {
+		t.Fatalf("unexpected local profile update: status=%d body=%s provider=%+v", response.Code, response.Body.String(), provider)
+	}
+	if !strings.Contains(response.Body.String(), `"key_alias":"Primary"`) || !strings.Contains(response.Body.String(), `"avatar_id":17`) {
+		t.Fatalf("unexpected local profile response: %s", response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("local profile response allowed caching: %+v", response.Header())
+	}
 }
 
 func TestLocalRankingRouteValidatesSelectionAndDisablesCaching(t *testing.T) {

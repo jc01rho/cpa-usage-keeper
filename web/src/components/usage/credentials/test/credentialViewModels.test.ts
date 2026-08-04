@@ -64,19 +64,31 @@ describe('credentialViewModels', () => {
     expect(groups.aiProviders.map((item) => item.identity)).toEqual(['api-key'])
   })
 
-  it('builds auth file plan badges from plan type with case-insensitive matching', () => {
+  it('builds auth file plan badges with CPAMC-compatible Codex Pro tiers', () => {
     const rows = buildAuthFileCredentialRows([
       identity({ identity: 'free-auth', plan_type: 'free' }),
       identity({ identity: 'team-auth', plan_type: 'TEAM' }),
       identity({ identity: 'plus-auth', plan_type: 'Plus' }),
-      identity({ identity: 'pro-auth', plan_type: 'chatgpt-pro-monthly' }),
+      identity({ identity: 'pro-lite-auth', plan_type: 'Pro-Lite' }),
+      identity({ identity: 'prolite-auth', plan_type: 'prolite' }),
+      identity({ identity: 'pro-lite-underscore-auth', plan_type: 'pro_lite' }),
+      identity({ identity: 'pro-auth', plan_type: '  PRO  ' }),
+      identity({ identity: 'enterprise-auth', plan_type: '  ENTERPRISE  ' }),
+      identity({ identity: 'unknown-pro-auth', plan_type: 'chatgpt-pro-monthly' }),
+      identity({ identity: 'unknown-enterprise-auth', plan_type: 'enterprise-trial' }),
     ])
 
     expect(rows.map((row) => [row.planTypeLabel, row.planTypeTone])).toEqual([
       ['Free', 'free'],
       ['Team', 'team'],
       ['Plus', 'plus'],
-      ['Pro', 'pro'],
+      ['Pro 5x', 'pro5x'],
+      ['Pro 5x', 'pro5x'],
+      ['Pro 5x', 'pro5x'],
+      ['Pro 20x', 'pro20x'],
+      ['Enterprise', 'enterprise'],
+      ['Chatgpt-pro-monthly', 'neutral'],
+      ['Enterprise-trial', 'neutral'],
     ])
   })
 
@@ -91,11 +103,11 @@ describe('credentialViewModels', () => {
       identity({ identity: 'auth-1', plan_type: 'plus' }),
     ], quotas)
 
-    expect(rows[0].planTypeLabel).toBe('Pro')
-    expect(rows[0].planTypeTone).toBe('pro')
+    expect(rows[0].planTypeLabel).toBe('Pro 20x')
+    expect(rows[0].planTypeTone).toBe('pro20x')
   })
 
-  it('formats unknown refreshed quota plan types in the frontend', () => {
+  it('uses the dedicated Enterprise badge for refreshed quota plan types', () => {
     const quotas = new Map<string, UsageQuotaCheckResponse>([
       ['auth-1', quotaResponse('auth-1', [
         { key: 'rate_limit.primary_window', planType: ' enterprise ' },
@@ -107,7 +119,7 @@ describe('credentialViewModels', () => {
     ], quotas)
 
     expect(rows[0].planTypeLabel).toBe('Enterprise')
-    expect(rows[0].planTypeTone).toBe('neutral')
+    expect(rows[0].planTypeTone).toBe('enterprise')
   })
 
   it('builds active-until remaining days badge with zero as the minimum', () => {

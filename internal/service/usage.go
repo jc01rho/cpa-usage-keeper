@@ -540,6 +540,15 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 			CostAvailable:       bucket.CostAvailable,
 		})
 	}
+	modelUsage := make([]servicedto.AnalysisModelUsage, 0, len(record.ModelUsage))
+	for _, item := range record.ModelUsage {
+		modelUsage = append(modelUsage, servicedto.AnalysisModelUsage{
+			Bucket:      item.Bucket,
+			Model:       item.Model,
+			TotalTokens: item.TotalTokens,
+			Requests:    item.Requests,
+		})
+	}
 	apiKeys := make([]servicedto.AnalysisCompositionItem, 0, len(record.APIKeyComposition))
 	for _, item := range record.APIKeyComposition {
 		apiKeys = append(apiKeys, mapAnalysisCompositionRecord(item))
@@ -596,6 +605,7 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		RangeStart:            record.RangeStart,
 		RangeEnd:              record.RangeEnd,
 		TokenUsage:            tokenUsage,
+		ModelUsage:            modelUsage,
 		APIKeyComposition:     apiKeys,
 		ModelComposition:      models,
 		AuthFilesComposition:  authFiles,
