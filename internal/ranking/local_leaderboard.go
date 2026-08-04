@@ -73,7 +73,8 @@ func localLeaderboardEntry(row localRankingPopulationRow, value int64) Leaderboa
 		avatarID = *row.LocalRankingAvatarID
 	}
 	return LeaderboardEntry{
-		InstanceID: row.InstanceID, ParticipantID: localLeaderboardParticipantID(row), DisplayName: displayName, AvatarID: avatarID, Value: value,
+		InstanceID: row.InstanceID, ParticipantID: localLeaderboardParticipantID(row), DisplayName: displayName,
+		KeyAlias: strings.TrimSpace(row.KeyAlias), AvatarID: avatarID, Value: value,
 	}
 }
 
@@ -83,6 +84,13 @@ func localLeaderboardParticipantID(row localRankingPopulationRow) string {
 		return id
 	}
 	return row.InstanceID + ":" + id
+}
+
+func defaultLocalRankingAvatarID(apiKeyID int64) uint8 {
+	if apiKeyID <= 0 {
+		return MinAvatarID
+	}
+	return uint8(1 + ((apiKeyID - 1) % MaxAvatarID))
 }
 
 func localMetricValue(row localRankingPopulationRow, metric LeaderboardMetric) (int64, int64, int64, bool) {

@@ -101,12 +101,13 @@ type localRankingRawAggregate struct {
 }
 
 type localRankingPopulationRow struct {
-	InstanceID string `gorm:"column:instance_id"`
-	APIKeyID   int64  `gorm:"column:api_key_id"`
-	APIKey     string
-	DisplayKey string
-	KeyAlias   string
-	UpdatedAt  time.Time
+	InstanceID           string `gorm:"column:instance_id"`
+	APIKeyID             int64  `gorm:"column:api_key_id"`
+	APIKey               string
+	DisplayKey           string
+	KeyAlias             string
+	LocalRankingAvatarID *uint8
+	UpdatedAt            time.Time
 	localRankingMetrics
 }
 
@@ -474,29 +475,30 @@ func (s *LocalRankingService) Leaderboard(ctx context.Context, period Leaderboar
 
 func (s *LocalRankingService) loadLocalRankingPopulation(ctx context.Context, window localRankingPeriodWindow, instanceID string) ([]localRankingPopulationRow, error) {
 	type row struct {
-		InstanceID         string    `gorm:"column:instance_id"`
-		APIKeyID           int64     `gorm:"column:api_key_id"`
-		APIKey             string    `gorm:"column:api_key"`
-		DisplayKey         string    `gorm:"column:display_key"`
-		KeyAlias           string    `gorm:"column:key_alias"`
-		RequestCount       int64     `gorm:"column:request_count"`
-		SuccessCount       int64     `gorm:"column:success_count"`
-		FailureCount       int64     `gorm:"column:failure_count"`
-		InputTokens        int64     `gorm:"column:input_tokens"`
-		CacheReadTokens    int64     `gorm:"column:cache_read_tokens"`
-		TotalTokens        int64     `gorm:"column:total_tokens"`
-		TTFTSumMS          int64     `gorm:"column:ttft_sum_ms"`
-		TTFTSampleCount    int64     `gorm:"column:ttft_sample_count"`
-		LatencySumMS       int64     `gorm:"column:latency_sum_ms"`
-		LatencySampleCount int64     `gorm:"column:latency_sample_count"`
-		Peak5MRequestCount int64     `gorm:"column:peak_5m_request_count"`
-		Peak5MTotalTokens  int64     `gorm:"column:peak_5m_total_tokens"`
-		UpdatedAt          time.Time `gorm:"column:updated_at"`
+		InstanceID           string    `gorm:"column:instance_id"`
+		APIKeyID             int64     `gorm:"column:api_key_id"`
+		APIKey               string    `gorm:"column:api_key"`
+		DisplayKey           string    `gorm:"column:display_key"`
+		KeyAlias             string    `gorm:"column:key_alias"`
+		LocalRankingAvatarID *uint8    `gorm:"column:local_ranking_avatar_id"`
+		RequestCount         int64     `gorm:"column:request_count"`
+		SuccessCount         int64     `gorm:"column:success_count"`
+		FailureCount         int64     `gorm:"column:failure_count"`
+		InputTokens          int64     `gorm:"column:input_tokens"`
+		CacheReadTokens      int64     `gorm:"column:cache_read_tokens"`
+		TotalTokens          int64     `gorm:"column:total_tokens"`
+		TTFTSumMS            int64     `gorm:"column:ttft_sum_ms"`
+		TTFTSampleCount      int64     `gorm:"column:ttft_sample_count"`
+		LatencySumMS         int64     `gorm:"column:latency_sum_ms"`
+		LatencySampleCount   int64     `gorm:"column:latency_sample_count"`
+		Peak5MRequestCount   int64     `gorm:"column:peak_5m_request_count"`
+		Peak5MTotalTokens    int64     `gorm:"column:peak_5m_total_tokens"`
+		UpdatedAt            time.Time `gorm:"column:updated_at"`
 	}
 	var loaded []row
 	query := s.db.Clauses(dbresolver.Read).WithContext(ctx).
 		Table("local_ranking_period_stats AS stats").
-		Select("stats.instance_id, stats.api_key_id, keys.api_key, keys.display_key, keys.key_alias, stats.request_count, stats.success_count, stats.failure_count, stats.input_tokens, stats.cache_read_tokens, stats.total_tokens, stats.ttft_sum_ms, stats.ttft_sample_count, stats.latency_sum_ms, stats.latency_sample_count, stats.peak_5m_request_count, stats.peak_5m_total_tokens, stats.updated_at").
+		Select("stats.instance_id, stats.api_key_id, keys.api_key, keys.display_key, keys.key_alias, keys.local_ranking_avatar_id, stats.request_count, stats.success_count, stats.failure_count, stats.input_tokens, stats.cache_read_tokens, stats.total_tokens, stats.ttft_sum_ms, stats.ttft_sample_count, stats.latency_sum_ms, stats.latency_sample_count, stats.peak_5m_request_count, stats.peak_5m_total_tokens, stats.updated_at").
 		Joins("JOIN cpa_api_keys AS keys ON keys.instance_id = stats.instance_id AND keys.id = stats.api_key_id").
 		Where("stats.period_kind = ? AND stats.period_key = ?", window.Kind, window.Key)
 	if instanceID != "" {
@@ -508,7 +510,8 @@ func (s *LocalRankingService) loadLocalRankingPopulation(ctx context.Context, wi
 	result := make([]localRankingPopulationRow, 0, len(loaded))
 	for _, item := range loaded {
 		result = append(result, localRankingPopulationRow{
-			InstanceID: item.InstanceID, APIKeyID: item.APIKeyID, APIKey: item.APIKey, DisplayKey: item.DisplayKey, KeyAlias: item.KeyAlias, UpdatedAt: item.UpdatedAt,
+			InstanceID: item.InstanceID, APIKeyID: item.APIKeyID, APIKey: item.APIKey, DisplayKey: item.DisplayKey,
+			KeyAlias: item.KeyAlias, LocalRankingAvatarID: item.LocalRankingAvatarID, UpdatedAt: item.UpdatedAt,
 			localRankingMetrics: localRankingMetrics{
 				RequestCount: item.RequestCount, SuccessCount: item.SuccessCount, FailureCount: item.FailureCount,
 				InputTokens: item.InputTokens, CacheReadTokens: item.CacheReadTokens, TotalTokens: item.TotalTokens,
