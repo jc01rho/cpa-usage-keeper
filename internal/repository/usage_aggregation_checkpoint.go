@@ -30,6 +30,10 @@ func (snapshot UsageAggregationCheckpointSnapshot) Equal() bool {
 
 // LoadUsageAggregationCheckpointSnapshot 用一次 Reader 查询读取三个水位，缺行保持零值。
 func LoadUsageAggregationCheckpointSnapshot(ctx context.Context, db *gorm.DB) (UsageAggregationCheckpointSnapshot, error) {
+	return LoadUsageAggregationCheckpointSnapshotForInstance(ctx, db, entities.LegacyCPAInstanceID)
+}
+
+func LoadUsageAggregationCheckpointSnapshotForInstance(ctx context.Context, db *gorm.DB, instanceID string) (UsageAggregationCheckpointSnapshot, error) {
 	if db == nil {
 		return UsageAggregationCheckpointSnapshot{}, fmt.Errorf("database is nil")
 	}
@@ -42,7 +46,7 @@ func LoadUsageAggregationCheckpointSnapshot(ctx context.Context, db *gorm.DB) (U
 	// 只读路径不得 FirstOrCreate；缺失行由结构体零值表达首次聚合状态。
 	var checkpoints []entities.UsageAggregationCheckpoint
 	if err := db.Clauses(dbresolver.Read).WithContext(ctx).
-		Where("name IN ?", names).
+		Where("instance_id = ? AND name IN ?", instanceID, names).
 		Find(&checkpoints).Error; err != nil {
 		return UsageAggregationCheckpointSnapshot{}, fmt.Errorf("load usage aggregation checkpoints: %w", err)
 	}
@@ -63,6 +67,10 @@ func LoadUsageAggregationCheckpointSnapshot(ctx context.Context, db *gorm.DB) (U
 
 // AdvanceUsageAggregationCheckpoint 在调用方事务内按 expected cursor 条件推进一行。
 func AdvanceUsageAggregationCheckpoint(ctx context.Context, tx *gorm.DB, name entities.UsageAggregationCheckpointName, expectedCursor, nextCursor int64, now time.Time) error {
+	return AdvanceUsageAggregationCheckpointForInstance(ctx, tx, entities.LegacyCPAInstanceID, name, expectedCursor, nextCursor, now)
+}
+
+func AdvanceUsageAggregationCheckpointForInstance(ctx context.Context, tx *gorm.DB, instanceID string, name entities.UsageAggregationCheckpointName, expectedCursor, nextCursor int64, now time.Time) error {
 	if tx == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -79,6 +87,7 @@ func AdvanceUsageAggregationCheckpoint(ctx context.Context, tx *gorm.DB, name en
 	normalizedNow := timeutil.NormalizeStorageTime(now)
 	// 首次推进时在同一事务内补零水位行；已有行由 ON CONFLICT 保持不变。
 	checkpoint := entities.UsageAggregationCheckpoint{
+		InstanceID:                 instanceID,
 		Name:                       name,
 		LastAggregatedUsageEventID: 0,
 		CreatedAt:                  normalizedNow,
@@ -89,7 +98,7 @@ func AdvanceUsageAggregationCheckpoint(ctx context.Context, tx *gorm.DB, name en
 	}
 	// name + expectedCursor 是唯一并发保护；rows 与 cursor 由外层事务共同提交或回滚。
 	result := tx.WithContext(ctx).Model(&entities.UsageAggregationCheckpoint{}).
-		Where("name = ? AND last_aggregated_usage_event_id = ?", name, expectedCursor).
+		Where("instance_id = ? AND name = ? AND last_aggregated_usage_event_id = ?", instanceID, name, expectedCursor).
 		Updates(map[string]any{
 			"last_aggregated_usage_event_id": nextCursor,
 			"stats_updated_at":               timeutil.FormatStorageTime(normalizedNow),

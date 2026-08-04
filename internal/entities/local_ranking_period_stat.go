@@ -12,6 +12,7 @@ const (
 
 // LocalRankingPeriodStat 每个 API Key 只保留今日、昨日、本月和上月四行累计。
 type LocalRankingPeriodStat struct {
+	InstanceID string                 `gorm:"type:text;primaryKey;default:00000000-0000-7000-8000-000000000000"`
 	PeriodKind LocalRankingPeriodKind `gorm:"type:text;primaryKey;check:chk_local_ranking_period_stats_kind,period_kind IN ('day','month')"`
 	PeriodKey  string                 `gorm:"type:text;primaryKey"`
 	APIKeyID   int64                  `gorm:"primaryKey;index:idx_local_ranking_period_stats_api_key"`

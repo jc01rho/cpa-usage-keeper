@@ -22,13 +22,17 @@ const (
 
 // AggregateUsageActivityStats 循环执行有界 batch，供完整 catch-up 和测试复用。
 func AggregateUsageActivityStats(ctx context.Context, db *gorm.DB, now time.Time) error {
+	return AggregateUsageActivityStatsForInstance(ctx, db, entities.LegacyCPAInstanceID, now)
+}
+
+func AggregateUsageActivityStatsForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
 	// 整次 catch-up 固定 now，避免不同批次的 retention cutoff 漂移。
 	normalizedNow := timeutil.NormalizeStorageTime(now)
 	for {
-		processed, err := AggregateUsageActivityStatsBatch(ctx, db, normalizedNow)
+		processed, err := AggregateUsageActivityStatsBatchForInstance(ctx, db, instanceID, normalizedNow)
 		if err != nil {
 			return err
 		}
@@ -40,20 +44,24 @@ func AggregateUsageActivityStats(ctx context.Context, db *gorm.DB, now time.Time
 
 // AggregateUsageActivityStatsBatch 执行一次 Reader 事件页和一次独立 Activity 写事务。
 func AggregateUsageActivityStatsBatch(ctx context.Context, db *gorm.DB, now time.Time) (int, error) {
+	return AggregateUsageActivityStatsBatchForInstance(ctx, db, entities.LegacyCPAInstanceID, now)
+}
+
+func AggregateUsageActivityStatsBatchForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) (int, error) {
 	if db == nil {
 		return 0, fmt.Errorf("database is nil")
 	}
 	normalizedNow := timeutil.NormalizeStorageTime(now)
 	// 兼容 batch 固定开始时可见的 target，再从自己的通用 cursor 读取一页。
-	targetEventID, err := LoadUsageAggregationTargetEventID(ctx, db)
+	targetEventID, err := LoadUsageAggregationTargetEventIDForInstance(ctx, db, instanceID)
 	if err != nil {
 		return 0, err
 	}
-	snapshot, err := LoadUsageAggregationCheckpointSnapshot(ctx, db)
+	snapshot, err := LoadUsageAggregationCheckpointSnapshotForInstance(ctx, db, instanceID)
 	if err != nil {
 		return 0, err
 	}
-	events, err := LoadUsageAggregationEventPage(ctx, db, snapshot.ActivityCursor, targetEventID, usageActivityAggregationBatchSize)
+	events, err := LoadUsageAggregationEventPageForInstance(ctx, db, instanceID, snapshot.ActivityCursor, targetEventID, usageActivityAggregationBatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -67,7 +75,7 @@ func AggregateUsageActivityStatsBatch(ctx context.Context, db *gorm.DB, now time
 		return 0, err
 	}
 	nextCursor := events[len(events)-1].ID
-	if err := ApplyUsageActivityAggregationPage(ctx, db, snapshot.ActivityCursor, nextCursor, rows, normalizedNow); err != nil {
+	if err := ApplyUsageActivityAggregationPageForInstance(ctx, db, instanceID, snapshot.ActivityCursor, nextCursor, rows, normalizedNow); err != nil {
 		return 0, err
 	}
 	return len(events), nil
@@ -75,6 +83,10 @@ func AggregateUsageActivityStatsBatch(ctx context.Context, db *gorm.DB, now time
 
 // ApplyUsageActivityAggregationPage 在独立短事务内写 rows 并条件推进 Activity 水位。
 func ApplyUsageActivityAggregationPage(ctx context.Context, db *gorm.DB, expectedCursor, nextCursor int64, rows []entities.UsageActivityStat, now time.Time) error {
+	return ApplyUsageActivityAggregationPageForInstance(ctx, db, entities.LegacyCPAInstanceID, expectedCursor, nextCursor, rows, now)
+}
+
+func ApplyUsageActivityAggregationPageForInstance(ctx context.Context, db *gorm.DB, instanceID string, expectedCursor, nextCursor int64, rows []entities.UsageActivityStat, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -85,7 +97,7 @@ func ApplyUsageActivityAggregationPage(ctx context.Context, db *gorm.DB, expecte
 			return err
 		}
 		// cursor 冲突必须回滚本页所有 grain rows，防止下一轮重复累计。
-		return AdvanceUsageAggregationCheckpoint(ctx, tx, entities.UsageAggregationCheckpointActivity, expectedCursor, nextCursor, normalizedNow)
+		return AdvanceUsageAggregationCheckpointForInstance(ctx, tx, instanceID, entities.UsageAggregationCheckpointActivity, expectedCursor, nextCursor, normalizedNow)
 	})
 }
 
@@ -107,6 +119,10 @@ func HasPendingUsageActivityAggregation(ctx context.Context, db *gorm.DB) (bool,
 
 // CleanupUsageActivityStats 按 grain 的 bucket_end 清理短期 rows，并永久保留 daily。
 func CleanupUsageActivityStats(db *gorm.DB, now time.Time) error {
+	return CleanupUsageActivityStatsForInstance(db, entities.LegacyCPAInstanceID, now)
+}
+
+func CleanupUsageActivityStatsForInstance(db *gorm.DB, instanceID string, now time.Time) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
 	}
@@ -123,7 +139,7 @@ func CleanupUsageActivityStats(db *gorm.DB, now time.Time) error {
 			continue
 		}
 		cutoff := normalizedNow.Add(-retention)
-		if err := db.Where("grain = ? AND bucket_end < ?", grain, timeutil.FormatSortableStorageTime(cutoff)).Delete(&entities.UsageActivityStat{}).Error; err != nil {
+		if err := db.Where("instance_id = ? AND grain = ? AND bucket_end < ?", instanceID, grain, timeutil.FormatSortableStorageTime(cutoff)).Delete(&entities.UsageActivityStat{}).Error; err != nil {
 			return fmt.Errorf("cleanup usage activity %s stats: %w", grain, err)
 		}
 	}

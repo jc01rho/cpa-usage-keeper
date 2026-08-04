@@ -27,7 +27,7 @@ func usageAggregationCheckpointsMigration(tx *gorm.DB) error {
 		return fmt.Errorf("database is nil")
 	}
 	// 默认 migration 外层事务覆盖建表、复制、验证和删旧表，任一步失败都恢复原 schema。
-	if err := tx.AutoMigrate(&entities.UsageAggregationCheckpoint{}); err != nil {
+	if err := tx.AutoMigrate(&legacyUsageAggregationCheckpoint{}); err != nil {
 		return fmt.Errorf("create usage aggregation checkpoints: %w", err)
 	}
 	now := timeutil.NormalizeStorageTime(time.Now())
@@ -116,7 +116,7 @@ func zeroUsageAggregationCheckpointSeed(name entities.UsageAggregationCheckpoint
 
 func ensureUsageAggregationCheckpointSeed(tx *gorm.DB, seed usageAggregationCheckpointSeed) error {
 	// ON CONFLICT 不覆盖已有通用行；随后读回比较决定它是幂等状态还是危险冲突。
-	row := entities.UsageAggregationCheckpoint{
+	row := legacyUsageAggregationCheckpoint{
 		Name:                       seed.Name,
 		LastAggregatedUsageEventID: seed.LastAggregatedUsageEventID,
 		StatsUpdatedAt:             seed.StatsUpdatedAt,
@@ -127,7 +127,7 @@ func ensureUsageAggregationCheckpointSeed(tx *gorm.DB, seed usageAggregationChec
 		return fmt.Errorf("create usage aggregation checkpoint %q: %w", seed.Name, err)
 	}
 	// 读回是删除旧表前的强制验证，trigger 或预存冲突都不能被当作成功迁移。
-	var stored entities.UsageAggregationCheckpoint
+	var stored legacyUsageAggregationCheckpoint
 	if err := tx.Where("name = ?", seed.Name).Take(&stored).Error; err != nil {
 		return fmt.Errorf("verify usage aggregation checkpoint %q: %w", seed.Name, err)
 	}

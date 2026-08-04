@@ -12,6 +12,7 @@ import (
 
 // aggregateKey 与 usage_latency_stats 的最终唯一键完全一致。
 type aggregateKey struct {
+	InstanceID  string
 	BucketType  entities.UsageLatencyBucketType
 	BucketStart time.Time
 	APIGroupKey string
@@ -74,8 +75,8 @@ func BuildRows(events []entities.UsageEvent, now time.Time) ([]entities.UsageLat
 		hourStart := localHourStart(timestamp)
 		dayStart := time.Date(timestamp.Year(), timestamp.Month(), timestamp.Day(), 0, 0, 0, 0, timestamp.Location())
 		for _, key := range []aggregateKey{
-			{BucketType: entities.UsageLatencyBucketHour, BucketStart: hourStart, APIGroupKey: apiGroupKey},
-			{BucketType: entities.UsageLatencyBucketDay, BucketStart: dayStart, APIGroupKey: apiGroupKey},
+			{InstanceID: event.InstanceID, BucketType: entities.UsageLatencyBucketHour, BucketStart: hourStart, APIGroupKey: apiGroupKey},
+			{InstanceID: event.InstanceID, BucketType: entities.UsageLatencyBucketDay, BucketStart: dayStart, APIGroupKey: apiGroupKey},
 		} {
 			// checkpoint 仍覆盖全部事件 ID；只跳过页面已经无法查询的过期存储粒度。
 			if key.BucketType == entities.UsageLatencyBucketHour && key.BucketStart.Before(hourCutoff) {
@@ -111,13 +112,16 @@ func BuildRows(events []entities.UsageEvent, now time.Time) ([]entities.UsageLat
 			return nil, fmt.Errorf("encode latency sample points: %w", err)
 		}
 		rows = append(rows, entities.UsageLatencyStat{
-			BucketType: key.BucketType, BucketStart: key.BucketStart, APIGroupKey: key.APIGroupKey,
+			InstanceID: key.InstanceID, BucketType: key.BucketType, BucketStart: key.BucketStart, APIGroupKey: key.APIGroupKey,
 			SampleCount: builder.SampleCount, MaxTTFTMS: builder.MaxTTFTMS, MaxLatencyMS: builder.MaxLatencyMS,
 			FormatVersion: FormatVersion, TTFTSketch: ttftSketch, LatencySketch: latencySketch, SamplePoints: samplePoints,
 		})
 	}
 	// 固定写入顺序让 migration/runtime 和失败日志保持可复核。
 	sort.Slice(rows, func(left, right int) bool {
+		if rows[left].InstanceID != rows[right].InstanceID {
+			return rows[left].InstanceID < rows[right].InstanceID
+		}
 		if rows[left].BucketType != rows[right].BucketType {
 			return rows[left].BucketType < rows[right].BucketType
 		}

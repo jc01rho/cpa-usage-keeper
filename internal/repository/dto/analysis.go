@@ -23,6 +23,7 @@ type AnalysisTokenUsageBucketRecord struct {
 }
 
 type AnalysisCompositionRecord struct {
+	InstanceID          string
 	Key                 string
 	Label               string
 	TotalTokens         int64
@@ -37,6 +38,7 @@ type AnalysisCompositionRecord struct {
 }
 
 type AnalysisHeatmapRecord struct {
+	InstanceID          string
 	APIKey              string
 	Model               string
 	InputTokens         int64

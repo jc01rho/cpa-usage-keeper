@@ -3,7 +3,6 @@ package migration
 import (
 	"fmt"
 
-	"cpa-usage-keeper/internal/entities"
 	"gorm.io/gorm"
 )
 
@@ -12,7 +11,7 @@ func localRankingStatsMigration(tx *gorm.DB) error {
 	if tx == nil {
 		return fmt.Errorf("database is nil")
 	}
-	if err := tx.AutoMigrate(&entities.LocalRankingPeriodStat{}); err != nil {
+	if err := tx.AutoMigrate(&legacyLocalRankingPeriodStat{}); err != nil {
 		return fmt.Errorf("create local ranking storage: %w", err)
 	}
 	return nil

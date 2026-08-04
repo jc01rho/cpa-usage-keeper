@@ -86,6 +86,8 @@ type UsageAggregationRunner struct {
 	// identityScanGeneration 是当前分页扫描从头开始时捕获的通知代际。
 	identityScanGeneration uint64
 
+	// nonLegacyPending requests one enabled-instance discovery/catch-up pass.
+	nonLegacyPending bool
 	// wake 只表达状态已经变化，容量 1 会自然合并连续通知。
 	wake chan struct{}
 }
@@ -111,6 +113,7 @@ func NewUsageAggregationRunnerWithOptions(db *gorm.DB, options UsageAggregationR
 		debounceInterval:         debounceInterval,
 		nextKind:                 UsageAggregationKindRollups,
 		identityTargetGeneration: 1, // 启动时必须覆盖一次进程启动前已经存在的 identities。
+		nonLegacyPending:         true,
 		wake:                     make(chan struct{}, 1),
 	}
 }
@@ -120,21 +123,33 @@ func (r *UsageAggregationRunner) NotifyUsageEventsCommitted(events []entities.Us
 	if r == nil {
 		return
 	}
-	maxEventID := int64(0)
+	legacyMaxEventID := int64(0)
+	nonLegacy := false
 	for _, event := range events {
-		if event.ID > maxEventID {
-			maxEventID = event.ID
+		if event.ID <= 0 {
+			continue
 		}
+		if event.InstanceID == "" || event.InstanceID == entities.LegacyCPAInstanceID {
+			if event.ID > legacyMaxEventID {
+				legacyMaxEventID = event.ID
+			}
+			continue
+		}
+		nonLegacy = true
 	}
-	if maxEventID <= 0 {
+	if legacyMaxEventID <= 0 && !nonLegacy {
 		return
 	}
-	// usage 提交既需要三个全局 rollup 追赶，也需要 Identity 覆盖一次最新事件。
 	r.mu.Lock()
-	if maxEventID > r.pendingTargetEventID {
-		r.pendingTargetEventID = maxEventID
+	if legacyMaxEventID > r.pendingTargetEventID {
+		r.pendingTargetEventID = legacyMaxEventID
 	}
-	r.identityTargetGeneration++
+	if legacyMaxEventID > 0 {
+		r.identityTargetGeneration++
+	}
+	if nonLegacy {
+		r.nonLegacyPending = true
+	}
 	r.mu.Unlock()
 	r.signalWake()
 }
@@ -195,8 +210,27 @@ func (r *UsageAggregationRunner) Run(ctx context.Context) error {
 		if pendingRollupWindow && debounceTimer == nil {
 			debounceTimer = time.NewTimer(r.debounceInterval)
 		}
+		nonLegacyPending := r.nonLegacyPending
+		if nonLegacyPending {
+			r.nonLegacyPending = false
+		}
 		runnable := r.hasRunnableWorkLocked()
 		r.mu.Unlock()
+
+		if nonLegacyPending {
+			r.nonLegacyPending = false
+			_, err := r.aggregateEnabledNonLegacyInstances(ctx)
+			if err != nil {
+				r.mu.Lock()
+				r.nonLegacyPending = true
+				r.mu.Unlock()
+				logrus.WithError(err).WithField("aggregation_kind", "nonlegacy").Error("usage aggregation batch failed")
+				if !r.waitForRetry(ctx, usageAggregationErrorBackoffInitial) {
+					return nil
+				}
+			}
+			continue
+		}
 
 		// Identity 处理期间 timer 也可能到期，每个短 turn 之间优先冻结当前窗口。
 		if debounceTimer != nil {
@@ -273,9 +307,144 @@ func (r *UsageAggregationRunner) RunOnce(ctx context.Context) (UsageAggregationR
 	if err := r.ensureStartupTarget(ctx); err != nil {
 		return UsageAggregationRunResult{Kind: UsageAggregationKindRollups}, err
 	}
-	// 直接调用不启动 timer；它把已经收到的最大 ID 作为当前固定目标。
+	// 直接调用不启动 timer；它把已经收到的最大 Legacy ID 作为当前固定目标。
 	r.freezePendingTarget()
-	return r.runPreparedOnce(ctx)
+	result, err := r.runPreparedOnce(ctx)
+	if err != nil {
+		return result, err
+	}
+	processed, err := r.aggregateEnabledNonLegacyInstances(ctx)
+	result.Processed = result.Processed || processed
+	return result, err
+}
+
+func (r *UsageAggregationRunner) aggregateEnabledNonLegacyInstances(ctx context.Context) (bool, error) {
+	var instances []entities.CPAInstance
+	if err := r.db.Clauses(dbresolver.Read).WithContext(ctx).
+		Where("enabled = ? AND id <> ?", true, entities.LegacyCPAInstanceID).
+		Order("created_at ASC, id ASC").Find(&instances).Error; err != nil {
+		return false, fmt.Errorf("list enabled instances for usage aggregation: %w", err)
+	}
+	if len(instances) == 0 {
+		return false, nil
+	}
+	processed := false
+	for _, instance := range instances {
+		instanceProcessed, err := r.aggregateInstanceOnce(ctx, instance.ID)
+		if err != nil {
+			return processed, err
+		}
+		processed = processed || instanceProcessed
+	}
+	return processed, nil
+}
+
+func (r *UsageAggregationRunner) enabledNonLegacyInstances(ctx context.Context) ([]entities.CPAInstance, error) {
+	var instances []entities.CPAInstance
+	if err := r.db.Clauses(dbresolver.Read).WithContext(ctx).
+		Where("enabled = ? AND id <> ?", true, entities.LegacyCPAInstanceID).
+		Order("created_at ASC, id ASC").Find(&instances).Error; err != nil {
+		return nil, fmt.Errorf("list enabled instances for usage aggregation: %w", err)
+	}
+	return instances, nil
+}
+
+func (r *UsageAggregationRunner) aggregateInstanceOnce(ctx context.Context, instanceID string) (bool, error) {
+	writeDB := r.db.Clauses(dbresolver.Write).Session(&gorm.Session{Context: ctx})
+	hasInbox, err := repository.HasProcessableRedisUsageInboxForInstance(ctx, writeDB, instanceID)
+	if err != nil {
+		return false, err
+	}
+	if hasInbox {
+		return false, nil
+	}
+	now := r.now()
+	processed := false
+	for {
+		target, err := repository.LoadUsageAggregationTargetEventIDForInstance(ctx, r.db, instanceID)
+		if err != nil {
+			return processed, err
+		}
+		snapshot, err := repository.LoadUsageAggregationCheckpointSnapshotForInstance(ctx, r.db, instanceID)
+		if err != nil {
+			return processed, err
+		}
+		if snapshot.OverviewCursor >= target && snapshot.ActivityCursor >= target && snapshot.LatencyCursor >= target {
+			break
+		}
+		if snapshot.Equal() {
+			events, err := repository.LoadUsageAggregationEventPageForInstance(ctx, r.db, instanceID, snapshot.OverviewCursor, target, usageAggregationEventPageSize)
+			if err != nil {
+				return processed, err
+			}
+			if len(events) == 0 {
+				return processed, fmt.Errorf("usage aggregation page is empty for instance %s before target %d", instanceID, target)
+			}
+			hourly, daily, next := overview.BuildRows(events)
+			activityRows, err := activity.BuildRows(events, now)
+			if err != nil {
+				return processed, err
+			}
+			latencyRows, err := latency.BuildRows(events, now)
+			if err != nil {
+				return processed, err
+			}
+			if err := repository.ApplyUsageOverviewAggregationPageForInstance(ctx, writeDB, instanceID, snapshot.OverviewCursor, next, hourly, daily, now); err != nil {
+				return processed, err
+			}
+			if err := repository.ApplyUsageActivityAggregationPageForInstance(ctx, writeDB, instanceID, snapshot.ActivityCursor, next, activityRows, now); err != nil {
+				return processed, err
+			}
+			if err := repository.ApplyUsageLatencyAggregationPageForInstance(ctx, writeDB, instanceID, snapshot.LatencyCursor, next, latencyRows, now); err != nil {
+				return processed, err
+			}
+			processed = true
+			continue
+		}
+		if snapshot.OverviewCursor < target {
+			events, err := repository.LoadUsageAggregationEventPageForInstance(ctx, r.db, instanceID, snapshot.OverviewCursor, target, usageAggregationEventPageSize)
+			if err != nil || len(events) == 0 {
+				return processed, errors.Join(err, fmt.Errorf("overview aggregation page is empty for instance %s", instanceID))
+			}
+			hourly, daily, next := overview.BuildRows(events)
+			if err := repository.ApplyUsageOverviewAggregationPageForInstance(ctx, writeDB, instanceID, snapshot.OverviewCursor, next, hourly, daily, now); err != nil {
+				return processed, err
+			}
+			processed = true
+		}
+		if snapshot.ActivityCursor < target {
+			events, err := repository.LoadUsageAggregationEventPageForInstance(ctx, r.db, instanceID, snapshot.ActivityCursor, target, usageAggregationEventPageSize)
+			if err != nil || len(events) == 0 {
+				return processed, errors.Join(err, fmt.Errorf("activity aggregation page is empty for instance %s", instanceID))
+			}
+			rows, err := activity.BuildRows(events, now)
+			if err != nil {
+				return processed, err
+			}
+			if err := repository.ApplyUsageActivityAggregationPageForInstance(ctx, writeDB, instanceID, snapshot.ActivityCursor, events[len(events)-1].ID, rows, now); err != nil {
+				return processed, err
+			}
+			processed = true
+		}
+		if snapshot.LatencyCursor < target {
+			events, err := repository.LoadUsageAggregationEventPageForInstance(ctx, r.db, instanceID, snapshot.LatencyCursor, target, usageAggregationEventPageSize)
+			if err != nil || len(events) == 0 {
+				return processed, errors.Join(err, fmt.Errorf("latency aggregation page is empty for instance %s", instanceID))
+			}
+			rows, err := latency.BuildRows(events, now)
+			if err != nil {
+				return processed, err
+			}
+			if err := repository.ApplyUsageLatencyAggregationPageForInstance(ctx, writeDB, instanceID, snapshot.LatencyCursor, events[len(events)-1].ID, rows, now); err != nil {
+				return processed, err
+			}
+			processed = true
+		}
+	}
+	if err := repository.AggregateUsageIdentityStatsForInstance(ctx, writeDB, instanceID, now); err != nil {
+		return processed, err
+	}
+	return processed, nil
 }
 
 func (r *UsageAggregationRunner) ensureStartupTarget(ctx context.Context) error {
@@ -351,7 +520,7 @@ func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggr
 	}
 	writeDB := r.db.Clauses(dbresolver.Write).Session(&gorm.Session{Context: ctx})
 	// Identity 与 rollups 都会写唯一 writer，进入 turn 前先给 CPA inbox 让路。
-	hasInbox, err := repository.HasProcessableRedisUsageInbox(ctx, writeDB)
+	hasInbox, err := repository.HasProcessableRedisUsageInboxForInstance(ctx, writeDB, entities.LegacyCPAInstanceID)
 	if err != nil {
 		return result, err
 	}
@@ -388,7 +557,7 @@ func (r *UsageAggregationRunner) runPreparedOnce(ctx context.Context) (UsageAggr
 			r.mu.Unlock()
 			return result, nil
 		}
-		batch, runErr := repository.AggregateUsageIdentityStatsBatch(transactionCtx, writeDB, now, identityAfterID)
+		batch, runErr := repository.AggregateUsageIdentityStatsBatchForInstance(transactionCtx, writeDB, entities.LegacyCPAInstanceID, now, identityAfterID)
 		if runErr != nil {
 			return result, runErr
 		}
@@ -587,7 +756,7 @@ func (r *UsageAggregationRunner) runFallbackRollupsPages(ctx context.Context, wr
 }
 
 func (r *UsageAggregationRunner) deferForInbox(ctx context.Context, writeDB *gorm.DB) (bool, error) {
-	hasInbox, err := repository.HasProcessableRedisUsageInbox(ctx, writeDB)
+	hasInbox, err := repository.HasProcessableRedisUsageInboxForInstance(ctx, writeDB, entities.LegacyCPAInstanceID)
 	if err != nil {
 		return false, err
 	}

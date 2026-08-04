@@ -43,6 +43,12 @@ func TestLocalRankingRouteValidatesSelectionAndDisablesCaching(t *testing.T) {
 		t.Fatalf("local leaderboard response allowed caching: %+v", response.Header())
 	}
 
+	filtered := httptest.NewRecorder()
+	router.ServeHTTP(filtered, httptest.NewRequest(http.MethodGet, "/api/v1/ranking/local/leaderboards?period=today&metric=overall&instance_id=all", nil))
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("instance-filtered local leaderboard status=%d body=%s", filtered.Code, filtered.Body.String())
+	}
+
 	invalid := httptest.NewRecorder()
 	router.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/api/v1/ranking/local/leaderboards?period=today&metric=unknown", nil))
 	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "invalid_leaderboard_selection") {

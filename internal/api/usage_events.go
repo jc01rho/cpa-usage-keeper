@@ -40,7 +40,8 @@ type usageEventFilterOptionsResponse struct {
 }
 
 type usageEventPayload struct {
-	ID                  string                 `json:"id,omitempty"`
+	ID                  string                 `json:"id"`
+	InstanceID          string                 `json:"instance_id"`
 	Timestamp           string                 `json:"timestamp"`
 	APIKey              string                 `json:"api_key,omitempty"`
 	Model               string                 `json:"model"`
@@ -100,6 +101,7 @@ type usageEventRequestLogDownloadTokenPayload struct {
 
 type usageEventExportPayload struct {
 	ID                  string   `json:"id"`
+	InstanceID          string   `json:"instance_id"`
 	Timestamp           string   `json:"timestamp"`
 	APIKey              string   `json:"api_key"`
 	CPAAPIKeyID         string   `json:"cpa_api_key_id"`
@@ -410,7 +412,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 	}
 	payload := make([]usageEventPayload, 0, len(rows))
 	for _, row := range rows {
-		identity, matched := resolver.resolveByAuthIndex(row.AuthIndex)
+		identity, matched := resolver.resolveByInstanceAndAuthIndex(row.InstanceID, row.AuthIndex)
 		source, isDelete := usageEventPublicSource(row, identity, matched)
 		id := ""
 		if row.ID != 0 {
@@ -418,8 +420,9 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 		}
 		payload = append(payload, usageEventPayload{
 			ID:                  id,
+			InstanceID:          row.InstanceID,
 			Timestamp:           timeutil.FormatStorageTime(row.Timestamp),
-			APIKey:              usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
+			APIKey:              usageEventAPIKeyLabelForInstance(row.InstanceID, row.APIGroupKey, apiKeyInfos),
 			Model:               row.Model,
 			ModelAlias:          strings.TrimSpace(row.ModelAlias),
 			ReasoningEffort:     strings.TrimSpace(row.ReasoningEffort),
@@ -493,7 +496,7 @@ func writeUsageEventRequestLogError(c *gin.Context, err error) {
 }
 
 func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usageIdentityResolver, apiKeyInfos map[string]analysisAPIKeyInfo) usageEventExportPayload {
-	identity, matched := resolver.resolveByAuthIndex(row.AuthIndex)
+	identity, matched := resolver.resolveByInstanceAndAuthIndex(row.InstanceID, row.AuthIndex)
 	source, isIdentityDeleted := usageEventPublicSource(row, identity, matched)
 	id := ""
 	if row.ID != 0 {
@@ -505,9 +508,10 @@ func buildUsageEventExportPayload(row servicedto.UsageEventRecord, resolver usag
 	}
 	return usageEventExportPayload{
 		ID:                  id,
+		InstanceID:          row.InstanceID,
 		Timestamp:           timeutil.FormatStorageTime(row.Timestamp),
-		APIKey:              usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
-		CPAAPIKeyID:         usageEventCPAAPIKeyID(row.APIGroupKey, apiKeyInfos),
+		APIKey:              usageEventAPIKeyLabelForInstance(row.InstanceID, row.APIGroupKey, apiKeyInfos),
+		CPAAPIKeyID:         usageEventCPAAPIKeyIDForInstance(row.InstanceID, row.APIGroupKey, apiKeyInfos),
 		Source:              source,
 		SourceType:          identity.Type,
 		AuthIndex:           strings.TrimSpace(row.AuthIndex),
@@ -556,6 +560,7 @@ func usageEventCacheReadRate(row servicedto.UsageEventRecord) *float64 {
 
 var usageEventsExportCSVHeader = []string{
 	"id",
+	"instance_id",
 	"timestamp",
 	"api_key",
 	"cpa_api_key_id",
@@ -753,6 +758,7 @@ func requestLogAttachmentDisposition(filename string) string {
 func usageEventExportCSVRecord(event usageEventExportPayload) []string {
 	return []string{
 		event.ID,
+		event.InstanceID,
 		event.Timestamp,
 		event.APIKey,
 		event.CPAAPIKeyID,
@@ -818,20 +824,33 @@ func formatOptionalFloat64(value *float64) string {
 }
 
 func usageEventAPIKeyLabel(apiGroupKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+	return usageEventAPIKeyLabelForInstance("", apiGroupKey, apiKeyInfos)
+}
+
+func usageEventAPIKeyLabelForInstance(instanceID, apiGroupKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
 	apiKey := strings.TrimSpace(apiGroupKey)
 	if apiKey == "" {
 		return ""
 	}
-	return analysisAPIKeyLabel(apiKey, apiKeyInfos)
+	return analysisAPIKeyLabelForInstance(instanceID, apiKey, apiKeyInfos)
 }
 
 func usageEventCPAAPIKeyID(apiGroupKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+	return usageEventCPAAPIKeyIDForInstance("", apiGroupKey, apiKeyInfos)
+}
+
+func usageEventCPAAPIKeyIDForInstance(instanceID, apiGroupKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
 	apiKey := strings.TrimSpace(apiGroupKey)
 	if apiKey == "" {
 		return ""
 	}
-	if info, ok := apiKeyInfos[apiKey]; ok {
+	if info, ok := apiKeyInfos[apiKeyInfoLookupKey(instanceID, apiKey)]; ok {
 		return info.ID
+	}
+	if instanceID == "" {
+		if info, ok := apiKeyInfos[apiKey]; ok {
+			return info.ID
+		}
 	}
 	return ""
 }
@@ -855,7 +874,7 @@ func loadUsageEventModelFilterOptions(c *gin.Context, usageProvider service.Usag
 	if usageProvider == nil {
 		return []string{}, nil
 	}
-	options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), servicedto.UsageFilter{})
+	options, err := usageProvider.ListUsageEventFilterOptions(c.Request.Context(), servicedto.UsageFilter{InstanceID: serviceInstanceFilter(c.Request)})
 	if err != nil {
 		return nil, err
 	}

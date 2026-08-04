@@ -8,6 +8,7 @@ import (
 
 	keeperapp "cpa-usage-keeper/internal/app"
 	"cpa-usage-keeper/internal/config"
+	"cpa-usage-keeper/internal/entities"
 	"github.com/gin-gonic/gin"
 )
 
@@ -35,6 +36,10 @@ func TestAppConstructsAndStartsRankingRunner(t *testing.T) {
 	if application.Ranking == nil {
 		_ = application.Close()
 		t.Fatal("expected App to construct ranking runner")
+	}
+	if application.RankingInstanceID != entities.LegacyCPAInstanceID {
+		_ = application.Close()
+		t.Fatalf("community ranking instance = %q, want legacy %q", application.RankingInstanceID, entities.LegacyCPAInstanceID)
 	}
 	if err := application.Close(); err != nil {
 		t.Fatalf("Close returned error: %v", err)

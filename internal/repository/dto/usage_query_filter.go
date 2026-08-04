@@ -4,6 +4,7 @@ import "time"
 
 // UsageQueryFilter 是仓储层的 usage 查询条件。
 type UsageQueryFilter struct {
+	InstanceID   string
 	Range        string
 	CustomUnit   string
 	StartTime    *time.Time

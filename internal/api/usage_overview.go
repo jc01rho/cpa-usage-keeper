@@ -148,12 +148,13 @@ type usageOverviewRealtimeBase struct {
 }
 
 type usageOverviewRealtimeUsageTopItem struct {
-	Key      string   `json:"key"`
-	Label    string   `json:"label"`
-	Tokens   int64    `json:"tokens"`
-	Requests int64    `json:"requests"`
-	Cost     *float64 `json:"cost,omitempty"`
-	Share    float64  `json:"share"`
+	InstanceID string   `json:"instance_id,omitempty"`
+	Key        string   `json:"key"`
+	Label      string   `json:"label"`
+	Tokens     int64    `json:"tokens"`
+	Requests   int64    `json:"requests"`
+	Cost       *float64 `json:"cost,omitempty"`
+	Share      float64  `json:"share"`
 }
 
 type usageOverviewRequestLevelPoint struct {
@@ -673,12 +674,13 @@ func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopI
 	result := make([]usageOverviewRealtimeUsageTopItem, 0, len(items))
 	for _, item := range items {
 		result = append(result, usageOverviewRealtimeUsageTopItem{
-			Key:      analysisAPIKeyResponseKey(item.Key, apiKeyInfos),
-			Label:    analysisAPIKeyLabel(item.Key, apiKeyInfos),
-			Tokens:   item.Tokens,
-			Requests: item.Requests,
-			Cost:     item.CostUSD,
-			Share:    item.Share,
+			InstanceID: item.InstanceID,
+			Key:        analysisAPIKeyResponseKeyForInstance(item.InstanceID, item.Key, apiKeyInfos),
+			Label:      analysisAPIKeyLabelForInstance(item.InstanceID, item.Key, apiKeyInfos),
+			Tokens:     item.Tokens,
+			Requests:   item.Requests,
+			Cost:       item.CostUSD,
+			Share:      item.Share,
 		})
 	}
 	return result

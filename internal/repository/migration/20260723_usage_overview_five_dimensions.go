@@ -126,13 +126,13 @@ type usageOverviewFiveDimensionRollup struct {
 func usageOverviewFiveDimensionRollups() []usageOverviewFiveDimensionRollup {
 	return []usageOverviewFiveDimensionRollup{
 		{
-			model:       &entities.UsageOverviewHourlyStat{},
+			model:       &legacyUsageOverviewHourlyStat{},
 			table:       "usage_overview_hourly_stats",
 			legacyIndex: "uniq_usage_overview_hourly_stats_bucket_api_model_auth_alias",
 			finalIndex:  "uniq_usage_overview_hourly_stats_dimensions",
 		},
 		{
-			model:       &entities.UsageOverviewDailyStat{},
+			model:       &legacyUsageOverviewDailyStat{},
 			table:       "usage_overview_daily_stats",
 			legacyIndex: "uniq_usage_overview_daily_stats_bucket_api_model_auth_alias",
 			finalIndex:  "uniq_usage_overview_daily_stats_dimensions",

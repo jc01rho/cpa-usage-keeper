@@ -269,7 +269,7 @@ func TestBuildAnalysisWithFilterMarksCostUnavailableForUnpricedStats(t *testing.
 	}
 }
 
-func TestBuildAnalysisWithFilterExcludesMissingAndDeletedCPAAPIKeys(t *testing.T) {
+func TestBuildAnalysisWithFilterRetainsDeletedAndMissingHistoricalAPIKeys(t *testing.T) {
 	db := openUsageTestDatabase(t)
 	bucket := time.Date(2026, 4, 20, 9, 0, 0, 0, time.UTC)
 	deletedAt := bucket.Add(time.Hour)
@@ -293,17 +293,17 @@ func TestBuildAnalysisWithFilterExcludesMissingAndDeletedCPAAPIKeys(t *testing.T
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
-	if len(analysis.APIKeyComposition) != 1 || analysis.APIKeyComposition[0].Key != "sk-active-key" || analysis.APIKeyComposition[0].TotalTokens != 30 {
-		t.Fatalf("expected only active CPA API key stats, got %+v", analysis.APIKeyComposition)
+	if len(analysis.APIKeyComposition) != 3 {
+		t.Fatalf("expected active, deleted, and missing historical keys, got %+v", analysis.APIKeyComposition)
 	}
-	if len(analysis.ModelComposition) != 1 || analysis.ModelComposition[0].Key != "claude-sonnet" {
-		t.Fatalf("expected models from active CPA API key only, got %+v", analysis.ModelComposition)
+	if len(analysis.ModelComposition) != 3 {
+		t.Fatalf("expected historical models to remain, got %+v", analysis.ModelComposition)
 	}
-	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].APIKey != "sk-active-key" {
-		t.Fatalf("expected heatmap from active CPA API key only, got %+v", analysis.Heatmap)
+	if len(analysis.Heatmap) != 3 {
+		t.Fatalf("expected historical heatmap cells to remain, got %+v", analysis.Heatmap)
 	}
-	if len(analysis.TokenUsage) != 1 || analysis.TokenUsage[0].TotalTokens != 30 || analysis.TokenUsage[0].Requests != 2 {
-		t.Fatalf("expected token usage from active CPA API key only, got %+v", analysis.TokenUsage)
+	if len(analysis.TokenUsage) != 1 || analysis.TokenUsage[0].TotalTokens != 210 || analysis.TokenUsage[0].Requests != 9 {
+		t.Fatalf("expected full historical totals, got %+v", analysis.TokenUsage)
 	}
 }
 
@@ -333,7 +333,6 @@ func TestBuildAnalysisWithFilterBuildsIdentityCompositionsFromActiveUsageIdentit
 		{BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-haiku", AuthIndex: "auth-file-deleted", RequestCount: 4, InputTokens: 50, OutputTokens: 10, TotalTokens: 60},
 		{BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "gpt-4", AuthIndex: "missing-index", RequestCount: 5, InputTokens: 60, OutputTokens: 20, TotalTokens: 80},
 		{BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", AuthIndex: "shared-index", ModelAlias: "alias-a", RequestCount: 6, InputTokens: 70, OutputTokens: 20, TotalTokens: 90},
-		{BucketStart: bucket, APIGroupKey: "sk-deleted-key", Model: "claude-sonnet", AuthIndex: "provider-1", RequestCount: 7, InputTokens: 80, OutputTokens: 20, TotalTokens: 100},
 	}).Error; err != nil {
 		t.Fatalf("insert hourly stats: %v", err)
 	}
@@ -365,6 +364,42 @@ func TestBuildAnalysisWithFilterBuildsIdentityCompositionsFromActiveUsageIdentit
 	}
 	if analysis.AIProviderComposition[1].Key != "provider-1" || analysis.AIProviderComposition[1].Label != "Team Prefix @ api.openai.com" || analysis.AIProviderComposition[1].TotalTokens != 60 {
 		t.Fatalf("expected active provider row second, got %+v", analysis.AIProviderComposition)
+	}
+}
+
+func TestBuildAnalysisAllInstancesNamespacesIdentityComposition(t *testing.T) {
+	db := openUsageTestDatabase(t)
+	bucket := time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	if err := db.Create([]entities.CPAInstance{{ID: instanceA, DisplayName: "A", Enabled: true, CreatedAt: bucket, UpdatedAt: bucket}, {ID: instanceB, DisplayName: "B", Enabled: true, CreatedAt: bucket, UpdatedAt: bucket}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create([]entities.CPAAPIKey{{InstanceID: instanceA, APIKey: "same-fingerprint", DisplayKey: "sk-...same"}, {InstanceID: instanceB, APIKey: "same-fingerprint", DisplayKey: "sk-...same"}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create([]entities.UsageIdentity{
+		{InstanceID: instanceA, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "auth_file", Identity: "same-auth", Name: "Auth A"},
+		{InstanceID: instanceB, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "auth_file", Identity: "same-auth", Name: "Auth B"},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create([]entities.UsageOverviewHourlyStat{
+		{InstanceID: instanceA, BucketStart: bucket, APIGroupKey: "same-fingerprint", Model: "same-model", AuthIndex: "same-auth", RequestCount: 1, TotalTokens: 10},
+		{InstanceID: instanceB, BucketStart: bucket, APIGroupKey: "same-fingerprint", Model: "same-model", AuthIndex: "same-auth", RequestCount: 1, TotalTokens: 20},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	start, end := bucket, bucket.Add(time.Hour)
+	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, pricingResolverFromDBForTest(t, db))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.AuthFilesComposition) != 2 || analysis.AuthFilesComposition[0].InstanceID == analysis.AuthFilesComposition[1].InstanceID {
+		t.Fatalf("identity composition merged: %+v", analysis.AuthFilesComposition)
+	}
+	if len(analysis.APIKeyComposition) != 2 || len(analysis.Heatmap) != 2 {
+		t.Fatalf("api or heatmap merged: api=%+v heatmap=%+v", analysis.APIKeyComposition, analysis.Heatmap)
 	}
 }
 

@@ -128,10 +128,20 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 	writeDB := s.db.Clauses(dbresolver.Write).Session(&gorm.Session{Context: ctx})
 	fetchedAt := timeutil.NormalizeStorageTime(s.now())
 	// process_failed 也在这里重试，避免临时 SQLite 锁或短暂解析外问题导致数据永久卡住。
-	processableRows, err := repository.ListProcessableRedisUsageInbox(writeDB, redisInboxProcessLimit)
+	instanceID := entities.LegacyCPAInstanceID
+	processableRows, err := repository.ListProcessableRedisUsageInboxForInstance(writeDB, instanceID, redisInboxProcessLimit)
 	if err != nil {
 		// 列表失败时没有可靠取出行，返回 0 行失败结果供 runner 保守等待。
 		return newRedisBatchSyncResult("failed", 0), fmt.Errorf("list processable redis usage inbox: %w", err)
+	}
+	if len(processableRows) == 0 {
+		processableRows, err = repository.ListNextProcessableRedisUsageInbox(writeDB, redisInboxProcessLimit)
+		if err != nil {
+			return newRedisBatchSyncResult("failed", 0), fmt.Errorf("list pushed usage inbox: %w", err)
+		}
+		if len(processableRows) > 0 {
+			instanceID = processableRows[0].InstanceID
+		}
 	}
 	if len(processableRows) == 0 {
 		// 没有 notifier 的既有构造路径继续使用 main 的空批 catch-up，不静默停止派生统计。
@@ -149,7 +159,7 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 				result.Empty = true
 				return result, snapshotErr
 			}
-			pendingIdentity, identityErr := repository.HasPendingUsageIdentityAggregation(ctx, writeDB)
+			pendingIdentity, identityErr := repository.HasPendingUsageIdentityAggregationForInstance(ctx, writeDB, entities.LegacyCPAInstanceID)
 			if identityErr != nil {
 				result := newRedisBatchSyncResult("failed", 0)
 				result.Empty = true
@@ -173,7 +183,7 @@ func (s *SyncService) ProcessRedisUsageInbox(ctx context.Context) (*servicedto.R
 		return result, nil
 	}
 	logrus.WithField("row_count", len(processableRows)).Debug("redis usage inbox rows found for processing")
-	return s.processRedisInboxRows(ctx, writeDB, processableRows, fetchedAt)
+	return s.processRedisInboxRows(ctx, writeDB, instanceID, processableRows, fetchedAt)
 }
 
 // CleanupRedisUsageInbox 只清理 Redis inbox 表，供测试和单独维护入口使用；每日任务使用 CleanupStorage 统一执行。
@@ -181,7 +191,7 @@ func (s *SyncService) CleanupRedisUsageInbox(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
 	}
-	_, err := repository.CleanupRedisUsageInbox(s.db, s.now())
+	_, err := repository.CleanupRedisUsageInboxForInstance(s.db, entities.LegacyCPAInstanceID, s.now())
 	return err
 }
 
@@ -211,7 +221,7 @@ func (s *SyncService) CleanupStorage(ctx context.Context) error {
 
 // processRedisInboxRows 只从已落库的原始消息解码和写入事件，坏消息会标记为 decode_failed，不阻塞同批其它数据。
 // 可解码但入库失败的消息标记为 process_failed，后续 ProcessRedisUsageInbox 会按 id 顺序重试。
-func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.DB, inboxRows []entities.RedisUsageInbox, fetchedAt time.Time) (*servicedto.RedisBatchSyncResult, error) {
+func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.DB, instanceID string, inboxRows []entities.RedisUsageInbox, fetchedAt time.Time) (*servicedto.RedisBatchSyncResult, error) {
 	logrus.WithField("row_count", len(inboxRows)).Debug("redis usage inbox processing started")
 	// processedRows 记录本轮实际取出的原始 inbox 行数，包含后续 decode_failed/process_failed 行。
 	processedRows := len(inboxRows)
@@ -225,7 +235,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 		event, _, snapshot, decodeErr := DecodeRedisUsageMessageWithHeaders(row.RawMessage, fetchedAt)
 		if decodeErr != nil {
 			logrus.WithError(decodeErr).WithField("inbox_id", row.ID).Error("redis usage message decode failed")
-			if markErr := repository.MarkRedisUsageInboxDecodeFailed(writeDB, row.ID, decodeErr); markErr != nil {
+			if markErr := repository.MarkRedisUsageInboxDecodeFailedForInstance(writeDB, instanceID, row.ID, decodeErr); markErr != nil {
 				// 标记坏消息失败时保留本轮已取行数，runner 仍按真正失败路径等待。
 				return newRedisBatchSyncResult("failed", processedRows), fmt.Errorf("mark redis usage inbox decode failed: %w", markErr)
 			}
@@ -233,6 +243,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 			continue
 		}
 		validRows = append(validRows, row)
+		event.InstanceID = instanceID
 		events = append(events, event)
 		// nil 也占据当前 event 的索引，防止 ready/unresolved 分区后 snapshot 串行。
 		eventSnapshots = append(eventSnapshots, snapshot)
@@ -279,7 +290,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 		for _, index := range unresolvedIndexes {
 			unresolvedRows = append(unresolvedRows, validRows[index])
 		}
-		failureCounts = markRedisInboxRowsProcessFailed(writeDB, unresolvedRows, typeErr)
+		failureCounts = markRedisInboxRowsProcessFailed(writeDB, instanceID, unresolvedRows, typeErr)
 		if len(readyEvents) == 0 {
 			// 本批没有任何可独立提交的 ready 事件时保持原有 failed 语义，等待 unresolved 重试。
 			logTokenProcessingBatch(normalizedItems, "failed", processedRows, 0, len(decodeErrs), failureCounts)
@@ -310,7 +321,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 			processedUpdates = append(processedUpdates, repository.RedisUsageInboxProcessedUpdate{ID: row.ID, EventKey: events[i].EventKey})
 		}
 		// 所有子批次仍在当前外层事务内；任意标记失败都会连同 usage_events 和前序标记一起回滚。
-		if markErr := repository.MarkRedisUsageInboxProcessedBatch(tx, processedUpdates, fetchedAt); markErr != nil {
+		if markErr := repository.MarkRedisUsageInboxProcessedBatchForInstance(tx, instanceID, processedUpdates, fetchedAt); markErr != nil {
 			return fmt.Errorf("mark redis usage inbox processed: %w", markErr)
 		}
 		return nil
@@ -318,7 +329,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	// 事务错误或未产出持久化结果时统一走失败路径，避免两个等价分支后续漂移。
 	if err != nil || result == nil {
 		// 有具体错误时把可重试行标成 process_failed，异常空结果也复用同一保守返回。
-		readyFailures := markRedisInboxRowsProcessFailed(writeDB, validRows, err)
+		readyFailures := markRedisInboxRowsProcessFailed(writeDB, instanceID, validRows, err)
 		failureCounts = failureCounts.add(readyFailures)
 		// 失败返回仍保留本轮已取行数，但不允许 runner 立即忙循环。
 		logTokenProcessingBatch(normalizedItems, "failed", processedRows, 0, len(decodeErrs), failureCounts)
@@ -779,7 +790,7 @@ func (s *SyncService) aggregateUsageEventStatsFallback(ctx context.Context, writ
 		errs = append(errs, fmt.Errorf("aggregate usage latency stats after redis inbox processing: %w", err))
 	}
 	// Identity 仍使用每行 cursor，但它自己的失败不再反向阻塞三个全局 rollup。
-	if err := repository.AggregateUsageIdentityStats(ctx, writeDB, now); err != nil {
+	if err := repository.AggregateUsageIdentityStatsForInstance(ctx, writeDB, entities.LegacyCPAInstanceID, now); err != nil {
 		errs = append(errs, fmt.Errorf("aggregate usage identity stats after redis inbox processing: %w", err))
 	}
 	return joinErrors(errs...)
@@ -823,7 +834,7 @@ func (s *SyncService) validate(syncMetadata bool) error {
 // insertRedisInboxMessages 在解码前先把 Redis 原始消息落库，降低 LPOP 后本地处理失败导致的数据丢失风险。
 func insertRedisInboxMessages(db *gorm.DB, source string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
 	// source 已经是完整来源名，这里只透传给仓储层做统一 trim/兜底。
-	return repository.InsertRedisUsageInboxRawMessages(db, source, messages, poppedAt)
+	return repository.InsertRedisUsageInboxRawMessagesForInstance(db, entities.LegacyCPAInstanceID, source, messages, poppedAt)
 }
 
 // redisInboxFailureCounts 同时保存批次计数与逐行真实状态，避免重试判断和事件日志各自猜测数据库结果。
@@ -848,14 +859,14 @@ func (counts redisInboxFailureCounts) requiresRetryWait() bool {
 }
 
 // markRedisInboxRowsProcessFailed 记录可重试处理失败；达到仓储阈值后会转为 discarded 并返回准确日志计数。
-func markRedisInboxRowsProcessFailed(db *gorm.DB, rows []entities.RedisUsageInbox, err error) redisInboxFailureCounts {
+func markRedisInboxRowsProcessFailed(db *gorm.DB, instanceID string, rows []entities.RedisUsageInbox, err error) redisInboxFailureCounts {
 	// 计数只记录完成 UPDATE 且成功回读的数据，未知状态绝不填入猜测值。
 	counts := redisInboxFailureCounts{}
 	if err == nil {
 		return counts
 	}
 	for _, row := range rows {
-		if markErr := repository.MarkRedisUsageInboxProcessFailed(db, row.ID, err); markErr != nil {
+		if markErr := repository.MarkRedisUsageInboxProcessFailedForInstance(db, instanceID, row.ID, err); markErr != nil {
 			// UPDATE 失败后数据库可能仍是 pending 或发生不确定提交，必须保留状态未知信号。
 			counts.statusUncertain = true
 			logrus.WithError(markErr).WithField("inbox_id", row.ID).Warn("failed to mark redis usage inbox process failure")

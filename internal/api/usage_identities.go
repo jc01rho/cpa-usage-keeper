@@ -40,6 +40,7 @@ type usageIdentityTypeCount struct {
 
 type usageIdentityResponse struct {
 	ID                         string                         `json:"id"`
+	InstanceID                 string                         `json:"instance_id"`
 	Name                       string                         `json:"name"`
 	Alias                      *string                        `json:"alias"`
 	DisplayName                string                         `json:"displayName"`
@@ -142,7 +143,7 @@ func registerUsageIdentityRoutes(router gin.IRoutes, usageIdentityProvider servi
 			return
 		}
 
-		items, err := usageIdentityProvider.ListActiveUsageIdentities(c.Request.Context())
+		items, err := usageIdentityProvider.ListActiveUsageIdentities(contextWithRequestInstanceFilter(c.Request.Context(), c))
 		if err != nil {
 			writeInternalError(c, "list active usage identities failed", err)
 			return
@@ -190,7 +191,7 @@ func parseUsageIdentitiesPageRequest(c *gin.Context) (service.ListUsageIdentitie
 	// page/page_size 做宽松兜底，auth_type 做严格校验，避免前端分区拿到混合数据。
 	page := positiveQueryInt(c, "page", 1)
 	pageSize := positiveQueryInt(c, "page_size", 10)
-	request := service.ListUsageIdentitiesRequest{Page: page, PageSize: pageSize, Sort: c.Query("sort"), Types: cleanUsageIdentityTypeFilters(c.QueryArray("type"))}
+	request := service.ListUsageIdentitiesRequest{InstanceID: instanceFilterFromGin(c).InstanceID, Page: page, PageSize: pageSize, Sort: c.Query("sort"), Types: cleanUsageIdentityTypeFilters(c.QueryArray("type"))}
 	if rawActiveOnly := c.Query("active_only"); rawActiveOnly != "" {
 		activeOnly, err := strconv.ParseBool(rawActiveOnly)
 		if err != nil {
@@ -266,6 +267,7 @@ func mapUsageIdentityResponseWithHealth(item entities.UsageIdentity, health *ser
 
 	return usageIdentityResponse{
 		ID:                         strconv.FormatInt(item.ID, 10),
+		InstanceID:                 item.InstanceID,
 		Name:                       item.Name,
 		Alias:                      item.Alias,
 		DisplayName:                helper.UsageIdentityDisplayName(item),

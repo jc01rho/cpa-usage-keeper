@@ -144,7 +144,7 @@ func TestUsageActivityMigrationResumesAfterCommittedBatchWithoutDoubleCounting(t
 	// 预先创建最终 Activity 表，便于安装只阻断第二批的 SQLite trigger。
 	db := openUsageActivityMigrationDatabase(t, "usage-activity-resume.db")
 	createUsageActivityLegacySchema(t, db)
-	if err := db.AutoMigrate(&entities.UsageActivityStat{}, &entities.UsageActivityAggregationCheckpoint{}); err != nil {
+	if err := db.AutoMigrate(&legacyActivityStatForTest{}, &entities.UsageActivityAggregationCheckpoint{}); err != nil {
 		t.Fatalf("create activity schema: %v", err)
 	}
 	markOnlyUsageActivityMigrationPending(t, db)
@@ -166,10 +166,10 @@ func TestUsageActivityMigrationResumesAfterCommittedBatchWithoutDoubleCounting(t
 		t.Fatalf("seed legacy health row: %v", err)
 	}
 
-	// trigger 只让第二批 fail-group Activity INSERT 失败，第一批事务应已独立提交。
+	// Trigger the second page's cursor advance; the first page remains committed.
 	if err := db.Exec(`CREATE TRIGGER fail_usage_activity_second_batch
-		BEFORE INSERT ON usage_activity_stats
-		WHEN NEW.api_group_key = 'fail-group'
+		BEFORE UPDATE ON usage_activity_aggregation_checkpoints
+		WHEN NEW.last_aggregated_usage_event_id = 1001
 		BEGIN
 			SELECT RAISE(ABORT, 'forced usage activity migration failure');
 		END`).Error; err != nil {

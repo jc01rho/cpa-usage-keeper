@@ -22,7 +22,7 @@ func RegisterLocalRoutes(router gin.IRoutes, provider LocalProvider) {
 			return
 		}
 		query := c.Request.URL.Query()
-		if len(query) != 2 || len(query["period"]) != 1 || len(query["metric"]) != 1 {
+		if !validRankingQueryKeys(query, "period", "metric") || len(query["period"]) != 1 || len(query["metric"]) != 1 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_leaderboard_selection"})
 			return
 		}

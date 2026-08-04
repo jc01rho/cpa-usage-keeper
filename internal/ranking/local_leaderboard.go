@@ -72,8 +72,16 @@ func localLeaderboardEntry(row localRankingPopulationRow, value int64) Leaderboa
 		avatarID = MinAvatarID
 	}
 	return LeaderboardEntry{
-		ParticipantID: strconv.FormatInt(row.APIKeyID, 10), DisplayName: displayName, AvatarID: avatarID, Value: value,
+		InstanceID: row.InstanceID, ParticipantID: localLeaderboardParticipantID(row), DisplayName: displayName, AvatarID: avatarID, Value: value,
 	}
+}
+
+func localLeaderboardParticipantID(row localRankingPopulationRow) string {
+	id := strconv.FormatInt(row.APIKeyID, 10)
+	if row.InstanceID == "" || row.InstanceID == entities.LegacyCPAInstanceID {
+		return id
+	}
+	return row.InstanceID + ":" + id
 }
 
 func localMetricValue(row localRankingPopulationRow, metric LeaderboardMetric) (int64, int64, int64, bool) {
@@ -184,9 +192,9 @@ func localRankingMetricsFromStat(row entities.LocalRankingPeriodStat) localRanki
 	}
 }
 
-func localRankingStatFromMetrics(key localRankingStatKey, metrics localRankingMetrics, now time.Time) entities.LocalRankingPeriodStat {
+func localRankingStatFromMetrics(instanceID string, key localRankingStatKey, metrics localRankingMetrics, now time.Time) entities.LocalRankingPeriodStat {
 	return entities.LocalRankingPeriodStat{
-		PeriodKind: key.Kind, PeriodKey: key.Key, APIKeyID: key.APIKeyID,
+		InstanceID: instanceID, PeriodKind: key.Kind, PeriodKey: key.Key, APIKeyID: key.APIKeyID,
 		RequestCount: metrics.RequestCount, SuccessCount: metrics.SuccessCount, FailureCount: metrics.FailureCount,
 		InputTokens: metrics.InputTokens, CacheReadTokens: metrics.CacheReadTokens, TotalTokens: metrics.TotalTokens,
 		TTFTSumMS: metrics.TTFTSumMS, TTFTSampleCount: metrics.TTFTSampleCount,

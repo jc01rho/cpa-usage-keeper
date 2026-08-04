@@ -17,6 +17,90 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestUsageAggregationRunnerBackgroundRunProcessesEnabledInstances(t *testing.T) {
+	db := openUsageAggregationRunnerDatabase(t)
+	now := time.Date(2026, 8, 3, 12, 40, 0, 0, time.UTC)
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	if err := db.Create([]entities.CPAInstance{{ID: instanceA, DisplayName: "A", Enabled: true, CreatedAt: now, UpdatedAt: now}, {ID: instanceB, DisplayName: "B", Enabled: true, CreatedAt: now, UpdatedAt: now}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	events := []entities.UsageEvent{{InstanceID: instanceA, EventKey: "same", APIGroupKey: "same-key", Model: "same-model", Timestamp: now, TotalTokens: 10}, {InstanceID: instanceB, EventKey: "same", APIGroupKey: "same-key", Model: "same-model", Timestamp: now, TotalTokens: 20}}
+	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+		t.Fatal(err)
+	}
+	var stored []entities.UsageEvent
+	if err := db.Order("id asc").Find(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	runner := newUsageAggregationRunnerAt(db, now, 5*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() { done <- runner.Run(ctx) }()
+	runner.NotifyUsageEventsCommitted(stored)
+	waitForUsageAggregationRunnerCondition(t, 3*time.Second, func() bool {
+		for _, instanceID := range []string{instanceA, instanceB} {
+			var checkpoint entities.UsageAggregationCheckpoint
+			if err := db.First(&checkpoint, "instance_id = ? AND name = ?", instanceID, entities.UsageAggregationCheckpointOverview).Error; err != nil || checkpoint.LastAggregatedUsageEventID == 0 {
+				return false
+			}
+		}
+		return true
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUsageAggregationRunnerProcessesEnabledInstancesIndependently(t *testing.T) {
+	db := openUsageAggregationRunnerDatabase(t)
+	now := time.Date(2026, 8, 3, 12, 30, 0, 0, time.UTC)
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	if err := db.Create([]entities.CPAInstance{{ID: instanceA, DisplayName: "A", Enabled: true, CreatedAt: now, UpdatedAt: now}, {ID: instanceB, DisplayName: "B", Enabled: true, CreatedAt: now, UpdatedAt: now}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	generate := true
+	ttft := int64(50)
+	events := []entities.UsageEvent{
+		{InstanceID: instanceA, EventKey: "same", APIGroupKey: "same-key", Model: "same-model", AuthIndex: "same-auth", Timestamp: now, Generate: &generate, TTFTMS: &ttft, LatencyMS: 100, TotalTokens: 10},
+		{InstanceID: instanceB, EventKey: "same", APIGroupKey: "same-key", Model: "same-model", AuthIndex: "same-auth", Timestamp: now, Generate: &generate, TTFTMS: &ttft, LatencyMS: 200, TotalTokens: 20},
+	}
+	if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+		t.Fatal(err)
+	}
+	var stored []entities.UsageEvent
+	if err := db.Order("id asc").Find(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	runner := newUsageAggregationRunnerAt(db, now, 10*time.Millisecond)
+	for turn := 0; turn < 12; turn++ {
+		if _, err := runner.RunOnce(context.Background()); err != nil {
+			t.Fatalf("run turn %d: %v", turn, err)
+		}
+	}
+	for _, instanceID := range []string{instanceA, instanceB} {
+		for _, name := range []entities.UsageAggregationCheckpointName{entities.UsageAggregationCheckpointOverview, entities.UsageAggregationCheckpointActivity, entities.UsageAggregationCheckpointLatency} {
+			var checkpoint entities.UsageAggregationCheckpoint
+			if err := db.First(&checkpoint, "instance_id = ? AND name = ?", instanceID, name).Error; err != nil || checkpoint.LastAggregatedUsageEventID == 0 {
+				t.Fatalf("checkpoint %s/%s=%+v err=%v", instanceID, name, checkpoint, err)
+			}
+		}
+	}
+	var overviewByInstance []struct {
+		InstanceID string
+		Tokens     int64
+	}
+	if err := db.Model(&entities.UsageOverviewHourlyStat{}).Select("instance_id, SUM(total_tokens) AS tokens").Where("instance_id IN ?", []string{instanceA, instanceB}).Group("instance_id").Order("instance_id").Scan(&overviewByInstance).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(overviewByInstance) != 2 || overviewByInstance[0].Tokens != 10 || overviewByInstance[1].Tokens != 20 {
+		t.Fatalf("overview rollups=%+v", overviewByInstance)
+	}
+}
+
 func TestUsageAggregationRunnerSharedTurnReadsOneEventPageAndAdvancesAllRollups(t *testing.T) {
 	// 三个 cursor 相等时，核心收益必须是同一事件页只读一次，而不是三个兼容入口各查一次。
 	db := openUsageAggregationRunnerDatabase(t)
@@ -460,8 +544,10 @@ func TestUsageAggregationRunnerStaysDatabaseSilentAfterStartupCatchUp(t *testing
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- runner.Run(ctx) }()
+	// 启动只查询一次 enabled nonlegacy 集合；没有任何实例时后续不得继续轮询。
+	waitForUsageAggregationRunnerCondition(t, time.Second, func() bool { return queryCount.Load() == 1 })
 	time.Sleep(80 * time.Millisecond)
-	if got := queryCount.Load(); got != 0 {
+	if got := queryCount.Load(); got != 1 {
 		cancel()
 		<-done
 		t.Fatalf("caught-up runner polled database %d times without notification", got)

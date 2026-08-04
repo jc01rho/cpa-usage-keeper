@@ -17,6 +17,10 @@ const usageEventArchiveBatchSize = sqliteVariableLimit
 
 // ArchiveExpiredUsageEvents 分批把超过 hot 保留线且已完成派生聚合的事件原子移动到冷表。
 func ArchiveExpiredUsageEvents(ctx context.Context, db *gorm.DB, now time.Time) (dto.UsageEventArchiveResult, error) {
+	return ArchiveExpiredUsageEventsForInstance(ctx, db, entities.LegacyCPAInstanceID, now)
+}
+
+func ArchiveExpiredUsageEventsForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) (dto.UsageEventArchiveResult, error) {
 	if db == nil {
 		return dto.UsageEventArchiveResult{}, fmt.Errorf("database is nil")
 	}
@@ -28,7 +32,7 @@ func ArchiveExpiredUsageEvents(ctx context.Context, db *gorm.DB, now time.Time) 
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		archived, status, err := archiveExpiredUsageEventsBatch(ctx, db, now)
+		archived, status, err := archiveExpiredUsageEventsBatchForInstance(ctx, db, instanceID, now)
 		if err != nil {
 			return result, err
 		}
@@ -44,7 +48,7 @@ func ArchiveExpiredUsageEvents(ctx context.Context, db *gorm.DB, now time.Time) 
 	}
 }
 
-func archiveExpiredUsageEventsBatch(ctx context.Context, db *gorm.DB, now time.Time) (int64, dto.UsageEventArchiveStatus, error) {
+func archiveExpiredUsageEventsBatchForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) (int64, dto.UsageEventArchiveStatus, error) {
 	archived := int64(0)
 	status := dto.UsageEventArchiveStatusEmpty
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -52,7 +56,7 @@ func archiveExpiredUsageEventsBatch(ctx context.Context, db *gorm.DB, now time.T
 		var ids []int64
 		if err := tx.Model(&entities.UsageEvent{}).
 			Select("id").
-			Where("timestamp < ?", timeutil.FormatStorageTime(cutoff)).
+			Where("instance_id = ? AND timestamp < ?", instanceID, timeutil.FormatStorageTime(cutoff)).
 			Order("timestamp asc, id asc").
 			Limit(usageEventArchiveBatchSize).
 			Pluck("id", &ids).Error; err != nil {
@@ -63,7 +67,7 @@ func archiveExpiredUsageEventsBatch(ctx context.Context, db *gorm.DB, now time.T
 		}
 
 		// 只有确有过期候选时才检查保守门禁，避免没有归档积压时误报水位阻塞。
-		safe, err := usageEventAggregationsCaughtUp(tx)
+		safe, err := usageEventAggregationsCaughtUpForInstance(tx, instanceID)
 		if err != nil {
 			return err
 		}
@@ -74,8 +78,8 @@ func archiveExpiredUsageEventsBatch(ctx context.Context, db *gorm.DB, now time.T
 
 		// INSERT SELECT 避免千万级归档在 Go 内存中反序列化完整事件；列清单是 hot/archive 共享契约。
 		columns := entities.UsageEventStorageColumns
-		insertSQL := fmt.Sprintf("INSERT INTO usage_events_archive (%s) SELECT %s FROM usage_events WHERE id IN ?", columns, columns)
-		insertResult := tx.Exec(insertSQL, ids)
+		insertSQL := fmt.Sprintf("INSERT INTO usage_events_archive (%s) SELECT %s FROM usage_events WHERE instance_id = ? AND id IN ?", columns, columns)
+		insertResult := tx.Exec(insertSQL, instanceID, ids)
 		if insertResult.Error != nil {
 			return fmt.Errorf("archive usage events: %w", insertResult.Error)
 		}
@@ -84,14 +88,14 @@ func archiveExpiredUsageEventsBatch(ctx context.Context, db *gorm.DB, now time.T
 		}
 
 		var archivedCount int64
-		if err := tx.Model(&entities.UsageEventArchive{}).Where("id IN ?", ids).Count(&archivedCount).Error; err != nil {
+		if err := tx.Model(&entities.UsageEventArchive{}).Where("instance_id = ? AND id IN ?", instanceID, ids).Count(&archivedCount).Error; err != nil {
 			return fmt.Errorf("verify archived usage events: %w", err)
 		}
 		if archivedCount != int64(len(ids)) {
 			return fmt.Errorf("verify archived usage events: expected %d rows, got %d", len(ids), archivedCount)
 		}
 
-		deleteResult := tx.Unscoped().Where("id IN ?", ids).Delete(&entities.UsageEvent{})
+		deleteResult := tx.Unscoped().Where("instance_id = ? AND id IN ?", instanceID, ids).Delete(&entities.UsageEvent{})
 		if deleteResult.Error != nil {
 			return fmt.Errorf("delete archived usage events from hot table: %w", deleteResult.Error)
 		}

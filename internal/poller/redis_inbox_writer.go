@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"gorm.io/gorm"
 )
@@ -34,7 +35,7 @@ func (w *RepositoryRedisInboxWriter) Insert(ctx context.Context, source string, 
 		return 0, err
 	}
 	// 来源名由 runner 传入，完整落库便于区分 subscribe、redis pull 和 HTTP pull。
-	rows, err := repository.InsertRedisUsageInboxRawMessages(w.db.WithContext(ctx), source, messages, receivedAt)
+	rows, err := repository.InsertRedisUsageInboxRawMessagesForInstance(w.db.WithContext(ctx), entities.LegacyCPAInstanceID, source, messages, receivedAt)
 	if err != nil {
 		// 插入失败交给 runner 记录 error 并进入对应失败路径。
 		return 0, err

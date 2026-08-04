@@ -16,6 +16,10 @@ import (
 
 // HasProcessableRedisUsageInbox 只判断是否存在需要前台优先处理的 inbox 行。
 func HasProcessableRedisUsageInbox(ctx context.Context, db *gorm.DB) (bool, error) {
+	return HasProcessableRedisUsageInboxForInstance(ctx, db, entities.LegacyCPAInstanceID)
+}
+
+func HasProcessableRedisUsageInboxForInstance(ctx context.Context, db *gorm.DB, instanceID string) (bool, error) {
 	// nil 数据库无法执行 inbox 优先级检查。
 	if db == nil {
 		return false, fmt.Errorf("database is nil")
@@ -26,6 +30,7 @@ func HasProcessableRedisUsageInbox(ctx context.Context, db *gorm.DB) (bool, erro
 	err := db.WithContext(ctx).
 		Model(&entities.RedisUsageInbox{}).
 		Select("1").
+		Where("instance_id = ?", instanceID).
 		Where("status = ? OR status = ?", RedisUsageInboxStatusPending, RedisUsageInboxStatusProcessFailed).
 		Limit(1).
 		Scan(&marker).Error
@@ -37,7 +42,7 @@ func HasProcessableRedisUsageInbox(ctx context.Context, db *gorm.DB) (bool, erro
 	return marker == 1, nil
 }
 
-const redisUsageInboxProcessingColumns = "id, source, raw_message, status, attempt_count, usage_event_key, popped_at"
+const redisUsageInboxProcessingColumns = "id, instance_id, source, raw_message, status, attempt_count, usage_event_key, popped_at"
 
 const (
 	RedisUsageInboxStatusPending       = "pending"
@@ -61,6 +66,10 @@ type RedisUsageInboxProcessedUpdate struct {
 }
 
 func InsertRedisUsageInboxRawMessages(db *gorm.DB, source string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
+	return InsertRedisUsageInboxRawMessagesForInstance(db, entities.LegacyCPAInstanceID, source, messages, poppedAt)
+}
+
+func InsertRedisUsageInboxRawMessagesForInstance(db *gorm.DB, instanceID, source string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
 	// inputs 统一走结构化 DTO，避免 raw message 快捷入口和测试入口出现两套入库逻辑。
 	inputs := make([]dto.RedisInboxInsert, 0, len(messages))
 	for _, message := range messages {
@@ -68,10 +77,14 @@ func InsertRedisUsageInboxRawMessages(db *gorm.DB, source string, messages []str
 		inputs = append(inputs, dto.RedisInboxInsert{Source: source, RawMessage: message, PoppedAt: poppedAt})
 	}
 	// InsertRedisUsageInboxMessages 是唯一实际批量写入入口。
-	return InsertRedisUsageInboxMessages(db, inputs)
+	return InsertRedisUsageInboxMessagesForInstance(db, instanceID, inputs)
 }
 
 func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []dto.RedisInboxInsert) ([]entities.RedisUsageInbox, error) {
+	return InsertRedisUsageInboxMessagesForInstance(db, entities.LegacyCPAInstanceID, inputs)
+}
+
+func InsertRedisUsageInboxMessagesForInstance(db *gorm.DB, instanceID string, inputs []dto.RedisInboxInsert) ([]entities.RedisUsageInbox, error) {
 	if len(inputs) == 0 {
 		return nil, nil
 	}
@@ -81,6 +94,7 @@ func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []dto.RedisInboxInsert) (
 	for _, input := range inputs {
 		hash := sha256.Sum256([]byte(input.RawMessage))
 		rows = append(rows, entities.RedisUsageInbox{
+			InstanceID:   instanceID,
 			Source:       redisUsageInboxSource(input.Source),
 			MessageHash:  fmt.Sprintf("%x", hash),
 			RawMessage:   input.RawMessage,
@@ -111,7 +125,11 @@ func redisUsageInboxSource(value string) string {
 }
 
 func MarkRedisUsageInboxProcessed(db *gorm.DB, id int64, eventKey string, processedAt time.Time) error {
-	return db.Model(&entities.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
+	return MarkRedisUsageInboxProcessedForInstance(db, entities.LegacyCPAInstanceID, id, eventKey, processedAt)
+}
+
+func MarkRedisUsageInboxProcessedForInstance(db *gorm.DB, instanceID string, id int64, eventKey string, processedAt time.Time) error {
+	return db.Model(&entities.RedisUsageInbox{}).Where("instance_id = ? AND id = ?", instanceID, id).Updates(map[string]any{
 		"status":          RedisUsageInboxStatusProcessed,
 		"usage_event_key": eventKey,
 		"processed_at":    timeutil.FormatStorageTime(processedAt),
@@ -121,6 +139,10 @@ func MarkRedisUsageInboxProcessed(db *gorm.DB, id int64, eventKey string, proces
 
 // MarkRedisUsageInboxProcessedBatch 分批更新 processed 状态，同时保持每个 inbox ID 对应自己的 event key。
 func MarkRedisUsageInboxProcessedBatch(db *gorm.DB, updates []RedisUsageInboxProcessedUpdate, processedAt time.Time) error {
+	return MarkRedisUsageInboxProcessedBatchForInstance(db, entities.LegacyCPAInstanceID, updates, processedAt)
+}
+
+func MarkRedisUsageInboxProcessedBatchForInstance(db *gorm.DB, instanceID string, updates []RedisUsageInboxProcessedUpdate, processedAt time.Time) error {
 	for start := 0; start < len(updates); start += redisUsageInboxProcessedBatchSize {
 		end := min(start+redisUsageInboxProcessedBatchSize, len(updates))
 		batch := updates[start:end]
@@ -135,7 +157,7 @@ func MarkRedisUsageInboxProcessedBatch(db *gorm.DB, updates []RedisUsageInboxPro
 		}
 		eventKeyCase.WriteString(" ELSE usage_event_key END")
 
-		result := db.Model(&entities.RedisUsageInbox{}).Where("id IN ?", ids).Updates(map[string]any{
+		result := db.Model(&entities.RedisUsageInbox{}).Where("instance_id = ? AND id IN ?", instanceID, ids).Updates(map[string]any{
 			"status":          RedisUsageInboxStatusProcessed,
 			"usage_event_key": gorm.Expr(eventKeyCase.String(), caseArgs...),
 			"processed_at":    timeutil.FormatStorageTime(processedAt),
@@ -149,11 +171,19 @@ func MarkRedisUsageInboxProcessedBatch(db *gorm.DB, updates []RedisUsageInboxPro
 }
 
 func MarkRedisUsageInboxDecodeFailed(db *gorm.DB, id int64, decodeErr error) error {
-	return markRedisUsageInboxFailed(db, id, RedisUsageInboxStatusDecodeFailed, decodeErr)
+	return MarkRedisUsageInboxDecodeFailedForInstance(db, entities.LegacyCPAInstanceID, id, decodeErr)
+}
+
+func MarkRedisUsageInboxDecodeFailedForInstance(db *gorm.DB, instanceID string, id int64, decodeErr error) error {
+	return markRedisUsageInboxFailedForInstance(db, instanceID, id, RedisUsageInboxStatusDecodeFailed, decodeErr)
 }
 
 func MarkRedisUsageInboxProcessFailed(db *gorm.DB, id int64, processErr error) error {
-	return db.Model(&entities.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
+	return MarkRedisUsageInboxProcessFailedForInstance(db, entities.LegacyCPAInstanceID, id, processErr)
+}
+
+func MarkRedisUsageInboxProcessFailedForInstance(db *gorm.DB, instanceID string, id int64, processErr error) error {
+	return db.Model(&entities.RedisUsageInbox{}).Where("instance_id = ? AND id = ?", instanceID, id).Updates(map[string]any{
 		"status": gorm.Expr(
 			"CASE WHEN attempt_count + ? >= ? THEN ? ELSE ? END",
 			1,
@@ -168,7 +198,24 @@ func MarkRedisUsageInboxProcessFailed(db *gorm.DB, id int64, processErr error) e
 
 // ListProcessableRedisUsageInbox 返回待处理和可重试的数据，不返回已解码失败或已丢弃的数据。
 func ListProcessableRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsageInbox, error) {
-	query := db.Select(redisUsageInboxProcessingColumns).Where("status = ? OR status = ?", RedisUsageInboxStatusPending, RedisUsageInboxStatusProcessFailed).Order("id asc")
+	return ListProcessableRedisUsageInboxForInstance(db, entities.LegacyCPAInstanceID, limit)
+}
+
+func ListNextProcessableRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsageInbox, error) {
+	subquery := db.Model(&entities.RedisUsageInbox{}).Select("instance_id").Where("status = ? OR status = ?", RedisUsageInboxStatusPending, RedisUsageInboxStatusProcessFailed).Order("id asc").Limit(1)
+	query := db.Select(redisUsageInboxProcessingColumns).Where("instance_id = (?)", subquery).Where("status = ? OR status = ?", RedisUsageInboxStatusPending, RedisUsageInboxStatusProcessFailed).Order("id asc")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	var rows []entities.RedisUsageInbox
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func ListProcessableRedisUsageInboxForInstance(db *gorm.DB, instanceID string, limit int) ([]entities.RedisUsageInbox, error) {
+	query := db.Select(redisUsageInboxProcessingColumns).Where("instance_id = ?", instanceID).Where("status = ? OR status = ?", RedisUsageInboxStatusPending, RedisUsageInboxStatusProcessFailed).Order("id asc")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
@@ -180,7 +227,11 @@ func ListProcessableRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsa
 }
 
 func ListPendingRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsageInbox, error) {
-	query := db.Select(redisUsageInboxProcessingColumns).Where("status = ?", RedisUsageInboxStatusPending).Order("id asc")
+	return ListPendingRedisUsageInboxForInstance(db, entities.LegacyCPAInstanceID, limit)
+}
+
+func ListPendingRedisUsageInboxForInstance(db *gorm.DB, instanceID string, limit int) ([]entities.RedisUsageInbox, error) {
+	query := db.Select(redisUsageInboxProcessingColumns).Where("instance_id = ? AND status = ?", instanceID, RedisUsageInboxStatusPending).Order("id asc")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
@@ -194,19 +245,23 @@ func ListPendingRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsageIn
 // CleanupRedisUsageInbox 清理已完成和失败的 Redis inbox 原始消息，pending 数据永远不在这里删除。
 // processed 保留到下一个本地日开始后才清理；decode_failed/process_failed/discarded 保留 7 天便于排查。
 func CleanupRedisUsageInbox(db *gorm.DB, now time.Time) (dto.RedisUsageInboxCleanupResult, error) {
+	return CleanupRedisUsageInboxForInstance(db, entities.LegacyCPAInstanceID, now)
+}
+
+func CleanupRedisUsageInboxForInstance(db *gorm.DB, instanceID string, now time.Time) (dto.RedisUsageInboxCleanupResult, error) {
 	localNow := now.In(time.Local)
 	localDayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
 	processedCutoff := timeutil.FormatStorageTime(localDayStart)
 	failedCutoff := timeutil.FormatStorageTime(now.AddDate(0, 0, -7))
 	result := dto.RedisUsageInboxCleanupResult{}
 
-	processedDelete := db.Where("status = ? AND processed_at IS NOT NULL AND processed_at < ?", RedisUsageInboxStatusProcessed, processedCutoff).Delete(&entities.RedisUsageInbox{})
+	processedDelete := db.Where("instance_id = ? AND status = ? AND processed_at IS NOT NULL AND processed_at < ?", instanceID, RedisUsageInboxStatusProcessed, processedCutoff).Delete(&entities.RedisUsageInbox{})
 	if processedDelete.Error != nil {
 		return result, processedDelete.Error
 	}
 	result.ProcessedDeleted = processedDelete.RowsAffected
 
-	failedDelete := db.Where("status IN ? AND updated_at < ?", []string{RedisUsageInboxStatusDecodeFailed, RedisUsageInboxStatusProcessFailed, RedisUsageInboxStatusDiscarded}, failedCutoff).Delete(&entities.RedisUsageInbox{})
+	failedDelete := db.Where("instance_id = ? AND status IN ? AND updated_at < ?", instanceID, []string{RedisUsageInboxStatusDecodeFailed, RedisUsageInboxStatusProcessFailed, RedisUsageInboxStatusDiscarded}, failedCutoff).Delete(&entities.RedisUsageInbox{})
 	if failedDelete.Error != nil {
 		return result, failedDelete.Error
 	}
@@ -215,8 +270,8 @@ func CleanupRedisUsageInbox(db *gorm.DB, now time.Time) (dto.RedisUsageInboxClea
 	return result, nil
 }
 
-func markRedisUsageInboxFailed(db *gorm.DB, id int64, status string, err error) error {
-	return db.Model(&entities.RedisUsageInbox{}).Where("id = ?", id).Updates(map[string]any{
+func markRedisUsageInboxFailedForInstance(db *gorm.DB, instanceID string, id int64, status string, err error) error {
+	return db.Model(&entities.RedisUsageInbox{}).Where("instance_id = ? AND id = ?", instanceID, id).Updates(map[string]any{
 		"status":        status,
 		"attempt_count": gorm.Expr("attempt_count + ?", 1),
 		"last_error":    boundedRedisUsageInboxError(err),

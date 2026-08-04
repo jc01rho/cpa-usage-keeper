@@ -36,6 +36,18 @@ func NewLocalRankingRunnerWithInterval(aggregator LocalRankingAggregator, interv
 	return &LocalRankingRunner{aggregator: aggregator, interval: interval}, nil
 }
 
+// RunOnce 执行一次受 App 生命周期约束的聚合，供真实生产手动 QA 直接触发。
+func (r *LocalRankingRunner) RunOnce(ctx context.Context) error {
+	if r == nil || r.aggregator == nil || r.interval <= 0 {
+		return fmt.Errorf("local ranking runner is not configured")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.runOnce(ctx)
+	return nil
+}
+
 func (r *LocalRankingRunner) Run(ctx context.Context) error {
 	if r == nil || r.aggregator == nil || r.interval <= 0 {
 		return fmt.Errorf("local ranking runner is not configured")

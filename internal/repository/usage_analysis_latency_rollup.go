@@ -52,6 +52,9 @@ func BuildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQuer
 	var rows []entities.UsageLatencyStat
 	query := db.Clauses(dbresolver.Read).
 		Where("bucket_type = ? AND bucket_start >= ? AND bucket_start < ?", bucketType, timeutil.FormatStorageTime(alignedStart), timeutil.FormatStorageTime(alignedEnd))
+	if instanceID := strings.TrimSpace(filter.InstanceID); instanceID != "" {
+		query = query.Where("instance_id = ?", instanceID)
+	}
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}

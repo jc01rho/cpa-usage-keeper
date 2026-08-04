@@ -10,7 +10,9 @@ const DefaultUsageEventsLimit = 100
 
 // UsageFilter 是服务层的 usage 查询条件。
 type UsageFilter struct {
-	Range string
+	// InstanceID optionally scopes every usage/query projection to one immutable CPA namespace.
+	InstanceID string
+	Range      string
 	// RangeUnit/RangeCount 是统一时间解析器给出的规范化选择跨度，供不读取历史边界的查询复用。
 	RangeUnit    string
 	RangeCount   int
@@ -53,6 +55,7 @@ type UsageEventFilterOptions struct {
 // UsageEventRecord 是单条 usage event 的服务层结果。
 type UsageEventRecord struct {
 	ID                  int64
+	InstanceID          string
 	Timestamp           time.Time
 	APIGroupKey         string
 	Model               string
@@ -159,12 +162,13 @@ type RealtimeResponseDistribution struct {
 
 // RealtimeUsageTopItem 是 Overview 当前使用 Top 列表项。
 type RealtimeUsageTopItem struct {
-	Key      string
-	Label    string
-	Tokens   int64
-	Requests int64
-	CostUSD  *float64
-	Share    float64
+	InstanceID string
+	Key        string
+	Label      string
+	Tokens     int64
+	Requests   int64
+	CostUSD    *float64
+	Share      float64
 }
 
 // RealtimeCurrentUsage 是 Overview 当前使用按维度聚合的 Top 列表。

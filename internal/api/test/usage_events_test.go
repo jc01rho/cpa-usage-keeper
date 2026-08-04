@@ -99,6 +99,20 @@ func assertNoStoreHeaders(t *testing.T, response *httptest.ResponseRecorder) {
 	}
 }
 
+func TestUsageEventModelFilterOptionsCarryInstanceScope(t *testing.T) {
+	stub := &usageEventsStub{eventFilterOptions: &servicedto.UsageEventFilterOptions{Models: []string{"model-a"}}}
+	router := NewRouter(nil, nil, stub, nil, AuthConfig{}, nil, "")
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/filters/models?instance_id=0198aa10-4d88-7a20-8f4e-8c8de4a9cb11", nil)
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if stub.lastFilter.InstanceID != "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11" {
+		t.Fatalf("instance filter=%q", stub.lastFilter.InstanceID)
+	}
+}
+
 func (s *usageEventsStub) GetUsageOverview(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	s.lastFilter = filter
 	s.overviewCalls++
@@ -169,8 +183,16 @@ type authCPAAPIKeyStub struct {
 	row entities.CPAAPIKey
 }
 
+type listCPAAPIKeysStub struct {
+	rows []entities.CPAAPIKey
+}
+
 func (s *authCPAAPIKeyStub) ListCPAAPIKeys(context.Context) ([]entities.CPAAPIKey, error) {
 	return []entities.CPAAPIKey{s.row}, nil
+}
+
+func (s *listCPAAPIKeysStub) ListCPAAPIKeys(context.Context) ([]entities.CPAAPIKey, error) {
+	return s.rows, nil
 }
 
 func (s *authCPAAPIKeyStub) FindActiveCPAAPIKeyByValue(context.Context, string) (entities.CPAAPIKey, error) {
@@ -183,6 +205,18 @@ func (s *authCPAAPIKeyStub) FindActiveCPAAPIKeyByID(context.Context, int64) (ent
 
 func (s *authCPAAPIKeyStub) UpdateCPAAPIKeyAlias(context.Context, int64, string) (entities.CPAAPIKey, error) {
 	return s.row, nil
+}
+
+func (s *listCPAAPIKeysStub) FindActiveCPAAPIKeyByValue(context.Context, string) (entities.CPAAPIKey, error) {
+	return entities.CPAAPIKey{}, service.ErrInvalidID
+}
+
+func (s *listCPAAPIKeysStub) FindActiveCPAAPIKeyByID(context.Context, int64) (entities.CPAAPIKey, error) {
+	return entities.CPAAPIKey{}, service.ErrInvalidID
+}
+
+func (s *listCPAAPIKeysStub) UpdateCPAAPIKeyAlias(context.Context, int64, string) (entities.CPAAPIKey, error) {
+	return entities.CPAAPIKey{}, service.ErrInvalidID
 }
 
 type usageIdentitiesStub struct {
@@ -832,7 +866,7 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	if !contains(body, "cache_read_tokens,cache_creation_tokens,cache_read_rate") || !contains(body, ",3,4,30,") || contains(body, "cached_tokens") {
 		t.Fatalf("expected canonical cache token fields in csv export, got %s", body)
 	}
-	if !regexp.MustCompile(`(?m)^id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,reasoning_effort,`).MatchString(body) {
+	if !regexp.MustCompile(`(?m)^id,instance_id,timestamp,api_key,cpa_api_key_id,source,source_type,auth_index,is_identity_deleted,model,model_alias,reasoning_effort,`).MatchString(body) {
 		t.Fatalf("expected model_alias to follow model in csv header, got %s", body)
 	}
 	if !contains(body, "speed_tps,client_ip,x_forwarded_for,user_agent,input_tokens") || !contains(body, ",30.5,192.0.2.10,\"203.0.113.5, 198.51.100.8\",test-client/1.0,10,") {
@@ -849,6 +883,31 @@ func TestUsageEventsExportCSVReturnsFilteredRowsWithoutPagination(t *testing.T) 
 	}
 	if !contains(body, "Export Key") || !contains(body, ",7,") || !contains(body, "authidx-export-main") || !contains(body, "sonnet-export") || !contains(body, "responses") || !contains(body, "failed") {
 		t.Fatalf("expected exported row values, got %s", body)
+	}
+}
+
+func TestUsageEventsExportCSVIncludesInstanceID(t *testing.T) {
+	instanceID := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	provider := &usageEventsStub{exportEvents: []servicedto.UsageEventRecord{{ID: 54, InstanceID: instanceID, Timestamp: time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)}}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/export?range=24h&format=csv&instance_id=all", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	records, err := csv.NewReader(strings.NewReader(response.Body.String())).ReadAll()
+	if err != nil || len(records) != 2 {
+		t.Fatalf("csv records=%v err=%v", records, err)
+	}
+	index := -1
+	for column, name := range records[0] {
+		if name == "instance_id" {
+			index = column
+			break
+		}
+	}
+	if index < 0 || records[1][index] != instanceID {
+		t.Fatalf("instance_id column=%d records=%v", index, records)
 	}
 }
 
@@ -1124,6 +1183,44 @@ func TestUsageEventsResolvesCPAAPIKeyAliasFromGroupKey(t *testing.T) {
 	}
 	if contains(body, `sk-alpha123456`) || contains(body, `sk-*********123456`) {
 		t.Fatalf("expected raw and masked key to be hidden when alias exists, got %s", body)
+	}
+}
+
+func TestUsageEventsAllInstanceAPIKeyResolutionUsesInstanceAndFingerprint(t *testing.T) {
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	fingerprint := "akf1_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{
+		{ID: 61, InstanceID: instanceA, Timestamp: time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC), APIGroupKey: fingerprint, Model: "model-a"},
+		{ID: 62, InstanceID: instanceB, Timestamp: time.Date(2026, 4, 22, 11, 1, 0, 0, time.UTC), APIGroupKey: fingerprint, Model: "model-b"},
+	}}
+	keyProvider := &listCPAAPIKeysStub{rows: []entities.CPAAPIKey{{
+		ID: 8, InstanceID: instanceB, APIKey: fingerprint, DisplayKey: "sk-...cdef", KeyAlias: "B Alias",
+	}}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: keyProvider})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?range=24h&instance_id=all", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Events []struct {
+			InstanceID string `json:"instance_id"`
+			APIKey     string `json:"api_key"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Events) != 2 {
+		t.Fatalf("events=%+v", payload.Events)
+	}
+	labels := map[string]string{}
+	for _, event := range payload.Events {
+		labels[event.InstanceID] = event.APIKey
+	}
+	if labels[instanceA] == "B Alias" || labels[instanceB] != "B Alias" {
+		t.Fatalf("cross-instance alias resolution: %+v", labels)
 	}
 }
 

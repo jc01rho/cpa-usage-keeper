@@ -50,7 +50,7 @@ func usageServiceContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-func (s *usageService) resolveAPIGroupKey(ctx context.Context, apiKeyID string) (string, error) {
+func (s *usageService) resolveAPIGroupKey(ctx context.Context, instanceID, apiKeyID string) (string, error) {
 	ctx = usageServiceContext(ctx)
 	apiKeyID = strings.TrimSpace(apiKeyID)
 	if apiKeyID == "" {
@@ -60,7 +60,7 @@ func (s *usageService) resolveAPIGroupKey(ctx context.Context, apiKeyID string) 
 	if err != nil || parsedID <= 0 {
 		return "", ErrInvalidID
 	}
-	apiKey, err := repository.FindActiveCPAAPIKeyByID(s.db.WithContext(ctx), parsedID)
+	apiKey, err := repository.FindActiveCPAAPIKeyByIDForInstance(s.db.WithContext(ctx), parsedID, instanceID)
 	if err != nil {
 		return "", err
 	}
@@ -70,11 +70,12 @@ func (s *usageService) resolveAPIGroupKey(ctx context.Context, apiKeyID string) 
 // Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
 func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		InstanceID:   filter.InstanceID,
 		Range:        filter.Range,
 		CustomUnit:   filter.CustomUnit,
 		StartTime:    filter.StartTime,
@@ -109,7 +110,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 // GetUsageActivity 用统一时间条件选择档位；today/yesterday 额外保留本地自然日边界。
 func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageActivitySnapshot, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +137,7 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 		// Today/Yesterday 只改变网格终点，仍复用普通 Activity 聚合查询。
 		referenceEnd = filter.StartTime.AddDate(0, 0, 1)
 	}
-	grid, err := repository.QueryUsageActivityGrid(ctx, s.db, grain, referenceEnd, dataEnd, apiGroupKey)
+	grid, err := repository.QueryUsageActivityGridForInstance(ctx, s.db, filter.InstanceID, grain, referenceEnd, dataEnd, apiGroupKey)
 	if err != nil {
 		return nil, err
 	}
@@ -240,11 +241,12 @@ func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageAc
 
 func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
 	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		InstanceID:      filter.InstanceID,
 		RealtimeWindow:  filter.RealtimeWindow,
 		RealtimeEndTime: filter.RealtimeEndTime,
 		APIGroupKey:     apiGroupKey,
@@ -438,12 +440,13 @@ func mapRealtimeUsageTopItems(items []repodto.RealtimeUsageTopItemRecord) []serv
 	result := make([]servicedto.RealtimeUsageTopItem, 0, len(items))
 	for _, item := range items {
 		result = append(result, servicedto.RealtimeUsageTopItem{
-			Key:      item.Key,
-			Label:    item.Label,
-			Tokens:   item.Tokens,
-			Requests: item.Requests,
-			CostUSD:  item.CostUSD,
-			Share:    item.Share,
+			InstanceID: item.InstanceID,
+			Key:        item.Key,
+			Label:      item.Label,
+			Tokens:     item.Tokens,
+			Requests:   item.Requests,
+			CostUSD:    item.CostUSD,
+			Share:      item.Share,
 		})
 	}
 	return result
@@ -477,11 +480,12 @@ func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []ser
 
 func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		InstanceID:   filter.InstanceID,
 		Range:        filter.Range,
 		CustomUnit:   filter.CustomUnit,
 		StartTime:    filter.StartTime,
@@ -497,11 +501,12 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 
 func (s *usageService) GetAnalysisLatency(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisLatencyDiagnostics, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		InstanceID:   filter.InstanceID,
 		Range:        filter.Range,
 		CustomUnit:   filter.CustomUnit,
 		StartTime:    filter.StartTime,
@@ -554,6 +559,7 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 	heatmap := make([]servicedto.AnalysisHeatmapCell, 0, len(record.Heatmap))
 	for _, cell := range record.Heatmap {
 		heatmap = append(heatmap, servicedto.AnalysisHeatmapCell{
+			InstanceID:          cell.InstanceID,
 			APIKey:              cell.APIKey,
 			Model:               cell.Model,
 			InputTokens:         cell.InputTokens,
@@ -640,6 +646,7 @@ func mapAnalysisLatencyDiagnosticsRecord(record repodto.AnalysisLatencyDiagnosti
 
 func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servicedto.AnalysisCompositionItem {
 	return servicedto.AnalysisCompositionItem{
+		InstanceID:          item.InstanceID,
 		Key:                 item.Key,
 		Label:               item.Label,
 		TotalTokens:         item.TotalTokens,
@@ -657,11 +664,12 @@ func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servic
 // Usage 页面里的 Request Event Log tab 下传分页、列表筛选条件和全局 API-Key。
 func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
 	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		InstanceID:   filter.InstanceID,
 		Range:        filter.Range,
 		CustomUnit:   filter.CustomUnit,
 		StartTime:    filter.StartTime,
@@ -683,6 +691,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 	for _, row := range page.Events {
 		result = append(result, servicedto.UsageEventRecord{
 			ID:                  row.ID,
+			InstanceID:          row.InstanceID,
 			Timestamp:           row.Timestamp,
 			APIGroupKey:         row.APIGroupKey,
 			Model:               row.Model,
@@ -720,11 +729,12 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 // StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。
 func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.UsageFilter, emit func(servicedto.UsageEventRecord) error) error {
 	ctx = usageServiceContext(ctx)
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.APIKeyID)
+	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
 	if err != nil {
 		return err
 	}
 	return repository.StreamUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		InstanceID:   filter.InstanceID,
 		Range:        filter.Range,
 		CustomUnit:   filter.CustomUnit,
 		StartTime:    filter.StartTime,
@@ -737,6 +747,7 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 	}, func(row repodto.UsageEventRecord) error {
 		return emit(servicedto.UsageEventRecord{
 			ID:                  row.ID,
+			InstanceID:          row.InstanceID,
 			Timestamp:           row.Timestamp,
 			APIGroupKey:         row.APIGroupKey,
 			Model:               row.Model,
@@ -774,6 +785,7 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
 	ctx = usageServiceContext(ctx)
 	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		InstanceID:   filter.InstanceID,
 		Range:        filter.Range,
 		CustomUnit:   filter.CustomUnit,
 		StartTime:    filter.StartTime,

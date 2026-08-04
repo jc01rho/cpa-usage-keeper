@@ -15,6 +15,7 @@ import (
 
 // analysisOverviewStatProjection 同时承接 hourly 与 daily 聚合表的 Analysis 窄投影。
 type analysisOverviewStatProjection struct {
+	InstanceID          string
 	BucketStart         time.Time
 	APIGroupKey         string
 	Model               string
@@ -35,6 +36,7 @@ type analysisOverviewStatProjection struct {
 }
 
 var analysisOverviewProjectionFixedColumns = [...]string{
+	"instance_id",
 	"bucket_start",
 	"api_group_key",
 	"model",
@@ -69,22 +71,26 @@ func analysisOverviewProjectionColumns(activeFields pricing.ActiveFields) string
 
 func loadAnalysisOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
-		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
-	return loadAnalysisOverviewStatProjection(query, filter, start, end, "hourly", activeFields)
+		Joins("LEFT JOIN cpa_api_keys ON cpa_api_keys.instance_id = usage_overview_hourly_stats.instance_id AND cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key")
+	return loadAnalysisOverviewStatProjection(query, filter, start, end, "hourly", "usage_overview_hourly_stats", activeFields)
 }
 
 func loadAnalysisOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
 	query := db.Model(&entities.UsageOverviewDailyStat{}).
-		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
-	return loadAnalysisOverviewStatProjection(query, filter, start, end, "daily", activeFields)
+		Joins("LEFT JOIN cpa_api_keys ON cpa_api_keys.instance_id = usage_overview_daily_stats.instance_id AND cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key")
+	return loadAnalysisOverviewStatProjection(query, filter, start, end, "daily", "usage_overview_daily_stats", activeFields)
 }
 
-func loadAnalysisOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain string, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
+func loadAnalysisOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, grain, table string, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
 	rows := make([]analysisOverviewStatProjection, 0)
+	columns := strings.Replace(analysisOverviewProjectionColumns(activeFields), "instance_id", table+".instance_id AS instance_id", 1)
 	query = query.
-		Select(analysisOverviewProjectionColumns(activeFields)).
+		Select(columns).
 		Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
 		Order("bucket_start asc")
+	if instanceID := strings.TrimSpace(filter.InstanceID); instanceID != "" {
+		query = query.Where(table+".instance_id = ?", instanceID)
+	}
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}

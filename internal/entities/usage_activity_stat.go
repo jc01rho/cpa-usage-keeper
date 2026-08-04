@@ -20,14 +20,16 @@ const (
 type UsageActivityStat struct {
 	// ID 是 Activity 稀疏聚合行的自增主键。
 	ID int64 `gorm:"primaryKey"`
+	// InstanceID separates otherwise identical source dimensions.
+	InstanceID string `gorm:"type:text;not null;default:00000000-0000-7000-8000-000000000000;uniqueIndex:uniq_usage_activity_stats_instance_grain_start_api,priority:1;index:idx_usage_activity_stats_instance_id"`
 	// Grain 区分 short、medium、long 和 daily 四套互不混用的边界。
-	Grain UsageActivityGrain `gorm:"type:text;not null;check:chk_usage_activity_stats_grain,grain IN ('short','medium','long','daily');uniqueIndex:uniq_usage_activity_stats_grain_start_api,priority:1;index:idx_usage_activity_stats_api_grain_start,priority:2;index:idx_usage_activity_stats_grain_end,priority:1"`
+	Grain UsageActivityGrain `gorm:"type:text;not null;check:chk_usage_activity_stats_grain,grain IN ('short','medium','long','daily');uniqueIndex:uniq_usage_activity_stats_instance_grain_start_api,priority:2;index:idx_usage_activity_stats_api_grain_start,priority:2;index:idx_usage_activity_stats_grain_end,priority:1"`
 	// BucketStart 保存半开区间的真实起点，查询端不得重新推算。
-	BucketStart time.Time `gorm:"serializer:sortableTime;not null;check:chk_usage_activity_stats_bucket_bounds,bucket_start < bucket_end;uniqueIndex:uniq_usage_activity_stats_grain_start_api,priority:2;index:idx_usage_activity_stats_api_grain_start,priority:3"`
+	BucketStart time.Time `gorm:"serializer:sortableTime;not null;check:chk_usage_activity_stats_bucket_bounds,bucket_start < bucket_end;uniqueIndex:uniq_usage_activity_stats_instance_grain_start_api,priority:3;index:idx_usage_activity_stats_api_grain_start,priority:3"`
 	// BucketEnd 保存半开区间的真实终点，并作为 retention cleanup 的时间列。
 	BucketEnd time.Time `gorm:"serializer:sortableTime;not null;index:idx_usage_activity_stats_grain_end,priority:2"`
 	// APIGroupKey 保持与现有 Overview/API Key 过滤完全相同的维度。
-	APIGroupKey string `gorm:"not null;uniqueIndex:uniq_usage_activity_stats_grain_start_api,priority:3;index:idx_usage_activity_stats_api_grain_start,priority:1"`
+	APIGroupKey string `gorm:"not null;uniqueIndex:uniq_usage_activity_stats_instance_grain_start_api,priority:4;index:idx_usage_activity_stats_api_grain_start,priority:1"`
 	// SuccessCount 累计当前 bucket 内成功请求数。
 	SuccessCount int64 `gorm:"not null;default:0"`
 	// FailureCount 累计当前 bucket 内失败请求数。

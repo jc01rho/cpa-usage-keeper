@@ -10,6 +10,7 @@ import (
 )
 
 type aggregateKey struct {
+	InstanceID          string
 	BucketStart         time.Time
 	APIGroupKey         string
 	Model               string
@@ -36,6 +37,7 @@ func BuildRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat
 		}
 		// 所有字符串维度在进入唯一键前统一清理首尾空白。
 		dimensions := aggregateKey{
+			InstanceID:          event.InstanceID,
 			APIGroupKey:         normalizeRequiredDimension(event.APIGroupKey),
 			Model:               normalizeRequiredDimension(event.Model),
 			AuthIndex:           normalizeOptionalDimension(event.AuthIndex),
@@ -60,7 +62,7 @@ func BuildRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat
 		// 第一次遇到最终唯一键时创建维度完整的稀疏行。
 		if hourly[hourKey] == nil {
 			hourly[hourKey] = &entities.UsageOverviewHourlyStat{
-				BucketStart: hourKey.BucketStart, APIGroupKey: hourKey.APIGroupKey, Model: hourKey.Model,
+				InstanceID: hourKey.InstanceID, BucketStart: hourKey.BucketStart, APIGroupKey: hourKey.APIGroupKey, Model: hourKey.Model,
 				AuthIndex: hourKey.AuthIndex, ModelAlias: hourKey.ModelAlias, ServiceTier: hourKey.ServiceTier,
 				ResponseServiceTier: hourKey.ResponseServiceTier, ReasoningEffort: hourKey.ReasoningEffort,
 				Endpoint: hourKey.Endpoint, ExecutorType: hourKey.ExecutorType,
@@ -68,7 +70,7 @@ func BuildRows(events []entities.UsageEvent) ([]entities.UsageOverviewHourlyStat
 		}
 		if daily[dayKey] == nil {
 			daily[dayKey] = &entities.UsageOverviewDailyStat{
-				BucketStart: dayKey.BucketStart, APIGroupKey: dayKey.APIGroupKey, Model: dayKey.Model,
+				InstanceID: dayKey.InstanceID, BucketStart: dayKey.BucketStart, APIGroupKey: dayKey.APIGroupKey, Model: dayKey.Model,
 				AuthIndex: dayKey.AuthIndex, ModelAlias: dayKey.ModelAlias, ServiceTier: dayKey.ServiceTier,
 				ResponseServiceTier: dayKey.ResponseServiceTier, ReasoningEffort: dayKey.ReasoningEffort,
 				Endpoint: dayKey.Endpoint, ExecutorType: dayKey.ExecutorType,
@@ -142,19 +144,22 @@ func addEventToDailyRow(row *entities.UsageOverviewDailyStat, event entities.Usa
 
 func hourlyRowLess(left, right entities.UsageOverviewHourlyStat) bool {
 	return dimensionsLess(
-		aggregateKey{left.BucketStart, left.APIGroupKey, left.Model, left.AuthIndex, left.ModelAlias, left.ServiceTier, left.ResponseServiceTier, left.ReasoningEffort, left.Endpoint, left.ExecutorType},
-		aggregateKey{right.BucketStart, right.APIGroupKey, right.Model, right.AuthIndex, right.ModelAlias, right.ServiceTier, right.ResponseServiceTier, right.ReasoningEffort, right.Endpoint, right.ExecutorType},
+		aggregateKey{left.InstanceID, left.BucketStart, left.APIGroupKey, left.Model, left.AuthIndex, left.ModelAlias, left.ServiceTier, left.ResponseServiceTier, left.ReasoningEffort, left.Endpoint, left.ExecutorType},
+		aggregateKey{right.InstanceID, right.BucketStart, right.APIGroupKey, right.Model, right.AuthIndex, right.ModelAlias, right.ServiceTier, right.ResponseServiceTier, right.ReasoningEffort, right.Endpoint, right.ExecutorType},
 	)
 }
 
 func dailyRowLess(left, right entities.UsageOverviewDailyStat) bool {
 	return dimensionsLess(
-		aggregateKey{left.BucketStart, left.APIGroupKey, left.Model, left.AuthIndex, left.ModelAlias, left.ServiceTier, left.ResponseServiceTier, left.ReasoningEffort, left.Endpoint, left.ExecutorType},
-		aggregateKey{right.BucketStart, right.APIGroupKey, right.Model, right.AuthIndex, right.ModelAlias, right.ServiceTier, right.ResponseServiceTier, right.ReasoningEffort, right.Endpoint, right.ExecutorType},
+		aggregateKey{left.InstanceID, left.BucketStart, left.APIGroupKey, left.Model, left.AuthIndex, left.ModelAlias, left.ServiceTier, left.ResponseServiceTier, left.ReasoningEffort, left.Endpoint, left.ExecutorType},
+		aggregateKey{right.InstanceID, right.BucketStart, right.APIGroupKey, right.Model, right.AuthIndex, right.ModelAlias, right.ServiceTier, right.ResponseServiceTier, right.ReasoningEffort, right.Endpoint, right.ExecutorType},
 	)
 }
 
 func dimensionsLess(left, right aggregateKey) bool {
+	if left.InstanceID != right.InstanceID {
+		return left.InstanceID < right.InstanceID
+	}
 	if !left.BucketStart.Equal(right.BucketStart) {
 		return left.BucketStart.Before(right.BucketStart)
 	}

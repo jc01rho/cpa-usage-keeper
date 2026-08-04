@@ -15,9 +15,10 @@ const (
 // UsageLatencyStat 保存可合并分位 Sketch、精确最大值和有界真实散点。
 type UsageLatencyStat struct {
 	ID            int64                  `gorm:"primaryKey"`
-	BucketType    UsageLatencyBucketType `gorm:"type:text;not null;check:chk_usage_latency_stats_bucket_type,bucket_type IN ('hour','day');uniqueIndex:uniq_usage_latency_stats_bucket_api,priority:1;index:idx_usage_latency_stats_type_start,priority:1;index:idx_usage_latency_stats_api_type_start,priority:2"`
-	BucketStart   time.Time              `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_latency_stats_bucket_api,priority:2;index:idx_usage_latency_stats_type_start,priority:2;index:idx_usage_latency_stats_api_type_start,priority:3"`
-	APIGroupKey   string                 `gorm:"not null;uniqueIndex:uniq_usage_latency_stats_bucket_api,priority:3;index:idx_usage_latency_stats_api_type_start,priority:1"`
+	InstanceID    string                 `gorm:"type:text;not null;default:00000000-0000-7000-8000-000000000000;uniqueIndex:uniq_usage_latency_stats_instance_bucket_api,priority:1;index:idx_usage_latency_stats_instance_id"`
+	BucketType    UsageLatencyBucketType `gorm:"type:text;not null;check:chk_usage_latency_stats_bucket_type,bucket_type IN ('hour','day');uniqueIndex:uniq_usage_latency_stats_instance_bucket_api,priority:2;index:idx_usage_latency_stats_type_start,priority:1;index:idx_usage_latency_stats_api_type_start,priority:2"`
+	BucketStart   time.Time              `gorm:"serializer:storageTime;not null;uniqueIndex:uniq_usage_latency_stats_instance_bucket_api,priority:3;index:idx_usage_latency_stats_type_start,priority:2;index:idx_usage_latency_stats_api_type_start,priority:3"`
+	APIGroupKey   string                 `gorm:"not null;uniqueIndex:uniq_usage_latency_stats_instance_bucket_api,priority:4;index:idx_usage_latency_stats_api_type_start,priority:1"`
 	SampleCount   int64                  `gorm:"not null;default:0"`
 	MaxTTFTMS     int64                  `gorm:"column:max_ttft_ms;not null;default:0"`
 	MaxLatencyMS  int64                  `gorm:"not null;default:0"`

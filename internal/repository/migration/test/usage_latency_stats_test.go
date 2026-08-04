@@ -70,12 +70,12 @@ func TestUsageLatencyStatsMigrationResumesAfterCommittedPage(t *testing.T) {
 	}
 	db := openUsageLatencyMigrationDatabaseAt(t, "latency-resume.db", now)
 	prepareUsageLatencyMigrationDatabase(t, db, events)
-	if err := db.AutoMigrate(&entities.UsageLatencyStat{}); err != nil {
+	if err := db.AutoMigrate(&legacyLatencyStatForTest{}); err != nil {
 		t.Fatalf("create latency table before trigger: %v", err)
 	}
 	if err := db.Exec(`CREATE TRIGGER fail_latency_second_page
 		BEFORE INSERT ON usage_latency_stats
-		WHEN NEW.api_group_key = 'fail-key'
+		WHEN NEW.api_group_key = 'fail-key' AND NEW.bucket_type = 'hour'
 		BEGIN
 			SELECT RAISE(ABORT, 'forced latency migration failure');
 		END`).Error; err != nil {
@@ -202,6 +202,7 @@ func assertUsageLatencyRowsEqual(t *testing.T, expected, actual []entities.Usage
 		left := expected[index]
 		right := actual[index]
 		left.ID, right.ID = 0, 0
+		left.InstanceID, right.InstanceID = "", ""
 		left.CreatedAt, right.CreatedAt = time.Time{}, time.Time{}
 		left.UpdatedAt, right.UpdatedAt = time.Time{}, time.Time{}
 		if !reflect.DeepEqual(left, right) {

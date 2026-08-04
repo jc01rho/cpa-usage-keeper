@@ -16,6 +16,7 @@ import (
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/plugin/dbresolver"
 )
 
@@ -137,6 +138,17 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	if !databaseExists || !hasTables {
 		if err := db.AutoMigrate(entities.All()...); err != nil {
 			return nil, fmt.Errorf("auto migrate fresh database: %w", err)
+		}
+		now := timeutil.NormalizeStorageTime(time.Now())
+		legacy := entities.CPAInstance{
+			ID: entities.LegacyCPAInstanceID, DisplayName: entities.LegacyCPAInstanceName, Enabled: true,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&legacy).Error; err != nil {
+			return nil, fmt.Errorf("seed legacy CPA instance: %w", err)
+		}
+		if err := migration.EnsureCPAInstanceIntegrity(db); err != nil {
+			return nil, fmt.Errorf("enforce CPA instance integrity: %w", err)
 		}
 		if err := migration.MarkAllAsApplied(db); err != nil {
 			return nil, fmt.Errorf("mark schema migrations applied: %w", err)
@@ -316,6 +328,9 @@ func InsertUsageEvents(db *gorm.DB, events []entities.UsageEvent) (int, int, err
 			batch := events[start:end]
 			// 入库前统一规范时间，确保 storageTime 字符串比较和后续增量聚合使用同一时区语义。
 			for index := range batch {
+				if batch[index].InstanceID == "" {
+					batch[index].InstanceID = entities.LegacyCPAInstanceID
+				}
 				batch[index].Timestamp = timeutil.NormalizeStorageTime(batch[index].Timestamp)
 			}
 
@@ -368,10 +383,10 @@ func CleanupStorage(db *gorm.DB, now time.Time) (dto.StorageCleanupResult, error
 	return result, nil
 }
 
-func usageEventAggregationsCaughtUp(tx *gorm.DB) (bool, error) {
-	// 当前最大 event ID 是三个全局 checkpoint 和每行 Identity cursor 的共同安全目标。
+func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string) (bool, error) {
+	// 当前实例最大 event ID 是三个 checkpoint 和每行 Identity cursor 的共同安全目标。
 	var maxEventID int64
-	if err := tx.Model(&entities.UsageEvent{}).Select("COALESCE(MAX(id), 0)").Scan(&maxEventID).Error; err != nil {
+	if err := tx.Model(&entities.UsageEvent{}).Where("instance_id = ?", instanceID).Select("COALESCE(MAX(id), 0)").Scan(&maxEventID).Error; err != nil {
 		return false, fmt.Errorf("load usage event archive watermark: %w", err)
 	}
 	// 空 hot 表没有待聚合数据，也没有需要归档的事件。
@@ -386,7 +401,7 @@ func usageEventAggregationsCaughtUp(tx *gorm.DB) (bool, error) {
 		entities.UsageAggregationCheckpointActivity,
 		entities.UsageAggregationCheckpointLatency,
 	}
-	if err := tx.Where("name IN ?", names).Find(&checkpoints).Error; err != nil {
+	if err := tx.Where("instance_id = ? AND name IN ?", instanceID, names).Find(&checkpoints).Error; err != nil {
 		return false, fmt.Errorf("load usage aggregation archive watermarks: %w", err)
 	}
 	// 缺行、重复异常或任一 cursor 落后都必须保守保留 raw events。
@@ -401,7 +416,7 @@ func usageEventAggregationsCaughtUp(tx *gorm.DB) (bool, error) {
 	}
 
 	// Identity 没有全局 checkpoint；复用兼容追赶的同一 EXISTS 判断，但保持在当前 archive 事务内读取。
-	pendingIdentity, err := hasPendingUsageIdentityAggregation(tx)
+	pendingIdentity, err := hasPendingUsageIdentityAggregationForInstance(tx, instanceID)
 	if err != nil {
 		return false, fmt.Errorf("check identity archive watermark: %w", err)
 	}
