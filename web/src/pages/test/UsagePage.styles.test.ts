@@ -109,7 +109,7 @@ describe('UsagePage toolbar styles', () => {
   it('routes Analysis and Activity cards through the global surface and heading contract', () => {
     const analysisChartSurface = styleRuleBlock(analysisPanelStyles, '\n.analysisChartSurface {')
 
-    expect(analysisPanelSource.match(/keeper-card-surface/g)).toHaveLength(6)
+    expect(analysisPanelSource.match(/keeper-card-surface/g)).toHaveLength(7)
     expect(analysisPanelSource).toContain('keeper-card-title-track')
     expect(analysisPanelSource).toContain('keeper-card-title')
     expect(analysisPanelSource).toContain('keeper-card-subtitle')
@@ -137,6 +137,18 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('<MainActionButton')
     expect(keyOverviewPageSource).toContain("import { MainActionButton } from '@/components/ui/MainActionButton'")
     expect(keyOverviewPageSource).toContain('<MainActionButton')
+  })
+
+  it('patches the local ranking cache by Key ID after a settings alias save', () => {
+    const start = usagePageSource.indexOf('const handleSaveApiKeyAlias = useCallback')
+    const end = usagePageSource.indexOf('\n  const handleRevokeAuthSession', start)
+    expect(start).toBeGreaterThanOrEqual(0)
+    expect(end).toBeGreaterThan(start)
+
+    const handler = usagePageSource.slice(start, end)
+    expect(handler).toContain('patchLocalRankingProfileCache(updated.id, {')
+    expect(handler).toContain('key_alias: updated.keyAlias')
+    expect(handler).toContain('display_name: updated.label')
   })
 
   it('removes obsolete Last Updated presentation and API plumbing', () => {

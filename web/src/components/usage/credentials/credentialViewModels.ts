@@ -8,7 +8,9 @@ const THIRTY_DAY_WINDOW_SECONDS = 30 * 24 * 60 * 60
 const AVERAGE_MONTH_WINDOW_SECONDS = 365 * 24 * 60 * 60 / 12
 
 type QuotaStatus = 'ok' | 'warning' | 'danger' | 'unknown'
-export type PlanTypeTone = 'free' | 'team' | 'plus' | 'pro' | 'neutral'
+export type PlanTypeTone = 'free' | 'team' | 'plus' | 'pro5x' | 'pro20x' | 'enterprise' | 'neutral'
+
+const CODEX_PRO_5X_PLAN_TYPES = new Set(['prolite', 'pro-lite', 'pro_lite'])
 
 export interface QuotaWindowUsageDisplay {
   tokens: string
@@ -465,18 +467,30 @@ function credentialPlanTypeLabel(planType?: string): string | undefined {
   if (!tone) {
     return undefined
   }
+  if (tone === 'pro5x') {
+    return 'Pro 5x'
+  }
+  if (tone === 'pro20x') {
+    return 'Pro 20x'
+  }
   const label = tone === 'neutral' ? firstNonEmpty(planType) : tone
   return label ? label.charAt(0).toUpperCase() + label.slice(1) : undefined
 }
 
 function credentialPlanTypeTone(planType?: string): PlanTypeTone | undefined {
-  // planType 展示只做宽松匹配和样式分类，不改变后端原始字段。
+  // 与 CPAMC 保持同一展示契约：pro 是 20x，pro-lite 的三种拼法是 5x。
   const normalized = planType?.trim().toLowerCase()
   if (!normalized) {
     return undefined
   }
-  if (normalized.includes('pro')) {
-    return 'pro'
+  if (normalized === 'pro') {
+    return 'pro20x'
+  }
+  if (CODEX_PRO_5X_PLAN_TYPES.has(normalized)) {
+    return 'pro5x'
+  }
+  if (normalized === 'enterprise') {
+    return 'enterprise'
   }
   if (normalized === 'plus') {
     return 'plus'

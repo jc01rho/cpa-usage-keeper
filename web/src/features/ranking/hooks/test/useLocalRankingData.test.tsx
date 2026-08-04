@@ -133,4 +133,77 @@ describe('useLocalRankingData', () => {
     expect(calls).toBe(2);
     expect(latest?.leaderboard?.entries[0]?.value).toBe(92);
   });
+
+  it('updates every cached occurrence of a saved Key profile immediately', async () => {
+	const updateProfile = vi.fn(async () => ({
+		participant_id: '1', key_alias: 'Renamed', display_name: 'Renamed', avatar_id: 42,
+	}));
+	const api: LocalRankingDataAPI = {
+		leaderboard: async (period, metric) => board(period, metric),
+		updateProfile,
+	};
+
+	await renderHook(true, 'today', 'overall', api);
+	await act(async () => latest?.updateProfile('1', { key_alias: 'Renamed', avatar_id: 42 }));
+
+	expect(updateProfile).toHaveBeenCalledWith('1', { key_alias: 'Renamed', avatar_id: 42 }, undefined);
+    expect(latest?.leaderboard?.entries[0]).toMatchObject({
+      participant_id: '1', key_alias: 'Renamed', display_name: 'Renamed', avatar_id: 42,
+    });
+  });
+
+  it('keeps a settings alias patch when the local board reload fails', async () => {
+    let shouldFail = false;
+    const api: LocalRankingDataAPI = {
+      leaderboard: async (period, metric) => {
+        if (shouldFail) throw new Error('local board unavailable');
+        return board(period, metric);
+      },
+    };
+
+    await renderHook(true, 'today', 'overall', api);
+    await renderHook(false, 'today', 'overall', api);
+    await act(async () => latest?.patchProfileCache('1', {
+      key_alias: 'Settings Alias',
+      display_name: 'Settings Alias',
+    }));
+    shouldFail = true;
+    await renderHook(true, 'today', 'overall', api);
+
+    expect(latest?.leaderboard).toMatchObject({ stale: true });
+    expect(latest?.leaderboard?.entries[0]).toMatchObject({
+      participant_id: '1',
+      key_alias: 'Settings Alias',
+      display_name: 'Settings Alias',
+      avatar_id: 1,
+    });
+  });
+
+  it('does not let an older in-flight board overwrite a saved Key profile', async () => {
+    const pendingRefresh = deferred<RankingLeaderboardResponse>();
+    let leaderboardCalls = 0;
+    const api: LocalRankingDataAPI = {
+      leaderboard: async (period, metric) => {
+        leaderboardCalls += 1;
+        return leaderboardCalls === 1 ? board(period, metric) : pendingRefresh.promise;
+      },
+      updateProfile: async () => ({
+        participant_id: '1', key_alias: 'Renamed', display_name: 'Renamed', avatar_id: 42,
+      }),
+    };
+
+    await renderHook(true, 'today', 'overall', api);
+    let pendingLoad: Promise<RankingLeaderboardResponse | null> | undefined;
+    await act(async () => {
+      pendingLoad = latest?.refreshLeaderboard();
+    });
+    await act(async () => latest?.updateProfile('1', { key_alias: 'Renamed', avatar_id: 42 }));
+    await act(async () => pendingRefresh.resolve(board('today', 'overall')));
+    await pendingLoad;
+
+    expect(latest?.leaderboard?.entries[0]).toMatchObject({
+      key_alias: 'Renamed', display_name: 'Renamed', avatar_id: 42,
+    });
+    expect(latest?.leaderboardLoading).toBe(false);
+  });
 });

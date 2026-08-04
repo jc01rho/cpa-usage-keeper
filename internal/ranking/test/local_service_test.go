@@ -2,6 +2,8 @@ package test
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,6 +21,8 @@ import (
 type localRankingQueryCounter struct {
 	usageEventReads int
 }
+
+type localProfileUpdateNameContextKey struct{}
 
 func (l *localRankingQueryCounter) LogMode(logger.LogLevel) logger.Interface { return l }
 func (l *localRankingQueryCounter) Info(context.Context, string, ...any)     {}
@@ -89,6 +93,115 @@ func TestLocalRankingServiceBuildsTodayWithoutBackfillingOlderPeriods(t *testing
 	for _, entry := range overall.Entries {
 		if entry.Value < 0 || entry.Value > 100 || len(entry.Metrics) != 7 {
 			t.Fatalf("invalid local overall entry: %+v", entry)
+		}
+	}
+}
+
+func TestLocalRankingProfileKeepsDefaultAvatarUntilAnOverrideIsSaved(t *testing.T) {
+	location := localRankingLocation(t)
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, location)
+	db := openLocalRankingDatabase(t, "local-profile.db")
+	keys := seedLocalRankingAPIKeys(t, db)
+	if err := db.Create(&entities.LocalRankingPeriodStat{
+		PeriodKind: entities.LocalRankingPeriodDay, PeriodKey: "2026-08-03", APIKeyID: keys[0].ID,
+		RequestCount: 1, TotalTokens: 100, UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("seed local ranking profile stats: %v", err)
+	}
+	service := newLocalRankingService(t, db, func() time.Time { return now })
+
+	before := loadLocalBoard(t, service, ranking.LeaderboardToday, ranking.MetricTotalTokens)
+	if len(before.Entries) != 1 || before.Entries[0].AvatarID != 1 || before.Entries[0].KeyAlias != "Alpha" {
+		t.Fatalf("default local profile did not use the stable ID mapping: %+v", before.Entries)
+	}
+
+	profile, err := service.UpdateProfile(context.Background(), keys[0].ID, "  Renamed Key  ", 42)
+	if err != nil {
+		t.Fatalf("update local ranking profile: %v", err)
+	}
+	if profile.ParticipantID != "1" || profile.KeyAlias != "Renamed Key" || profile.DisplayName != "Renamed Key" || profile.AvatarID != 42 {
+		t.Fatalf("unexpected updated local profile: %+v", profile)
+	}
+	after := loadLocalBoard(t, service, ranking.LeaderboardToday, ranking.MetricTotalTokens)
+	if len(after.Entries) != 1 || after.Entries[0].DisplayName != "Renamed Key" || after.Entries[0].KeyAlias != "Renamed Key" || after.Entries[0].AvatarID != 42 {
+		t.Fatalf("saved local profile was not projected into the board: %+v", after.Entries)
+	}
+	var stored entities.CPAAPIKey
+	if err := db.First(&stored, keys[0].ID).Error; err != nil {
+		t.Fatalf("reload local ranking profile: %v", err)
+	}
+	if stored.LocalRankingAvatarID == nil || *stored.LocalRankingAvatarID != 42 || stored.KeyAlias != "Renamed Key" {
+		t.Fatalf("local ranking profile was not bound to the key: %+v", stored)
+	}
+
+	for _, invalid := range []struct {
+		name     string
+		alias    string
+		avatarID uint8
+	}{
+		{name: "missing avatar", alias: "Valid", avatarID: 0},
+		{name: "avatar outside catalog", alias: "Valid", avatarID: 67},
+		{name: "control character", alias: "Bad\u0001Alias", avatarID: 1},
+		{name: "long alias", alias: strings.Repeat("a", 129), avatarID: 1},
+	} {
+		t.Run(invalid.name, func(t *testing.T) {
+			if _, err := service.UpdateProfile(context.Background(), keys[0].ID, invalid.alias, invalid.avatarID); !errors.Is(err, ranking.ErrInvalidLocalProfile) {
+				t.Fatalf("UpdateProfile error = %v, want ErrInvalidLocalProfile", err)
+			}
+		})
+	}
+}
+
+func TestLocalRankingProfileConcurrentUpdatesReturnCoherentRows(t *testing.T) {
+	db := openLocalRankingDatabase(t, "local-profile-concurrent.db")
+	keys := seedLocalRankingAPIKeys(t, db)
+	firstQueryReached := make(chan struct{})
+	secondUpdateDone := make(chan struct{})
+	if err := db.Callback().Query().Before("gorm:query").Register("test:block_non_transactional_profile_read", func(tx *gorm.DB) {
+		if tx.Statement.Context.Value(localProfileUpdateNameContextKey{}) != "first" {
+			return
+		}
+		close(firstQueryReached)
+		// 旧实现的回读已经离开写事务，可以让第二次保存插入其间；事务内回读则无需阻塞。
+		if _, inTransaction := tx.Statement.ConnPool.(*sql.Tx); !inTransaction {
+			<-secondUpdateDone
+		}
+	}); err != nil {
+		t.Fatalf("register local profile concurrency callback: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Callback().Query().Remove("test:block_non_transactional_profile_read")
+	})
+	service := newLocalRankingService(t, db, time.Now)
+	type updateResult struct {
+		profile ranking.LocalProfile
+		err     error
+	}
+	firstResult := make(chan updateResult, 1)
+	go func() {
+		profile, err := service.UpdateProfile(
+			context.WithValue(context.Background(), localProfileUpdateNameContextKey{}, "first"),
+			keys[0].ID,
+			"First",
+			42,
+		)
+		firstResult <- updateResult{profile: profile, err: err}
+	}()
+	<-firstQueryReached
+	secondProfile, secondErr := service.UpdateProfile(context.Background(), keys[0].ID, "Second", 43)
+	close(secondUpdateDone)
+	first := <-firstResult
+	if first.err != nil || secondErr != nil {
+		t.Fatalf("concurrent local profile updates failed: first=%v second=%v", first.err, secondErr)
+	}
+	for name, profile := range map[string]ranking.LocalProfile{
+		"first":  first.profile,
+		"second": secondProfile,
+	} {
+		coherent := (profile.KeyAlias == "First" && profile.DisplayName == "First" && profile.AvatarID == 42) ||
+			(profile.KeyAlias == "Second" && profile.DisplayName == "Second" && profile.AvatarID == 43)
+		if !coherent {
+			t.Fatalf("%s update returned a mixed profile: %+v", name, profile)
 		}
 	}
 }

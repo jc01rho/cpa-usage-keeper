@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRankingPreviewAPI, resolveLocalRankingPreviewAPI, resolveRankingPreviewAPI } from '../previewMock';
+import { createLocalRankingPreviewAPI, createRankingPreviewAPI, resolveLocalRankingPreviewAPI, resolveRankingPreviewAPI } from '../previewMock';
 
 describe('Ranking preview mock', () => {
   it('stays disabled unless the local preview build explicitly enables it', () => {
@@ -13,6 +13,21 @@ describe('Ranking preview mock', () => {
     const api = resolveLocalRankingPreviewAPI('true');
     const board = await api?.leaderboard('today', 'overall');
     expect(board?.entries[0]?.value).toBeLessThanOrEqual(100);
+  });
+
+  it('keeps local preview alias and avatar edits across leaderboard reloads', async () => {
+    const api = createLocalRankingPreviewAPI();
+    const before = await api.leaderboard('today', 'overall');
+    const participantID = before.entries[0]!.participant_id;
+    await api.updateProfile?.(participantID, { key_alias: '', avatar_id: 42 });
+    const after = await api.leaderboard('today', 'overall');
+
+    expect(after.entries[0]).toMatchObject({
+      participant_id: participantID,
+      key_alias: '',
+      avatar_id: 42,
+    });
+    expect(after.entries[0]?.display_name).toMatch(/^sk-\*+/);
   });
 
   it('provides an active profile and complete leaderboard data for visual testing', async () => {
