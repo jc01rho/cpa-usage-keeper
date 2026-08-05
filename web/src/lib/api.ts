@@ -1,4 +1,4 @@
-import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CPAInstance, type CreateCPAInstanceRequest, type CreateCPAInstanceResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ListCPAInstancesResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CPAInstance, type CPAInstanceCredential, type CreateCPAInstanceRequest, type CreateCPAInstanceResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ListCPAInstanceCredentialsResponse, type ListCPAInstancesResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCPAInstanceRequest, type UpdateCPAInstanceResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
@@ -319,6 +319,43 @@ export async function createCPAInstance(request: CreateCPAInstanceRequest): Prom
     await parseApiError(response, `Failed to create CPA instance: ${response.status}`)
   }
   return response.json()
+}
+
+export async function updateCPAInstance(instanceId: string, request: UpdateCPAInstanceRequest): Promise<CPAInstance> {
+  const response = await apiFetch(apiPath(`/instances/${encodeURIComponent(instanceId)}`), {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to update CPA instance: ${response.status}`)
+  }
+  const payload = await response.json() as UpdateCPAInstanceResponse
+  return payload.instance
+}
+
+export async function fetchCPAInstanceCredentials(instanceId: string, signal?: AbortSignal): Promise<CPAInstanceCredential[]> {
+  const response = await apiFetch(apiPath(`/instances/${encodeURIComponent(instanceId)}/credentials`), {
+    signal,
+    cache: 'no-store',
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load CPA instance credentials: ${response.status}`)
+  }
+  const payload = await response.json() as ListCPAInstanceCredentialsResponse
+  return payload.credentials ?? []
+}
+
+export async function revokeCPAInstanceCredential(instanceId: string, credentialId: string): Promise<void> {
+  const response = await apiFetch(
+    apiPath(`/instances/${encodeURIComponent(instanceId)}/credentials/${encodeURIComponent(credentialId)}`),
+    { method: 'DELETE' },
+  )
+  if (!response.ok) {
+    await parseApiError(response, `Failed to revoke CPA instance credential: ${response.status}`)
+  }
 }
 
 const buildUsageRangeParams = (request: UsageRangeRequest): URLSearchParams => {

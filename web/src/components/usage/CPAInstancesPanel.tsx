@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { createCPAInstance, fetchCPAInstances } from '@/lib/api'
-import type { CPAInstance, IssuedCPACredential } from '@/lib/types'
+import {
+  createCPAInstance,
+  fetchCPAInstanceCredentials,
+  fetchCPAInstances,
+  revokeCPAInstanceCredential,
+  updateCPAInstance,
+} from '@/lib/api'
+import type { CPAInstance, CPAInstanceCredential, IssuedCPACredential } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -27,6 +33,11 @@ export function CPAInstancesPanel() {
   const [createError, setCreateError] = useState('')
   const [issuedCredential, setIssuedCredential] = useState<IssuedCPACredential | null>(null)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [managedInstance, setManagedInstance] = useState<CPAInstance | null>(null)
+  const [credentials, setCredentials] = useState<CPAInstanceCredential[]>([])
+  const [manageLoading, setManageLoading] = useState(false)
+  const [manageSaving, setManageSaving] = useState(false)
+  const [manageError, setManageError] = useState('')
 
   const loadInstances = useCallback(async () => {
     setLoading(true)
@@ -100,6 +111,57 @@ export function CPAInstancesPanel() {
     }
   }
 
+  const openManageModal = async (instance: CPAInstance) => {
+    setManagedInstance(instance)
+    setCredentials([])
+    setManageError('')
+    setManageLoading(true)
+    try {
+      setCredentials(await fetchCPAInstanceCredentials(instance.instanceId))
+    } catch (error) {
+      setManageError(error instanceof Error ? error.message : t('usage_stats.cpa_instances_credentials_load_failed'))
+    } finally {
+      setManageLoading(false)
+    }
+  }
+
+  const closeManageModal = () => {
+    if (manageSaving) return
+    setManagedInstance(null)
+    setManageError('')
+  }
+
+  const updateManagedInstance = async (enabled: boolean) => {
+    if (!managedInstance) return
+    setManageSaving(true)
+    setManageError('')
+    try {
+      const updated = await updateCPAInstance(managedInstance.instanceId, { enabled })
+      setManagedInstance(updated)
+      setInstances((current) => current.map((item) => item.instanceId === updated.instanceId ? updated : item))
+    } catch (error) {
+      setManageError(error instanceof Error ? error.message : t('usage_stats.cpa_instances_update_failed'))
+    } finally {
+      setManageSaving(false)
+    }
+  }
+
+  const revokeCredential = async (credential: CPAInstanceCredential) => {
+    if (!managedInstance) return
+    setManageSaving(true)
+    setManageError('')
+    try {
+      await revokeCPAInstanceCredential(managedInstance.instanceId, credential.credentialId)
+      setCredentials((current) => current.map((item) => item.credentialId === credential.credentialId
+        ? { ...item, active: false, revokedAt: new Date().toISOString() }
+        : item))
+    } catch (error) {
+      setManageError(error instanceof Error ? error.message : t('usage_stats.cpa_instances_revoke_failed'))
+    } finally {
+      setManageSaving(false)
+    }
+  }
+
   return (
     <>
       <Card
@@ -126,6 +188,9 @@ export function CPAInstancesPanel() {
                     {' · '}
                     {formatDate(instance.createdAt)}
                   </div>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => void openManageModal(instance)}>
+                    {t('usage_stats.cpa_instances_manage')}
+                  </Button>
                 </div>
               ))}
             </div>
@@ -191,6 +256,62 @@ export function CPAInstancesPanel() {
           {copyState === 'copied' ? t('usage_stats.cpa_instances_token_copied') : t('usage_stats.cpa_instances_copy_token')}
         </Button>
         {copyState === 'failed' && <div className="error-box">{t('usage_stats.cpa_instances_copy_failed')}</div>}
+      </Modal>
+
+      <Modal
+        open={managedInstance !== null}
+        title={t('usage_stats.cpa_instances_manage_title')}
+        onClose={closeManageModal}
+        closeDisabled={manageSaving}
+        footer={
+          <Button type="button" variant="secondary" onClick={closeManageModal} disabled={manageSaving}>
+            {t('common.close')}
+          </Button>
+        }
+      >
+        {managedInstance && (
+          <>
+            <p><strong>{managedInstance.displayName}</strong></p>
+            <div className="form-group">
+              <p>{managedInstance.enabled ? t('usage_stats.cpa_instances_enabled') : t('usage_stats.cpa_instances_disabled')}</p>
+              <Button
+                type="button"
+                variant={managedInstance.enabled ? 'danger' : 'primary'}
+                onClick={() => void updateManagedInstance(!managedInstance.enabled)}
+                loading={manageSaving}
+              >
+                {managedInstance.enabled ? t('usage_stats.cpa_instances_disable') : t('usage_stats.cpa_instances_enable')}
+              </Button>
+            </div>
+            <div className="form-group">
+              <strong>{t('usage_stats.cpa_instances_credentials')}</strong>
+              {manageLoading ? (
+                <p>{t('common.loading')}</p>
+              ) : credentials.length === 0 ? (
+                <p className="text-muted">{t('usage_stats.cpa_instances_credentials_empty')}</p>
+              ) : (
+                <div className="settings-list">
+                  {credentials.map((credential) => (
+                    <div className="settings-row" key={credential.credentialId}>
+                      <div>
+                        <strong>{credential.name}</strong>
+                        <div className="text-muted">{credential.scopes.join(', ')}</div>
+                      </div>
+                      {credential.active ? (
+                        <Button type="button" variant="danger" size="sm" disabled={manageSaving} onClick={() => void revokeCredential(credential)}>
+                          {t('usage_stats.cpa_instances_revoke')}
+                        </Button>
+                      ) : (
+                        <span className="text-muted">{t('usage_stats.cpa_instances_revoked')}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {manageError && <div className="error-box">{manageError}</div>}
       </Modal>
     </>
   )

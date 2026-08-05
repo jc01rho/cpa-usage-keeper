@@ -54,6 +54,17 @@ export interface IssuedCPACredential {
   expiresAt: string | null
 }
 
+export interface CPAInstanceCredential {
+  credentialId: string
+  name: string
+  scopes: string[]
+  active: boolean
+  createdAt: string
+  expiresAt: string | null
+  lastUsedAt: string | null
+  revokedAt: string | null
+}
+
 export interface ListCPAInstancesResponse {
   protocolVersion: string
   instances: CPAInstance[]
@@ -63,6 +74,21 @@ export interface CreateCPAInstanceResponse {
   protocolVersion: string
   instance: CPAInstance
   credential: IssuedCPACredential
+}
+
+export interface UpdateCPAInstanceRequest {
+  enabled?: boolean
+  displayName?: string
+}
+
+export interface UpdateCPAInstanceResponse {
+  protocolVersion: string
+  instance: CPAInstance
+}
+
+export interface ListCPAInstanceCredentialsResponse {
+  protocolVersion: string
+  credentials: CPAInstanceCredential[]
 }
 
 export interface StatusResponse {
