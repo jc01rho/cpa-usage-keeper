@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -28,9 +27,9 @@ func instanceFilterMiddleware(provider CPAInstanceProvider) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		values, present := c.Request.URL.Query()["instance_id"]
 		if !present {
-			selection := instanceFilterSelection{InstanceID: entities.LegacyCPAInstanceID, InstanceName: entities.LegacyCPAInstanceName}
+			selection := instanceFilterSelection{All: true}
 			c.Set(instanceFilterContextKey, selection)
-			c.Request = c.Request.WithContext(service.ContextWithInstanceFilter(c.Request.Context(), entities.LegacyCPAInstanceID))
+			c.Request = c.Request.WithContext(service.ContextWithInstanceFilter(c.Request.Context(), ""))
 			c.Next()
 			return
 		}
@@ -88,19 +87,19 @@ func instanceFilterMiddleware(provider CPAInstanceProvider) gin.HandlerFunc {
 
 func instanceFilterFromGin(c *gin.Context) instanceFilterSelection {
 	if c == nil {
-		return instanceFilterSelection{InstanceID: entities.LegacyCPAInstanceID, InstanceName: entities.LegacyCPAInstanceName}
+		return instanceFilterSelection{All: true}
 	}
 	selection, ok := c.Get(instanceFilterContextKey)
 	if !ok {
 		instanceID, present := service.InstanceFilterSelectionFromContext(c.Request.Context())
 		if !present {
-			return instanceFilterSelection{InstanceID: entities.LegacyCPAInstanceID, InstanceName: entities.LegacyCPAInstanceName}
+			return instanceFilterSelection{All: true}
 		}
 		return instanceFilterSelection{InstanceID: instanceID, All: instanceID == ""}
 	}
 	result, ok := selection.(instanceFilterSelection)
 	if !ok {
-		return instanceFilterSelection{InstanceID: entities.LegacyCPAInstanceID, InstanceName: entities.LegacyCPAInstanceName}
+		return instanceFilterSelection{All: true}
 	}
 	return result
 }
