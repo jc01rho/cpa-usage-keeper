@@ -1,4 +1,4 @@
-import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CPAInstance, type CreateCPAInstanceRequest, type CreateCPAInstanceResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ListCPAInstancesResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
@@ -288,6 +288,37 @@ export async function revokeAuthSession(id: string): Promise<void> {
   if (!response.ok) {
     await parseApiError(response, `Failed to revoke auth session: ${response.status}`)
   }
+}
+
+const DEFAULT_CPA_INSTANCE_SCOPES = ['identity:test', 'usage:push', 'metadata:push']
+
+export async function fetchCPAInstances(signal?: AbortSignal): Promise<CPAInstance[]> {
+  const response = await apiFetch(apiPath('/instances'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load CPA instances: ${response.status}`)
+  }
+  const payload = await response.json() as ListCPAInstancesResponse
+  return payload.instances ?? []
+}
+
+export async function createCPAInstance(request: CreateCPAInstanceRequest): Promise<CreateCPAInstanceResponse> {
+  const response = await apiFetch(apiPath('/instances'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      displayName: request.displayName,
+      credential: {
+        name: request.credentialName,
+        scopes: request.scopes ?? DEFAULT_CPA_INSTANCE_SCOPES,
+      },
+    }),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to create CPA instance: ${response.status}`)
+  }
+  return response.json()
 }
 
 const buildUsageRangeParams = (request: UsageRangeRequest): URLSearchParams => {

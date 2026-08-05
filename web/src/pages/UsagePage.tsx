@@ -17,8 +17,9 @@ import {
   RecentActivityPanel,
   OverviewRealtimePanel,
   AnalysisPanel,
-  ApiKeySettingsCard,
-  SessionSettingsCard,
+   ApiKeySettingsCard,
+   CPAInstancesPanel,
+   SessionSettingsCard,
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
@@ -2286,6 +2287,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   revokingId={authSessionRevokingId}
                   onLogout={handleRevokeAuthSession}
                 />
+                <CPAInstancesPanel />
                 <ApiKeySettingsCard
                   apiKeys={apiKeySettings}
                   loading={apiKeySettingsLoading}
