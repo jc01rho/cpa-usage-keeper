@@ -9,11 +9,12 @@ import { IconChartLine, IconGaugeReset, IconRefreshCw, IconSearch, IconSettings,
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
 import styles from './CredentialSections.module.scss'
-import type { AuthFileCredentialRow, DisplayQuota, PlanTypeTone } from './credentialViewModels'
+import type { AuthFileCredentialRow, DisplayQuota } from './credentialViewModels'
 import { deleteAuthFiles, fetchQuotaAutoRefreshSettings, fetchUsageQuotaResetCredits, setAuthFilesDisabled, updateQuotaAutoRefreshSettings, type UsageIdentityPageSort } from '@/lib/api'
 import type { QuotaAutoRefreshScheduleUnit, QuotaAutoRefreshSettings, UsageQuotaInspectionResult, UsageQuotaInspectionResultStatus, UsageQuotaInspectionStatusResponse, UsageQuotaResetCreditsResponse } from '@/lib/types'
 import { CredentialAliasEditor, isCredentialAliasEditorDisabled } from './CredentialAliasEditor'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
+import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
 import { CredentialPriorityBadge, CredentialRowShell, CredentialSectionShell, CredentialTableHeader, CredentialsPagination, MetricPill, RequestMetric, TonePercent, cacheReadRateTone, capitalize, credentialToneClassName, formatCredentialNumber, successRateTone } from './CredentialSectionShell'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 
@@ -299,9 +300,9 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 onSaveAlias={onSaveAlias}
               />
             ) : <span {...filenameTooltipTargetProps}>{row.displayName}</span>}
-            subtitle={row.planTypeLabel || row.remainingDaysLabel || row.priorityLabel ? (
+            subtitle={row.subscriptionBadge || row.remainingDaysLabel || row.priorityLabel ? (
               <span className={styles.credentialIdentityBadges}>
-                {row.planTypeLabel && <CredentialPlanBadge tone={row.planTypeTone}>{row.planTypeLabel}</CredentialPlanBadge>}
+                {row.subscriptionBadge && <CredentialSubscriptionBadge model={row.subscriptionBadge} />}
                 {row.remainingDaysLabel && row.expiresAtLabel
                   ? (
                     <span
@@ -1544,19 +1545,6 @@ export function formatInspectionCompletedAt(value: string | undefined): string {
 
 function formatInspectionDate(value: string | undefined): string {
   return formatInspectionCompletedAt(value)
-}
-
-function CredentialPlanBadge({ children, tone = 'neutral' }: { children: string; tone?: PlanTypeTone }) {
-  const hasPremiumMotion = tone !== 'free' && tone !== 'neutral'
-
-  return (
-    <span className={`${styles.credentialPlanBadge} ${styles[`credentialPlanBadge${capitalize(tone)}`]}`.trim()}>
-      {/* 将 A5 的流动底纹和日冕拆到独立 transform 图层，避免逐帧重绘渐变。 */}
-      {hasPremiumMotion && <span className={styles.credentialPlanBadgeFlow} aria-hidden="true" />}
-      {hasPremiumMotion && <span className={styles.credentialPlanBadgeCorona} aria-hidden="true" />}
-      <span className={styles.credentialPlanBadgeLabel}>{children}</span>
-    </span>
-  )
 }
 
 function QuotaUsageModeSwitch({ label, mode, onChange }: { label: string; mode: QuotaUsageMode; onChange: (mode: QuotaUsageMode) => void }) {

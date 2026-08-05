@@ -154,8 +154,7 @@ describe('AuthFileCredentialsSection title', () => {
       providerLabel: 'Codex',
       typeLabel: 'codex',
       authTypeLabel: 'oauth',
-      planTypeLabel: 'Pro 20x',
-      planTypeTone: 'pro20x',
+      subscriptionBadge: { kind: 'codex-pro20x', fallbackLabel: 'Pro 20x' },
       totalRequests: 0,
       successCount: 0,
       failureCount: 0,
@@ -175,14 +174,17 @@ describe('AuthFileCredentialsSection title', () => {
     expect(html).toMatch(/credentialPlanBadgeFlow[^>]+aria-hidden="true"/)
     expect(html).toMatch(/credentialPlanBadgeCorona[^>]+aria-hidden="true"/)
 
-    for (const [planTypeLabel, planTypeTone] of [['Free', 'free'], ['Custom', 'neutral']] as const) {
+    for (const subscriptionBadge of [
+      { kind: 'codex-free', fallbackLabel: 'Free' },
+      { kind: 'codex-unknown', fallbackLabel: 'Custom' },
+    ] as const) {
       const lightweightHtml = renderToStaticMarkup(createElement(AuthFileCredentialsSection, createAuthFileSectionProps({
-        rows: [{ ...row, planTypeLabel, planTypeTone }],
+        rows: [{ ...row, subscriptionBadge }],
         total: 1,
       })))
 
       expect(lightweightHtml).toContain('credentialPlanBadgeLabel')
-      expect(lightweightHtml).toContain(planTypeLabel)
+      expect(lightweightHtml).toContain(subscriptionBadge.fallbackLabel)
       expect(lightweightHtml).not.toContain('credentialPlanBadgeFlow')
       expect(lightweightHtml).not.toContain('credentialPlanBadgeCorona')
     }
