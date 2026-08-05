@@ -29,6 +29,10 @@ type CPAInstanceProvider interface {
 	Authenticate(context.Context, string) (service.AuthenticatedIngestCredential, error)
 }
 
+type CPAInstanceDeleter interface {
+	Delete(context.Context, string) error
+}
+
 type createInstanceWire struct {
 	DisplayName string `json:"displayName"`
 	Credential  struct {
@@ -147,6 +151,16 @@ func registerInstanceRoutes(router *gin.RouterGroup, provider CPAInstanceProvide
 		logrus.WithField("instance_id", row.ID).Info("CPA instance updated")
 		c.JSON(http.StatusOK, gin.H{"protocolVersion": protocol.ProtocolVersion, "instance": instanceResponse(row)})
 	})
+	if deleter, ok := provider.(CPAInstanceDeleter); ok {
+		router.DELETE("/instances/:instanceId", func(c *gin.Context) {
+			if err := deleter.Delete(c.Request.Context(), c.Param("instanceId")); err != nil {
+				writeLifecycleError(c, "delete instance", err)
+				return
+			}
+			logrus.WithField("instance_id", c.Param("instanceId")).Warn("CPA instance permanently deleted")
+			c.Status(http.StatusNoContent)
+		})
+	}
 	router.POST("/instances/:instanceId/credentials", func(c *gin.Context) {
 		input, ok := decodeCredentialInput(c)
 		if !ok {
@@ -303,6 +317,8 @@ func writeLifecycleError(c *gin.Context, action string, err error) {
 		writeProtocolError(c, "instance_not_found")
 	case errors.Is(err, service.ErrCredentialNotFound):
 		writeProtocolError(c, "credential_not_found")
+	case errors.Is(err, service.ErrLegacyInstance), errors.Is(err, service.ErrActiveCredentials):
+		writeProtocolError(c, "instance_state_conflict")
 	default:
 		logrus.WithError(err).Error(action + " failed")
 		writeProtocolError(c, "storage_error")

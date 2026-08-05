@@ -358,6 +358,13 @@ export async function revokeCPAInstanceCredential(instanceId: string, credential
   }
 }
 
+export async function deleteCPAInstance(instanceId: string): Promise<void> {
+  const response = await apiFetch(apiPath(`/instances/${encodeURIComponent(instanceId)}`), { method: 'DELETE' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to permanently delete CPA instance: ${response.status}`)
+  }
+}
+
 const buildUsageRangeParams = (request: UsageRangeRequest): URLSearchParams => {
   const params = new URLSearchParams()
   params.set('range', resolveUsageRequestRange(request.range))

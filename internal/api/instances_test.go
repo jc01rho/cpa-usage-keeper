@@ -194,6 +194,49 @@ func TestParallelRotateAndRevokePermitOnlyOneTerminalMutation(t *testing.T) {
 	assertProtocolError(t, identityRequest(t, router, created.Credential.Token), http.StatusUnauthorized, "invalid_credential")
 }
 
+func TestDeleteInstanceRequiresRevokedCredentialsAndRemovesIt(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "keeper.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	svc := service.NewCPAInstanceServiceWithDB(repository.NewCPAInstanceRepository(db))
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAInstances: svc})
+	created := issueInstance(t, router, `{"displayName":"delete me","credential":{"name":"primary","scopes":["identity:test"]}}`)
+
+	assertProtocolError(t,
+		perform(t, router, http.MethodDelete, "/api/v1/instances/"+created.Instance.InstanceID, "", intentHeaders()),
+		http.StatusConflict,
+		"instance_state_conflict",
+	)
+	revoke := perform(t, router, http.MethodDelete,
+		"/api/v1/instances/"+created.Instance.InstanceID+"/credentials/"+created.Credential.CredentialID,
+		"",
+		intentHeaders(),
+	)
+	if revoke.Code != http.StatusNoContent {
+		t.Fatalf("revoke status=%d body=%s", revoke.Code, revoke.Body.String())
+	}
+	deleted := perform(t, router, http.MethodDelete, "/api/v1/instances/"+created.Instance.InstanceID, "", intentHeaders())
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("delete status=%d body=%s", deleted.Code, deleted.Body.String())
+	}
+	assertProtocolError(t,
+		perform(t, router, http.MethodGet, "/api/v1/instances/"+created.Instance.InstanceID, "", nil),
+		http.StatusNotFound,
+		"instance_not_found",
+	)
+	assertProtocolError(t,
+		perform(t, router, http.MethodDelete, "/api/v1/instances/"+entities.LegacyCPAInstanceID, "", intentHeaders()),
+		http.StatusConflict,
+		"instance_state_conflict",
+	)
+}
+
 func issueInstance(t *testing.T, router http.Handler, body string) issuedResponse {
 	t.Helper()
 	response := perform(t, router, http.MethodPost, "/api/v1/instances", body, jsonHeaders(true))

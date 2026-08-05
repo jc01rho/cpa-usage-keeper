@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createCPAInstance,
+  deleteCPAInstance,
   fetchCPAInstanceCredentials,
   fetchCPAInstances,
   revokeCPAInstanceCredential,
@@ -115,6 +116,8 @@ describe('CPA instance API', () => {
     await expect(updateCPAInstance('instance-1', { enabled: false })).resolves.toMatchObject({ enabled: false });
     await expect(fetchCPAInstanceCredentials('instance-1')).resolves.toHaveLength(1);
     await expect(revokeCPAInstanceCredential('instance-1', 'credential-1')).resolves.toBeUndefined();
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(deleteCPAInstance('instance-1')).resolves.toBeUndefined();
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -134,7 +137,12 @@ describe('CPA instance API', () => {
       '/keeper/api/v1/instances/instance-1/credentials/credential-1',
       expect.objectContaining({ method: 'DELETE' }),
     );
-    for (const index of [0, 2]) {
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/keeper/api/v1/instances/instance-1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    for (const index of [0, 2, 3]) {
       const requestHeaders = new Headers(fetchMock.mock.calls[index]?.[1]?.headers);
       expect(requestHeaders.get('X-CPA-Usage-Keeper-Request')).toBe('fetch');
     }
