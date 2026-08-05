@@ -68,7 +68,6 @@ describe('AiProviderCredentialsSection', () => {
       cacheReadRate: null,
       lastUsedText: '2026-05-10T10:00:00Z',
       statsUpdatedText: '2026-05-10T10:02:00Z',
-      planTypeLabel: 'Team',
       remainingDaysLabel: '25d',
       primaryQuota: { label: '5h' },
       secondaryQuota: { label: 'Weekly' },

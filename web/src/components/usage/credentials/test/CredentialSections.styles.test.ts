@@ -298,7 +298,7 @@ describe('Credential section styles', () => {
     expect(credentialStyles).toMatch(/\.credentialPriorityBadge\s*\{[\s\S]*?min-width:\s*22px;/)
     expect(credentialShellSource).toContain('CredentialPriorityBadge')
     expect(authFileSectionSource).toContain('row.priorityLabel')
-    expect(authFileSectionSource).toMatch(/row\.planTypeLabel[\s\S]*?row\.remainingDaysLabel[\s\S]*?row\.priorityLabel/)
+    expect(authFileSectionSource).toMatch(/row\.subscriptionBadge[\s\S]*?row\.remainingDaysLabel[\s\S]*?row\.priorityLabel/)
     expect(aiProviderSectionSource).toContain('row.priorityLabel')
   })
 
@@ -501,6 +501,25 @@ describe('Credential section styles', () => {
   })
 
   it('preserves every selected Solar Citrine motion layer with compositor-friendly transforms', () => {
+    const badgeKeyframes = [...credentialStyles.matchAll(/@keyframes\s+(credentialPlanBadge\w+)/g)].map((match) => match[1])
+    expect(badgeKeyframes).toEqual([
+      'credentialPlanBadgeSolarFlow',
+      'credentialPlanBadgeSolarRotate',
+      'credentialPlanBadgeSheen',
+    ])
+    for (const keyframe of badgeKeyframes) {
+      const declarations = [...scssRule(credentialStyles, `@keyframes ${keyframe}`).matchAll(/^\s*([\w-]+)\s*:/gm)].map((match) => match[1])
+      expect(new Set(declarations), keyframe).toEqual(new Set(['transform']))
+    }
+    const badgeAnimationDeclarations = [...credentialStyles.matchAll(/animation:\s*credentialPlanBadge\w+[^;]*;/g)].map((match) => match[0]).sort()
+    const sharedMotionRules = [
+      scssRule(credentialStyles, '.credentialPlanBadgeFree::before'),
+      scssRule(credentialStyles, '.credentialPlanBadgePlus,'),
+      scssRule(credentialStyles, '.credentialPlanBadgeFlow'),
+      scssRule(credentialStyles, '.credentialPlanBadgeCorona'),
+    ].join('\n')
+    const sharedAnimationDeclarations = [...sharedMotionRules.matchAll(/animation:\s*credentialPlanBadge\w+[^;]*;/g)].map((match) => match[0]).sort()
+    expect(badgeAnimationDeclarations).toEqual(sharedAnimationDeclarations)
     expect(credentialStyles).not.toContain('@keyframes credentialFreeBadgeRefresh')
     expect(credentialStyles).toContain('@keyframes credentialPlanBadgeSolarFlow')
     expect(credentialStyles).toContain('@keyframes credentialPlanBadgeSolarRotate')
@@ -514,6 +533,7 @@ describe('Credential section styles', () => {
     expect(credentialStyles).toMatch(/\.credentialPlanBadgePro20x\s*\{[\s\S]*?--credential-plan-sheen-duration:\s*4\.8s/)
     expect(credentialStyles).toMatch(/\.credentialPlanBadge\s*\{[\s\S]*?contain:\s*paint;/)
     expect(credentialStyles).not.toContain('background-position:')
+    expect(credentialStyles).not.toContain('will-change:')
   })
 
   it('disables badge motion for reduced-motion and slow-update devices', () => {

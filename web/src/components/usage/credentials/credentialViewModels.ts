@@ -1,5 +1,6 @@
 import type { UsageCredentialHealth, UsageIdentity, UsageQuotaCheckResponse, UsageQuotaRow } from '@/lib/types'
 import { calculateCacheReadRate, formatCompactTokenValue } from '@/utils/usage'
+import { resolveCredentialSubscriptionBadge, type SubscriptionBadgeModel } from './credentialSubscription'
 
 export const CREDENTIALS_PAGE_SIZE = 10
 const FIVE_HOUR_WINDOW_SECONDS = 5 * 60 * 60
@@ -8,9 +9,6 @@ const THIRTY_DAY_WINDOW_SECONDS = 30 * 24 * 60 * 60
 const AVERAGE_MONTH_WINDOW_SECONDS = 365 * 24 * 60 * 60 / 12
 
 type QuotaStatus = 'ok' | 'warning' | 'danger' | 'unknown'
-export type PlanTypeTone = 'free' | 'team' | 'plus' | 'pro5x' | 'pro20x' | 'enterprise' | 'neutral'
-
-const CODEX_PRO_5X_PLAN_TYPES = new Set(['prolite', 'pro-lite', 'pro_lite'])
 
 export interface QuotaWindowUsageDisplay {
   tokens: string
@@ -52,8 +50,7 @@ export interface AuthFileCredentialRow {
   typeLabel: string
   authTypeLabel: string
   priorityLabel?: string
-  planTypeLabel?: string
-  planTypeTone?: PlanTypeTone
+  subscriptionBadge?: SubscriptionBadgeModel
   remainingDaysLabel?: string
   expiresAtLabel?: string
   totalRequests: number
@@ -147,7 +144,7 @@ export function buildAuthFileCredentialRows(
     const quota = quotaResponse?.quota ?? []
     const state = quotaStates.get(identity.identity)
     const displayQuotas = quota.map(toDisplayQuota).filter(isDisplayableQuota)
-    const planType = firstNonEmpty(...quota.map((row) => row.planType), identity.plan_type)
+    const subscriptionBadge = resolveCredentialSubscriptionBadge(quotaResponse?.subscription ?? identity.subscription)
 
     return {
       identity,
@@ -157,8 +154,7 @@ export function buildAuthFileCredentialRows(
       typeLabel: credentialTypeLabel(identity),
       authTypeLabel: credentialAuthTypeLabel(identity),
       priorityLabel: credentialPriorityLabel(identity.priority),
-      planTypeLabel: credentialPlanTypeLabel(planType),
-      planTypeTone: credentialPlanTypeTone(planType),
+      subscriptionBadge,
       remainingDaysLabel: remainingDaysLabel(identity.active_until),
       expiresAtLabel: formatCredentialExpiry(identity.active_until),
       totalRequests: safeNumber(identity.total_requests),
@@ -460,48 +456,6 @@ function credentialPriorityLabel(priority: number | undefined): string | undefin
     return undefined
   }
   return `P${priority}`
-}
-
-function credentialPlanTypeLabel(planType?: string): string | undefined {
-  const tone = credentialPlanTypeTone(planType)
-  if (!tone) {
-    return undefined
-  }
-  if (tone === 'pro5x') {
-    return 'Pro 5x'
-  }
-  if (tone === 'pro20x') {
-    return 'Pro 20x'
-  }
-  const label = tone === 'neutral' ? firstNonEmpty(planType) : tone
-  return label ? label.charAt(0).toUpperCase() + label.slice(1) : undefined
-}
-
-function credentialPlanTypeTone(planType?: string): PlanTypeTone | undefined {
-  // 与 CPAMC 保持同一展示契约：pro 是 20x，pro-lite 的三种拼法是 5x。
-  const normalized = planType?.trim().toLowerCase()
-  if (!normalized) {
-    return undefined
-  }
-  if (normalized === 'pro') {
-    return 'pro20x'
-  }
-  if (CODEX_PRO_5X_PLAN_TYPES.has(normalized)) {
-    return 'pro5x'
-  }
-  if (normalized === 'enterprise') {
-    return 'enterprise'
-  }
-  if (normalized === 'plus') {
-    return 'plus'
-  }
-  if (normalized === 'team') {
-    return 'team'
-  }
-  if (normalized === 'free') {
-    return 'free'
-  }
-  return 'neutral'
 }
 
 function remainingDaysLabel(activeUntil?: string): string | undefined {
