@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   createCPAInstance,
+  deleteCPAInstance,
   fetchCPAInstanceCredentials,
   fetchCPAInstances,
   revokeCPAInstanceCredential,
@@ -38,6 +39,8 @@ export function CPAInstancesPanel() {
   const [manageLoading, setManageLoading] = useState(false)
   const [manageSaving, setManageSaving] = useState(false)
   const [manageError, setManageError] = useState('')
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
 
   const loadInstances = useCallback(async () => {
     setLoading(true)
@@ -157,6 +160,27 @@ export function CPAInstancesPanel() {
         : item))
     } catch (error) {
       setManageError(error instanceof Error ? error.message : t('usage_stats.cpa_instances_revoke_failed'))
+    } finally {
+      setManageSaving(false)
+    }
+  }
+
+  const canDeleteManagedInstance = !manageLoading
+    && managedInstance?.instanceId !== '00000000-0000-7000-8000-000000000000'
+    && credentials.every((credential) => !credential.active)
+
+  const deleteManagedInstance = async () => {
+    if (!managedInstance || deleteConfirmation !== managedInstance.displayName) return
+    setManageSaving(true)
+    setManageError('')
+    try {
+      await deleteCPAInstance(managedInstance.instanceId)
+      setInstances((current) => current.filter((item) => item.instanceId !== managedInstance.instanceId))
+      setDeleteConfirmOpen(false)
+      setManagedInstance(null)
+      setDeleteConfirmation('')
+    } catch (error) {
+      setManageError(error instanceof Error ? error.message : t('usage_stats.cpa_instances_delete_failed'))
     } finally {
       setManageSaving(false)
     }
@@ -309,9 +333,48 @@ export function CPAInstancesPanel() {
                 </div>
               )}
             </div>
+            {canDeleteManagedInstance && (
+              <div className="form-group">
+                <Button type="button" variant="danger" disabled={manageSaving} onClick={() => setDeleteConfirmOpen(true)}>
+                  {t('usage_stats.cpa_instances_delete')}
+                </Button>
+              </div>
+            )}
           </>
         )}
         {manageError && <div className="error-box">{manageError}</div>}
+      </Modal>
+
+      <Modal
+        open={deleteConfirmOpen}
+        title={t('usage_stats.cpa_instances_delete_title')}
+        onClose={() => !manageSaving && setDeleteConfirmOpen(false)}
+        closeDisabled={manageSaving}
+        footer={
+          <>
+            <Button type="button" variant="secondary" disabled={manageSaving} onClick={() => setDeleteConfirmOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              loading={manageSaving}
+              disabled={deleteConfirmation !== managedInstance?.displayName}
+              onClick={() => void deleteManagedInstance()}
+            >
+              {t('usage_stats.cpa_instances_delete')}
+            </Button>
+          </>
+        }
+      >
+        <p>{t('usage_stats.cpa_instances_delete_warning')}</p>
+        <Input
+          label={t('usage_stats.cpa_instances_delete_confirmation')}
+          value={deleteConfirmation}
+          onChange={(event) => setDeleteConfirmation(event.target.value)}
+          placeholder={managedInstance?.displayName}
+          disabled={manageSaving}
+        />
       </Modal>
     </>
   )

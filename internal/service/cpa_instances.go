@@ -27,6 +27,8 @@ var (
 	ErrCredentialNotFound = errors.New("credential not found")
 	ErrInvalidCredential  = errors.New("invalid credential")
 	ErrInstanceDisabled   = errors.New("instance disabled")
+	ErrLegacyInstance     = errors.New("legacy instance cannot be deleted")
+	ErrActiveCredentials  = errors.New("revoke all credentials before deleting instance")
 )
 
 type InstanceStore interface {
@@ -39,6 +41,7 @@ type InstanceStore interface {
 	CredentialByID(context.Context, string) (entities.CPAInstanceCredential, error)
 	RotateCredential(context.Context, string, string, entities.CPAInstanceCredential, time.Time) error
 	RevokeCredential(context.Context, string, string, time.Time) error
+	Delete(context.Context, string) error
 }
 
 type CPAInstanceService struct {
@@ -145,6 +148,10 @@ func (s *CPAInstanceService) Rotate(ctx context.Context, instanceID, credentialI
 
 func (s *CPAInstanceService) Revoke(ctx context.Context, instanceID, credentialID string) error {
 	return mapStoreError(s.store.RevokeCredential(ctx, instanceID, credentialID, s.now().UTC()))
+}
+
+func (s *CPAInstanceService) Delete(ctx context.Context, instanceID string) error {
+	return mapStoreError(s.store.Delete(ctx, instanceID))
 }
 
 func (s *CPAInstanceService) Authenticate(ctx context.Context, token string) (AuthenticatedIngestCredential, error) {
@@ -257,6 +264,10 @@ func mapStoreError(err error) error {
 		return ErrInstanceNotFound
 	case errors.Is(err, repository.ErrCPACredentialNotFound):
 		return ErrCredentialNotFound
+	case errors.Is(err, repository.ErrLegacyCPAInstance):
+		return ErrLegacyInstance
+	case errors.Is(err, repository.ErrActiveCPACredentials):
+		return ErrActiveCredentials
 	default:
 		return err
 	}

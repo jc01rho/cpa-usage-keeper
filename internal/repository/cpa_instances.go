@@ -13,6 +13,8 @@ import (
 var (
 	ErrCPAInstanceNotFound   = errors.New("CPA instance not found")
 	ErrCPACredentialNotFound = errors.New("CPA instance credential not found")
+	ErrLegacyCPAInstance     = errors.New("legacy CPA instance cannot be deleted")
+	ErrActiveCPACredentials  = errors.New("revoke all CPA instance credentials before deletion")
 )
 
 type CPAInstanceRepository struct {
@@ -148,4 +150,52 @@ func (r *CPAInstanceRepository) RevokeCredential(ctx context.Context, instanceID
 		return ErrCPACredentialNotFound
 	}
 	return nil
+}
+
+func (r *CPAInstanceRepository) Delete(ctx context.Context, instanceID string) error {
+	if instanceID == entities.LegacyCPAInstanceID {
+		return ErrLegacyCPAInstance
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var instance entities.CPAInstance
+		if err := tx.First(&instance, "id = ?", instanceID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrCPAInstanceNotFound
+			}
+			return err
+		}
+		var activeCredentials int64
+		if err := tx.Model(&entities.CPAInstanceCredential{}).
+			Where("instance_id = ? AND revoked_at IS NULL", instanceID).
+			Count(&activeCredentials).Error; err != nil {
+			return err
+		}
+		if activeCredentials != 0 {
+			return ErrActiveCPACredentials
+		}
+		for _, table := range []string{
+			"redis_usage_inboxes",
+			"usage_events",
+			"usage_events_archive",
+			"usage_identities",
+			"cpa_api_keys",
+			"usage_overview_hourly_stats",
+			"usage_overview_daily_stats",
+			"usage_activity_stats",
+			"usage_latency_stats",
+			"usage_aggregation_checkpoints",
+			"local_ranking_period_stats",
+			"cpa_instance_credentials",
+			"cpa_usage_deliveries",
+			"cpa_usage_stream_watermarks",
+		} {
+			if err := tx.Exec("DELETE FROM "+table+" WHERE instance_id = ?", instanceID).Error; err != nil {
+				return fmt.Errorf("delete instance data from %s: %w", table, err)
+			}
+		}
+		if result := tx.Delete(&entities.CPAInstance{}, "id = ?", instanceID); result.Error != nil {
+			return result.Error
+		}
+		return nil
+	})
 }
