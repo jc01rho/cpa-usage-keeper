@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createCPAInstance, fetchCPAInstances } from './api';
+import {
+  createCPAInstance,
+  fetchCPAInstanceCredentials,
+  fetchCPAInstances,
+  revokeCPAInstanceCredential,
+  updateCPAInstance,
+} from './api';
 
 const jsonResponse = (body: unknown, status = 200) => new Response(
   JSON.stringify(body),
@@ -75,5 +81,62 @@ describe('CPA instance API', () => {
     const requestHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers);
     expect(requestHeaders.get('Content-Type')).toBe('application/json');
     expect(requestHeaders.get('X-CPA-Usage-Keeper-Request')).toBe('fetch');
+  });
+
+  it('updates an instance and revokes its credential through base-path-aware admin routes', async () => {
+    Object.assign(globalThis, { window: { __APP_BASE_PATH__: '/keeper' } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 'keeper-export/v1',
+        instance: {
+          instanceId: 'instance-1',
+          displayName: 'Production CPA',
+          enabled: false,
+          createdAt: '2026-08-05T00:00:00.000Z',
+          updatedAt: '2026-08-05T00:01:00.000Z',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        protocolVersion: 'keeper-export/v1',
+        credentials: [{
+          credentialId: 'credential-1',
+          name: 'production-export',
+          scopes: ['identity:test', 'usage:push', 'metadata:push'],
+          active: true,
+          createdAt: '2026-08-05T00:00:00.000Z',
+          expiresAt: null,
+          lastUsedAt: null,
+          revokedAt: null,
+        }],
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(updateCPAInstance('instance-1', { enabled: false })).resolves.toMatchObject({ enabled: false });
+    await expect(fetchCPAInstanceCredentials('instance-1')).resolves.toHaveLength(1);
+    await expect(revokeCPAInstanceCredential('instance-1', 'credential-1')).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/keeper/api/v1/instances/instance-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: false }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/keeper/api/v1/instances/instance-1/credentials',
+      expect.objectContaining({ cache: 'no-store' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/keeper/api/v1/instances/instance-1/credentials/credential-1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    for (const index of [0, 2]) {
+      const requestHeaders = new Headers(fetchMock.mock.calls[index]?.[1]?.headers);
+      expect(requestHeaders.get('X-CPA-Usage-Keeper-Request')).toBe('fetch');
+    }
   });
 });
