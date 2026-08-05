@@ -70,7 +70,7 @@ func TestInstanceFilterMiddlewareValidatesSpecificAndAllScopes(t *testing.T) {
 		wantStatus int
 		wantFilter string
 	}{
-		{name: "omitted selector is legacy", wantStatus: http.StatusOK, wantFilter: entities.LegacyCPAInstanceID},
+		{name: "omitted selector includes all instances", wantStatus: http.StatusOK, wantFilter: ""},
 		{name: "explicit all", query: "instance_id=all", wantStatus: http.StatusOK, wantFilter: ""},
 		{name: "enabled instance", query: "instance_id=" + enabledID, wantStatus: http.StatusOK, wantFilter: enabledID},
 		{name: "unknown instance", query: "instance_id=0198aa10-4d88-7a20-8f4e-8c8de4a9cb33", wantStatus: http.StatusNotFound},
