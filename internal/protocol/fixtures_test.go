@@ -62,7 +62,7 @@ func TestKeeperExportProtocolFixtures(t *testing.T) {
 			t.Fatalf("read manifest: %v", err)
 		}
 		listed := map[string]string{}
-		for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+		for _, line := range strings.Split(strings.TrimRight(string(raw), "\r\n"), "\n") {
 			hash, name, ok := strings.Cut(line, "  ")
 			if !ok || hash == "" || name == "" {
 				t.Fatalf("malformed manifest line %q", line)

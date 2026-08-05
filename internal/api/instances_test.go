@@ -105,6 +105,11 @@ func TestInstanceCredentialLifecycleAndAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	restartedSQLDB, err := restartedDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restartedSQLDB.Close() })
 	restartedService := service.NewCPAInstanceServiceWithDB(repository.NewCPAInstanceRepository(restartedDB))
 	restartedRouter := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAInstances: restartedService})
 	assertProtocolError(t, identityRequest(t, restartedRouter, active.Credential.Token), http.StatusForbidden, "instance_disabled")
@@ -115,6 +120,11 @@ func TestInstanceCredentialExpiryMalformedBodiesAndAdminConventions(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	svc := service.NewCPAInstanceServiceWithDB(repository.NewCPAInstanceRepository(db))
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAInstances: svc})
 
@@ -141,6 +151,11 @@ func TestParallelRotateAndRevokePermitOnlyOneTerminalMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	svc := service.NewCPAInstanceServiceWithDB(repository.NewCPAInstanceRepository(db))
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAInstances: svc})
 	created := issueInstance(t, router, `{"displayName":"race","credential":{"name":"primary","scopes":["identity:test"]}}`)

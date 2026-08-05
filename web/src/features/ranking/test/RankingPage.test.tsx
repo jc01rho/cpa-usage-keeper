@@ -419,22 +419,30 @@ describe('RankingPage', () => {
   });
 
   it('treats the avatar picker as one keyboard stop and supports arrow-key selection', async () => {
-    await renderPage();
-    await openProfileModal();
+    vi.useFakeTimers();
+    try {
+      await renderPage();
+      await openProfileModal();
+      await act(async () => {
+        vi.runOnlyPendingTimers();
+      });
 
-    const avatars = [...document.querySelectorAll<HTMLButtonElement>('[data-ranking-avatar-option]')];
-    expect(avatars.filter((avatar) => avatar.tabIndex === 0)).toHaveLength(1);
-    expect(avatars[0]?.getAttribute('aria-checked')).toBe('true');
+      const avatars = [...document.querySelectorAll<HTMLButtonElement>('[data-ranking-avatar-option]')];
+      expect(avatars.filter((avatar) => avatar.tabIndex === 0)).toHaveLength(1);
+      expect(avatars[0]?.getAttribute('aria-checked')).toBe('true');
 
-    await act(async () => {
-      avatars[0]?.focus();
-      avatars[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-    });
+      await act(async () => {
+        avatars[0]?.focus();
+        avatars[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      });
 
-    const updated = [...document.querySelectorAll<HTMLButtonElement>('[data-ranking-avatar-option]')];
-    expect(updated[1]?.getAttribute('aria-checked')).toBe('true');
-    expect(updated[1]?.tabIndex).toBe(0);
-    expect(document.activeElement).toBe(updated[1]);
+      const updated = [...document.querySelectorAll<HTMLButtonElement>('[data-ranking-avatar-option]')];
+      expect(updated[1]?.getAttribute('aria-checked')).toBe('true');
+      expect(updated[1]?.tabIndex).toBe(0);
+      expect(document.activeElement).toBe(updated[1]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders duplicate names and overall metrics without displaying participant identifiers', async () => {
