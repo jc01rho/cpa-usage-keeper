@@ -31,6 +31,40 @@ export interface AuthManagedSessionsResponse {
   items: AuthManagedSessionItem[]
 }
 
+export interface CPAInstance {
+  instanceId: string
+  displayName: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateCPAInstanceRequest {
+  displayName: string
+  credentialName: string
+  scopes?: string[]
+}
+
+export interface IssuedCPACredential {
+  credentialId: string
+  name: string
+  scopes: string[]
+  token: string
+  createdAt: string
+  expiresAt: string | null
+}
+
+export interface ListCPAInstancesResponse {
+  protocolVersion: string
+  instances: CPAInstance[]
+}
+
+export interface CreateCPAInstanceResponse {
+  protocolVersion: string
+  instance: CPAInstance
+  credential: IssuedCPACredential
+}
+
 export interface StatusResponse {
   running: boolean
   sync_running: boolean

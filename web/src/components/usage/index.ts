@@ -3,6 +3,7 @@ export { DailyAverageCard } from './DailyAverageCard';
 export { OverviewRealtimePanel } from './OverviewRealtimePanel';
 export { AnalysisPanel } from './analysis';
 export { ApiKeySettingsCard } from './ApiKeySettingsCard';
+export { CPAInstancesPanel } from './CPAInstancesPanel';
 export { SessionSettingsCard } from './SessionSettingsCard';
 export { PriceSettingsCard } from './PriceSettingsCard';
 export { AiProviderCredentialsSection, AuthFileCredentialsSection, CredentialProviderFilterBar, useCredentialsTabData } from './credentials';
