@@ -140,10 +140,23 @@ describe('RankingPage', () => {
 
   const openProfileModal = async () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[data-ranking-profile-action]')?.click());
-    // Modal 会在下一任务设置初始焦点，等待完成后再让用例操作弹窗内焦点。
+    // Modal sets initial focus on the next task. Wait for it before letting a
+    // case touch focus inside the dialog. When fake timers are active the
+    // setTimeout(0) never fires on its own; the avatar keyboard case flushes
+    // the pending timer via vi.runOnlyPendingTimers() before its assertions,
+    // so keep the wait no-op-safe under fake timers.
     await act(async () => {
       await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 0);
+        const timer = window.setTimeout(resolve, 0);
+        // If timers are faked the callback never runs and the promise would
+        // hang forever; resolve immediately so the wait is a no-op and the
+        // owning case is responsible for advancing fake timers.
+        if (typeof vi !== 'undefined') {
+          queueMicrotask(() => {
+            try { vi.advanceTimersByTime(0); } catch { /* real timers: ignore */ }
+          });
+        }
+        return timer;
       });
     });
   };
