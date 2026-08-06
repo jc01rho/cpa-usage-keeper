@@ -89,6 +89,8 @@ CPA Usage Keeper 是面向 [CLIProxyAPI（CPA）](https://github.com/router-for-
 ## 快速开始
 
 > 使用前请确认 CPA 配置已开启 usage 统计：`usage-statistics-enabled: true`。
+>
+> 同一 CPA 接入多个 usage 采集服务时，请确保均使用订阅模式，否则可能导致收数中断或数据不完整。
 
 Docker Compose 是推荐部署方式：首次部署可同时运行 CPA + Keeper，已有 CPA 时则使用 Keeper-only Compose。
 
