@@ -479,7 +479,6 @@ describe('Credential section styles', () => {
 
   it('gives every Auth Files credential label a dedicated visual treatment', () => {
     const freeRule = scssRule(credentialStyles, '.credentialPlanBadgeFree')
-    const freeSheenRule = scssRule(credentialStyles, '.credentialPlanBadgeFree::before')
     const plusRule = scssRule(credentialStyles, '.credentialPlanBadgePlus')
     const teamRule = scssRule(credentialStyles, '.credentialPlanBadgeTeam')
     const pro5xRule = scssRule(credentialStyles, '.credentialPlanBadgePro5x')
@@ -488,14 +487,16 @@ describe('Credential section styles', () => {
     const remainingDaysRule = scssRule(credentialStyles, '.credentialRemainingDaysBadge', 1)
     const priorityRule = scssRule(credentialStyles, '.credentialPriorityBadge')
 
-    expect(freeRule).toContain('background: linear-gradient')
+    expect(freeRule).toContain('#f5eee6')
     expect(freeRule).toMatch(/box-shadow:[\s\S]*?inset 0 1px 0/)
-    expect(freeSheenRule).toMatch(/animation:\s*credentialPlanBadgeSheen\s*10s/)
+    expect(credentialStyles).not.toContain('.credentialPlanBadgeFree::before')
     expect(plusRule).toContain('#2563eb')
     expect(teamRule).toContain('#16a34a')
     expect(pro5xRule).toContain('--credential-plan-tone-2: #f6dc37')
     expect(pro20xRule).toContain('--credential-plan-tone-2: #f6dc37')
     expect(enterpriseRule).toContain('#c4b5fd')
+    expect(credentialStyles).not.toContain('.credentialPlanBadgeClaude')
+    expect(credentialStyles).not.toContain('.credentialPlanBadgeAntigravity')
     expect(remainingDaysRule).toContain('radial-gradient')
     expect(priorityRule).toContain('linear-gradient')
   })
@@ -513,7 +514,6 @@ describe('Credential section styles', () => {
     }
     const badgeAnimationDeclarations = [...credentialStyles.matchAll(/animation:\s*credentialPlanBadge\w+[^;]*;/g)].map((match) => match[0]).sort()
     const sharedMotionRules = [
-      scssRule(credentialStyles, '.credentialPlanBadgeFree::before'),
       scssRule(credentialStyles, '.credentialPlanBadgePlus,'),
       scssRule(credentialStyles, '.credentialPlanBadgeFlow'),
       scssRule(credentialStyles, '.credentialPlanBadgeCorona'),
@@ -538,18 +538,16 @@ describe('Credential section styles', () => {
 
   it('disables badge motion for reduced-motion and slow-update devices', () => {
     expect(credentialStyles).toMatch(/prefers-reduced-motion:\s*reduce\),\s*\(update:\s*slow\)[\s\S]*?\.credentialPlanBadgeFlow[\s\S]*?\.credentialPlanBadgeCorona[\s\S]*?animation:\s*none/)
-    expect(credentialStyles).toMatch(/prefers-reduced-motion:\s*reduce\),\s*\(update:\s*slow\)[\s\S]*?\.credentialPlanBadgeFree::before[\s\S]*?animation:\s*none/)
     expect(credentialStyles).toMatch(/prefers-reduced-motion:\s*reduce\),\s*\(update:\s*slow\)[\s\S]*?\.credentialPlanBadgeEnterprise::before[\s\S]*?animation:\s*none/)
+    expect(credentialStyles).not.toMatch(/prefers-reduced-motion:[\s\S]*?\.credentialPlanBadgeFree::before/)
   })
 
   it('keeps plan and remaining-day badges readable in dark mode', () => {
     const darkRules = scssRule(credentialStyles, ":global([data-theme='dark'])")
     const darkFreeRule = scssRule(darkRules, '.credentialPlanBadgeFree')
 
-    expect(darkFreeRule).toContain('linear-gradient(145deg, #e2e8f0')
-    expect(darkFreeRule).toContain('#8795a8')
-    expect(darkFreeRule).toContain('color: #334155;')
-    expect(scssRule(darkRules, '.credentialPlanBadgeFree::before')).toContain('opacity: 0.58;')
+    expect(darkFreeRule).toContain('linear-gradient(145deg, #5b453a')
+    expect(darkFreeRule).toContain('color: #f5eee6;')
     expect(scssRule(darkRules, '.credentialPlanBadgeTeam')).toContain('color: #edfff7;')
     expect(scssRule(darkRules, '.credentialPlanBadgePlus')).toContain('color: #edf8ff;')
     expect(scssRule(darkRules, '.credentialPlanBadgePro5x')).toContain('color: #302200;')

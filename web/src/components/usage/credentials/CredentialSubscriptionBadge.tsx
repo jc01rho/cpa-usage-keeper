@@ -15,6 +15,15 @@ const BADGE_PRESENTATIONS: Record<SubscriptionBadgeKind, BadgePresentation> = {
   'codex-pro20x': { className: styles.credentialPlanBadgePro20x, hasPremiumMotion: true },
   'codex-enterprise': { className: styles.credentialPlanBadgeEnterprise, hasPremiumMotion: true },
   'codex-unknown': { className: styles.credentialPlanBadgeNeutral, hasPremiumMotion: false },
+  'claude-free': { className: styles.credentialPlanBadgeFree, hasPremiumMotion: false },
+  'claude-pro': { className: styles.credentialPlanBadgePlus, hasPremiumMotion: true },
+  'claude-max': { className: styles.credentialPlanBadgePro20x, hasPremiumMotion: true },
+  'claude-team': { className: styles.credentialPlanBadgeTeam, hasPremiumMotion: true },
+  'antigravity-free': { className: styles.credentialPlanBadgeFree, hasPremiumMotion: false },
+  'antigravity-pro': { className: styles.credentialPlanBadgePlus, hasPremiumMotion: true },
+  'antigravity-ultra-lite': { className: styles.credentialPlanBadgePro5x, hasPremiumMotion: true },
+  'antigravity-ultra': { className: styles.credentialPlanBadgePro20x, hasPremiumMotion: true },
+  'antigravity-unknown': { className: styles.credentialPlanBadgeNeutral, hasPremiumMotion: false },
 }
 
 export function CredentialSubscriptionBadge({ model }: { model: SubscriptionBadgeModel }) {
@@ -27,7 +36,7 @@ export function CredentialSubscriptionBadge({ model }: { model: SubscriptionBadg
 
   return (
     <span className={`${styles.credentialPlanBadge} ${presentation.className}`.trim()}>
-      {/* 所有高级套餐复用同一组 transform 动画层，provider 只通过样式变量改变视觉参数。 */}
+      {/* 所有高级套餐复用同一组 transform 动画层，provider 只选择既有 presentation。 */}
       {presentation.hasPremiumMotion && <span className={styles.credentialPlanBadgeFlow} aria-hidden="true" />}
       {presentation.hasPremiumMotion && <span className={styles.credentialPlanBadgeCorona} aria-hidden="true" />}
       <span className={styles.credentialPlanBadgeLabel}>{label}</span>
