@@ -93,6 +93,8 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 ## Quick Start
 
 > Before using CPA Usage Keeper, make sure CPA usage statistics are enabled: `usage-statistics-enabled: true`.
+>
+> When multiple usage collectors share one CPA instance, ensure they all use subscription mode; otherwise, collection may stop or become incomplete.
 
 Docker Compose is the recommended deployment method. Use the full stack when deploying CPA and Keeper together, or the Keeper-only stack when CPA already exists.
 
