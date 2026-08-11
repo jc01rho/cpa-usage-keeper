@@ -239,8 +239,8 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('customRange={activeCustomRange}')
     expect(usagePageSource).toContain("maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined}")
     expect(usagePageSource).toContain('onChange={handleTimeRangeChange}')
-    expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId)')
-    expect(usagePageSource).toContain('fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId)')
+    expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId, excludedApiKeyIds)')
+    expect(usagePageSource).toContain('fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId, excludedApiKeyIds)')
     expect(usagePageSource).toContain('fetchUsageEvents(usageRangeQuery, controller.signal, {')
     expect(usagePageSource).toContain('exportUsageEvents(usageRangeQuery, format, {')
 
@@ -1198,6 +1198,18 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).not.toContain('.rangeSelectControl')
     expect(usagePageStyles).not.toContain('.customRange')
     expect(keyOverviewPageStyles).not.toContain('.rangeSelectControl')
+  })
+
+  it('offers a checkbox menu that excludes multiple API keys from every statistics view', () => {
+    expect(usagePageSource).toContain('const [excludedApiKeyIds, setExcludedApiKeyIds]')
+    expect(usagePageSource).toContain('type="checkbox"')
+    expect(usagePageSource).toContain('checked={excludedApiKeyIds.includes(option.id)}')
+    expect(usagePageSource).toContain('excludedApiKeyIds,')
+    expect(usagePageSource).toContain('aria-expanded={isApiKeyExcludeOpen}')
+    expect(usagePageSource).toContain("document.addEventListener('pointerdown', closeOnOutsidePointer)")
+    expect(usagePageSource).toContain("document.addEventListener('keydown', closeOnEscape)")
+    expect(usagePageStyles).toContain('.apiKeyExcludePopover')
+    expect(usagePageStyles).toContain('.usageFilterTransitionPopoverOpen')
   })
 
   it('passes realtime error state and current data guard to the realtime panel', () => {

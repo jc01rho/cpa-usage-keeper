@@ -94,6 +94,9 @@ func loadAnalysisOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFil
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
+	if len(filter.ExcludedAPIGroupKeys) > 0 {
+		query = query.Where("api_group_key NOT IN ?", filter.ExcludedAPIGroupKeys)
+	}
 	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview %s stats: %w", grain, err)
 	}

@@ -482,6 +482,17 @@
   transform: translateX(0);
 }
 
+.usageFilterTransitionPopoverOpen,
+.usageFilterTransitionPopoverOpen .usageFilterTransitionInner,
+.usageFilterTransitionPopoverOpen .usageFilterBar,
+.usageFilterTransitionPopoverOpen .apiKeyFilterGroup {
+  overflow: visible;
+}
+
+.usageFilterTransitionPopoverOpen {
+  z-index: 50;
+}
+
 .rankingScopeTransitionOpen {
   max-width: 260px;
   opacity: 1;
@@ -543,7 +554,7 @@
   gap: 8px;
   width: fit-content;
   min-width: 0;
-  max-width: 280px;
+  max-width: 430px;
   min-height: 46px;
   padding: 5px 6px 5px 12px;
   border: 1px solid var(--border-color);
@@ -603,6 +614,110 @@
 .apiKeyFilterGroup .usageFilterLabel {
   padding-left: 0;
   white-space: nowrap;
+}
+
+.apiKeyExcludeMenu {
+  position: relative;
+  flex: 0 0 auto;
+
+  &[open] .apiKeyExcludeSummary {
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+  }
+}
+
+.apiKeyExcludeSummary {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 9999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+}
+
+.apiKeyExcludePopover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(320px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-primary);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+
+.apiKeyExcludeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+
+  button {
+    border: 0;
+    background: transparent;
+    color: var(--accent-color);
+    font: inherit;
+    cursor: pointer;
+  }
+}
+
+.apiKeyExcludeOptions {
+  display: grid;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.apiKeyExcludeOption {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 9px;
+  border-radius: 9px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--bg-secondary);
+  }
+
+  input {
+    flex: 0 0 auto;
+    accent-color: var(--accent-color);
+  }
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.apiKeyExcludeEmpty {
+  display: block;
+  padding: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
 }
 
 .usageRefreshSlot {
@@ -715,6 +830,7 @@
 
   .apiKeyFilterGroup {
     max-width: 100%;
+    flex-wrap: wrap;
   }
 
   .apiKeyFilterField {
@@ -727,6 +843,16 @@
     width: 100%;
     max-width: 100%;
     flex: 1 1 auto;
+  }
+
+  .apiKeyExcludeMenu,
+  .apiKeyExcludeSummary {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .apiKeyExcludeSummary {
+    justify-content: center;
   }
 
   .apiKeyFilterField {

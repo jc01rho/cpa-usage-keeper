@@ -25,7 +25,7 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 	return QueryUsageActivityGridForInstance(ctx, db, "", grain, referenceEnd, dataEnd, apiGroupKey)
 }
 
-func QueryUsageActivityGridForInstance(ctx context.Context, db *gorm.DB, instanceID string, grain entities.UsageActivityGrain, referenceEnd, dataEnd time.Time, apiGroupKey string) (dto.UsageActivityGridRecord, error) {
+func QueryUsageActivityGridForInstance(ctx context.Context, db *gorm.DB, instanceID string, grain entities.UsageActivityGrain, referenceEnd, dataEnd time.Time, apiGroupKey string, excludedAPIGroupKeys ...string) (dto.UsageActivityGridRecord, error) {
 	// result 先记录请求 grain，错误路径也能保留调用上下文。
 	result := dto.UsageActivityGridRecord{Grain: grain}
 	// nil 数据库无法读取 Activity rows。
@@ -87,6 +87,9 @@ func QueryUsageActivityGridForInstance(ctx context.Context, db *gorm.DB, instanc
 	// API group 非空时按 canonical key 精确过滤，与 CPA API Key scope 一致。
 	if normalizedAPIGroupKey := strings.TrimSpace(apiGroupKey); normalizedAPIGroupKey != "" {
 		query = query.Where("api_group_key = ?", normalizedAPIGroupKey)
+	}
+	if len(excludedAPIGroupKeys) > 0 {
+		query = query.Where("api_group_key NOT IN ?", excludedAPIGroupKeys)
 	}
 	// 使用完整 entity 读取数据库保存的 bucket_end 和全部 canonical Activity 字段。
 	var rows []entities.UsageActivityStat

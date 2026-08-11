@@ -316,22 +316,26 @@ func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB
 	return query
 }
 
-// Overview Tab 第一步：应用时间窗口和全局 API-Key 条件，后续 Overview 专属条件也从这里加。
-func applyUsageOverviewQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
-	query = applyUsageQueryWindow(query, filter)
+func applyUsageAPIKeyScope(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
+	if len(filter.ExcludedAPIGroupKeys) > 0 {
+		query = query.Where("api_group_key NOT IN ?", filter.ExcludedAPIGroupKeys)
+	}
 	return query
+}
+
+// Overview Tab 第一步：应用时间窗口和全局 API-Key 条件，后续 Overview 专属条件也从这里加。
+func applyUsageOverviewQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	query = applyUsageQueryWindow(query, filter)
+	return applyUsageAPIKeyScope(query, filter)
 }
 
 // Analysis Tab 第一步：应用时间窗口和全局 API-Key 条件，避免 Request Event Log 的筛选污染聚合。
 func applyUsageAnalysisTabQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	query = applyUsageQueryWindow(query, filter)
-	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
-		query = query.Where("api_group_key = ?", apiGroupKey)
-	}
-	return query
+	return applyUsageAPIKeyScope(query, filter)
 }
 
 // Request Event Log 筛选项第一步：只应用时间窗口，不叠加当前列表筛选。
@@ -342,9 +346,7 @@ func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilt
 // Request Event Log 列表第一步：在时间窗口上叠加 model/auth_index/result。
 func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	query = applyUsageQueryWindow(query, filter)
-	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
-		query = query.Where("api_group_key = ?", apiGroupKey)
-	}
+	query = applyUsageAPIKeyScope(query, filter)
 	if model := strings.TrimSpace(filter.Model); model != "" {
 		query = query.Where("model = ?", model)
 	}
@@ -1153,6 +1155,15 @@ func usageOverviewEventInsideWindow(event entities.UsageEvent, start, end time.T
 	return !timestamp.Before(start) && timestamp.Before(end)
 }
 
+func usageAPIGroupKeyExcluded(apiGroupKey string, excludedAPIGroupKeys []string) bool {
+	for _, excludedAPIGroupKey := range excludedAPIGroupKeys {
+		if apiGroupKey == excludedAPIGroupKey {
+			return true
+		}
+	}
+	return false
+}
+
 func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, windows []usageOverviewRawEventWindow, recentCache *UsageRecentEventCache, activeFields pricing.ActiveFields) ([]entities.UsageEvent, error) {
 	// 所有边界事件先汇总到一个切片，后续统一补入 Overview 的 usage、summary 和 series。
 	events := make([]entities.UsageEvent, 0)
@@ -1173,6 +1184,9 @@ func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQue
 			// ok=false 只表示缓存对象不可用；缓存为空也会 ok=true 并返回空切片。
 			if ok {
 				for _, cachedEvent := range cachedEvents {
+					if usageAPIGroupKeyExcluded(cachedEvent.APIGroupKey, filter.ExcludedAPIGroupKeys) {
+						continue
+					}
 					// 下游聚合函数使用 entities.UsageEvent，这里把缓存投影转回最小实体。
 					events = append(events, recentUsageEventToEntity(cachedEvent))
 				}
@@ -1251,6 +1265,9 @@ func loadUsageOverviewEventRangeWithProjection(db *gorm.DB, filter dto.UsageQuer
 	}
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
+	}
+	if len(filter.ExcludedAPIGroupKeys) > 0 {
+		query = query.Where("api_group_key NOT IN ?", filter.ExcludedAPIGroupKeys)
 	}
 	var rows []usageEventProjection
 	if err := query.Find(&rows).Error; err != nil {
@@ -1497,6 +1514,9 @@ func loadUsageOverviewRealtimeEventsFromRecentCache(recentCache *UsageRecentEven
 	// 保留 fallback kind/label，后续 identity lookup 找不到时仍能展示 source/provider。
 	events := make([]usageOverviewRealtimeEvent, 0, len(cachedEvents))
 	for _, cachedEvent := range cachedEvents {
+		if usageAPIGroupKeyExcluded(cachedEvent.APIGroupKey, filter.ExcludedAPIGroupKeys) {
+			continue
+		}
 		events = append(events, usageOverviewRealtimeEvent{
 			event:                 recentUsageEventToEntity(cachedEvent),
 			identityFallbackKind:  cachedEvent.IdentityFallbackKind,

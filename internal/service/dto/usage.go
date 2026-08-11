@@ -35,6 +35,7 @@ type UsageFilter struct {
 	Source          string
 	AuthIndex       string
 	APIKeyID        string
+	ExcludedAPIKeyIDs []string
 	Result          string
 }
 

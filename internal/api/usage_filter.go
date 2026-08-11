@@ -101,6 +101,15 @@ func parseUsageTimeFilterQueryWithOptions(req *http.Request, anchor time.Time, i
 			return servicedto.UsageFilter{}, err
 		}
 		filter.APIKeyID = apiKeyID
+		for _, value := range query["exclude_api_key_id"] {
+			excludedAPIKeyID, parseErr := parseUsageAPIKeyID(value)
+			if parseErr != nil {
+				return servicedto.UsageFilter{}, parseErr
+			}
+			if excludedAPIKeyID != "" {
+				filter.ExcludedAPIKeyIDs = append(filter.ExcludedAPIKeyIDs, excludedAPIKeyID)
+			}
+		}
 	}
 	return filter, nil
 }
