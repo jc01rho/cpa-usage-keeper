@@ -865,10 +865,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
   const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
+  const [excludedApiKeyIds, setExcludedApiKeyIds] = useState<ReadonlyArray<string>>([]);
+  const [isApiKeyExcludeOpen, setIsApiKeyExcludeOpen] = useState(false);
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionResponse | null>(null);
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
+  const apiKeyExcludeMenuRef = useRef<HTMLDetailsElement>(null);
   const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
   const activeCustomRange = useMemo(() => getUsageCustomRangeForTab(activeTab, customRange, {
     nowMs: Date.now(),
@@ -913,6 +916,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     customEnd: customRange?.end,
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
+    excludedApiKeyIds,
     onRangeBoundsConflict: recoverRangeBoundsConflict,
   });
   const {
@@ -926,6 +930,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     viewer: 'admin',
     request: activityRangeRequest,
     apiKeyId: selectedApiKeyId,
+    excludedApiKeyIds,
     enabled: activeTab === 'overview' && usageRangeQuery.valid,
     onAuthRequired,
   });
@@ -954,6 +959,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onAuthRequired,
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
+    excludedApiKeyIds,
     realtimeWindow,
   });
   const {
@@ -1092,6 +1098,43 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     ],
     [apiKeyOptions, t],
   );
+  const handleAPIKeySelectionChange = useCallback((apiKeyId: string) => {
+    setSelectedApiKeyId(apiKeyId);
+    setIsApiKeyExcludeOpen(false);
+    if (apiKeyId) {
+      setExcludedApiKeyIds([]);
+    }
+  }, []);
+  const toggleExcludedAPIKey = useCallback((apiKeyId: string) => {
+    setSelectedApiKeyId('');
+    setExcludedApiKeyIds((current) => (
+      current.includes(apiKeyId)
+        ? current.filter((id) => id !== apiKeyId)
+        : [...current, apiKeyId]
+    ));
+  }, []);
+  useEffect(() => {
+    if (!isApiKeyExcludeOpen) {
+      return;
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!apiKeyExcludeMenuRef.current?.contains(event.target as Node)) {
+        setIsApiKeyExcludeOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsApiKeyExcludeOpen(false);
+        apiKeyExcludeMenuRef.current?.querySelector('summary')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isApiKeyExcludeOpen]);
   const credentialTypeCountsForProviderFilter = useMemo(() => {
     if (credentialSectionVisibility.showAuthFiles) return credentialsData.authFileTypeCounts;
     if (credentialSectionVisibility.showAiProvider) return credentialsData.aiProviderTypeCounts;
@@ -1269,8 +1312,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setAnalysisLatencyData(null);
 
     await loadAnalysisSections({
-      loadCore: () => fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId),
-      loadLatency: () => fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId),
+      loadCore: () => fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId, excludedApiKeyIds),
+      loadLatency: () => fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId, excludedApiKeyIds),
       onCoreLoaded: (response) => {
         if (analysisRequestControllerRef.current !== controller) return;
         setAnalysisData(response);
@@ -1308,7 +1351,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (analysisRequestControllerRef.current === controller) {
       analysisRequestControllerRef.current = null;
     }
-  }, [onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [excludedApiKeyIds, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
 
   useEffect(() => {
     try {
@@ -1501,6 +1544,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
         apiKeyId: selectedApiKeyId,
+        excludedApiKeyIds,
       });
       if (eventsRequestControllerRef.current !== controller) {
         return;
@@ -1533,7 +1577,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [eventsModelFilter, eventsPage, eventsPageSize, eventsResultFilter, eventsSourceFilter, excludedApiKeyIds, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
 
   const resetEventsPage = useCallback(() => {
     setEventsPage(1);
@@ -1568,6 +1612,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
         apiKeyId: selectedApiKeyId,
+        excludedApiKeyIds,
       });
       triggerBrowserFileDownload(file.blob, file.filename);
       showTopNotice('success', t('usage_stats.export_success'));
@@ -1585,7 +1630,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     } finally {
       setEventsExportingFormat(null);
     }
-  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, showTopNotice, t, usageRangeQuery]);
+  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, excludedApiKeyIds, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, showTopNotice, t, usageRangeQuery]);
 
   const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
     if (!requestLogAccessEnabled) return;
@@ -2041,7 +2086,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   {(!isEmbeddedInCPAMC || showRangeControls) && (
                   /* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */
                   <div
-                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''}`.trim()}
+                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''} ${isApiKeyExcludeOpen ? styles.usageFilterTransitionPopoverOpen : ''}`.trim()}
                     aria-hidden={!showRangeControls}
                     inert={!showRangeControls}
                   >
@@ -2053,13 +2098,55 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                       <Select
                         value={selectedApiKeyId}
                         options={apiKeySelectOptions}
-                        onChange={setSelectedApiKeyId}
+                        onChange={handleAPIKeySelectionChange}
                         className={styles.apiKeySelectControl}
                         ariaLabel={t('usage_stats.api_key_filter')}
                         fullWidth={false}
                         dropdownMinWidth={180}
                       />
                     </label>
+                    <details
+                      ref={apiKeyExcludeMenuRef}
+                      className={styles.apiKeyExcludeMenu}
+                      open={isApiKeyExcludeOpen}
+                      onToggle={(event) => setIsApiKeyExcludeOpen(event.currentTarget.open)}
+                    >
+                      <summary
+                        className={styles.apiKeyExcludeSummary}
+                        aria-expanded={isApiKeyExcludeOpen}
+                        aria-haspopup="menu"
+                      >
+                        {excludedApiKeyIds.length > 0
+                          ? t('usage_stats.api_key_exclude_count', { count: excludedApiKeyIds.length })
+                          : t('usage_stats.api_key_exclude')}
+                      </summary>
+                      <div className={styles.apiKeyExcludePopover}>
+                        <div className={styles.apiKeyExcludeHeader}>
+                          <span>{t('usage_stats.api_key_exclude')}</span>
+                          {excludedApiKeyIds.length > 0 && (
+                            <button type="button" onClick={() => setExcludedApiKeyIds([])}>
+                              {t('usage_stats.api_key_exclude_clear')}
+                            </button>
+                          )}
+                        </div>
+                        {apiKeyOptions.length === 0 ? (
+                          <span className={styles.apiKeyExcludeEmpty}>{t('usage_stats.api_key_exclude_none')}</span>
+                        ) : (
+                          <div className={styles.apiKeyExcludeOptions}>
+                            {apiKeyOptions.map((option) => (
+                              <label key={option.id} className={styles.apiKeyExcludeOption}>
+                                <input
+                                  type="checkbox"
+                                  checked={excludedApiKeyIds.includes(option.id)}
+                                  onChange={() => toggleExcludedAPIKey(option.id)}
+                                />
+                                <span>{option.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </details>
                   </div>
                     <TimeRangeControl
                       value={timeRange}

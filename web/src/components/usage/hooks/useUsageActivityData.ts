@@ -6,6 +6,7 @@ export interface UseUsageActivityDataOptions {
   viewer: 'admin' | 'key';
   request: UsageActivityRequest;
   apiKeyId?: string;
+  excludedApiKeyIds?: ReadonlyArray<string>;
   enabled?: boolean;
   onAuthRequired?: () => void;
 }
@@ -29,14 +30,19 @@ interface ActiveActivityRequest {
   promise: Promise<void>;
 }
 
+const EMPTY_API_KEY_IDS: ReadonlyArray<string> = [];
+
 export function useUsageActivityData({
   viewer,
   request,
   apiKeyId,
+  excludedApiKeyIds,
   enabled = true,
   onAuthRequired,
 }: UseUsageActivityDataOptions): UseUsageActivityDataReturn {
   const normalizedAPIKeyID = viewer === 'admin' ? apiKeyId?.trim() ?? '' : '';
+  const excludedAPIKeyIDs = viewer === 'admin' ? excludedApiKeyIds ?? EMPTY_API_KEY_IDS : EMPTY_API_KEY_IDS;
+  const excludedAPIKeyScope = excludedAPIKeyIDs.join(',');
   const requestWindow = 'window' in request ? request.window : undefined;
   const requestRange = 'range' in request ? request.range : undefined;
   const requestUnit = 'range' in request ? request.unit : undefined;
@@ -53,10 +59,10 @@ export function useUsageActivityData({
         }
   ), [requestEnd, requestRange, requestStart, requestUnit, requestWindow]);
   const queryKey = useMemo(
-    () => `${viewer}:${normalizedAPIKeyID}:${requestWindow ?? ''}:${requestRange ?? ''}:${requestUnit ?? ''}:${requestStart ?? ''}:${requestEnd ?? ''}`,
-    [normalizedAPIKeyID, requestEnd, requestRange, requestStart, requestUnit, requestWindow, viewer],
+    () => `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}:${requestWindow ?? ''}:${requestRange ?? ''}:${requestUnit ?? ''}:${requestStart ?? ''}:${requestEnd ?? ''}`,
+    [excludedAPIKeyScope, normalizedAPIKeyID, requestEnd, requestRange, requestStart, requestUnit, requestWindow, viewer],
   );
-  const queryScope = `${viewer}:${normalizedAPIKeyID}`;
+  const queryScope = `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}`;
   const activeRequestRef = useRef<ActiveActivityRequest | null>(null);
   const [response, setResponse] = useState<UsageActivityResponse | null>(null);
   const [responseQueryKey, setResponseQueryKey] = useState('');
@@ -85,7 +91,7 @@ export function useUsageActivityData({
       try {
         const next = viewer === 'key'
           ? await fetchKeyActivity({ request: normalizedRequest, signal: controller.signal })
-          : await fetchUsageActivity({ request: normalizedRequest, apiKeyId: normalizedAPIKeyID, signal: controller.signal });
+          : await fetchUsageActivity({ request: normalizedRequest, apiKeyId: normalizedAPIKeyID, excludedApiKeyIds: excludedAPIKeyIDs, signal: controller.signal });
         if (activeRequestRef.current !== activeRequest) return;
         setResponse(next);
         setResponseQueryKey(queryKey);
@@ -110,7 +116,7 @@ export function useUsageActivityData({
       }
     })();
     return activeRequest.promise;
-  }, [normalizedAPIKeyID, normalizedRequest, onAuthRequired, queryKey, queryScope, viewer]);
+  }, [excludedAPIKeyIDs, normalizedAPIKeyID, normalizedRequest, onAuthRequired, queryKey, queryScope, viewer]);
 
   useEffect(() => {
     if (!enabled) return;

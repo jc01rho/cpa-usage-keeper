@@ -97,6 +97,7 @@ export interface FetchKeyOverviewRealtimeOptions {
 
 export interface FetchUsageOverviewRealtimeOptions extends FetchKeyOverviewRealtimeOptions {
   apiKeyId?: string
+  excludedApiKeyIds?: ReadonlyArray<string>
 }
 
 interface EmbedLoginResponse {
@@ -392,7 +393,17 @@ export async function fetchKeyOverview(request: UsageRangeRequest, signal?: Abor
 export interface FetchUsageActivityOptions {
   request: UsageActivityRequest
   apiKeyId?: string
+  excludedApiKeyIds?: ReadonlyArray<string>
   signal?: AbortSignal
+}
+
+function appendExcludedAPIKeyIDs(params: URLSearchParams, excludedApiKeyIds?: ReadonlyArray<string>): void {
+  for (const apiKeyId of excludedApiKeyIds ?? []) {
+    const normalizedAPIKeyID = apiKeyId.trim()
+    if (normalizedAPIKeyID) {
+      params.append('exclude_api_key_id', normalizedAPIKeyID)
+    }
+  }
 }
 
 const buildUsageActivityParams = (request: UsageActivityRequest): URLSearchParams => {
@@ -431,12 +442,13 @@ export async function fetchKeyOverviewRealtime(options: FetchKeyOverviewRealtime
   return normalizeOverviewRealtimeBlock(payload, window)
 }
 
-export async function fetchUsageOverview(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string): Promise<UsageOverviewResponse> {
+export async function fetchUsageOverview(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>): Promise<UsageOverviewResponse> {
   const params = buildUsageRangeParams(request)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
   }
+  appendExcludedAPIKeyIDs(params, excludedApiKeyIds)
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/overview')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
@@ -445,12 +457,13 @@ export async function fetchUsageOverview(request: UsageRangeRequest, signal?: Ab
   return response.json()
 }
 
-export async function fetchUsageActivity({ request, apiKeyId, signal }: FetchUsageActivityOptions): Promise<UsageActivityResponse> {
+export async function fetchUsageActivity({ request, apiKeyId, excludedApiKeyIds, signal }: FetchUsageActivityOptions): Promise<UsageActivityResponse> {
   const params = buildUsageActivityParams(request)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
   }
+  appendExcludedAPIKeyIDs(params, excludedApiKeyIds)
   const response = await apiFetch(`${apiPath('/usage/activity')}?${params.toString()}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage activity: ${response.status}`)
@@ -459,12 +472,13 @@ export async function fetchUsageActivity({ request, apiKeyId, signal }: FetchUsa
 }
 
 export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
-  const { signal, apiKeyId, window } = options
+  const { signal, apiKeyId, excludedApiKeyIds, window } = options
   const params = new URLSearchParams()
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
   }
+  appendExcludedAPIKeyIDs(params, excludedApiKeyIds)
   if (window) {
     params.set('window', window)
   }
@@ -487,6 +501,7 @@ export interface FetchUsageEventsOptions {
   source?: string
   result?: string
   apiKeyId?: string
+  excludedApiKeyIds?: ReadonlyArray<string>
 }
 
 export type UsageEventsExportFormat = 'csv' | 'json'
@@ -525,6 +540,7 @@ function buildUsageEventsParams(request: UsageRangeRequest, options?: FetchUsage
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
   }
+  appendExcludedAPIKeyIDs(params, options?.excludedApiKeyIds)
   return params
 }
 
@@ -769,12 +785,13 @@ export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagem
   return response.json()
 }
 
-export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string): Promise<AnalysisResponse> {
+export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds: ReadonlyArray<string> = []): Promise<AnalysisResponse> {
   const params = buildUsageRangeParams(request)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
   }
+  appendExcludedAPIKeyIDs(params, excludedApiKeyIds)
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/analysis')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
@@ -783,12 +800,13 @@ export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSi
   return response.json()
 }
 
-export async function fetchAnalysisLatency(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string): Promise<AnalysisLatencyDiagnostics> {
+export async function fetchAnalysisLatency(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds: ReadonlyArray<string> = []): Promise<AnalysisLatencyDiagnostics> {
   const params = buildUsageRangeParams(request)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
   }
+  appendExcludedAPIKeyIDs(params, excludedApiKeyIds)
   const query = params.toString()
   const response = await apiFetch(`${apiPath('/usage/analysis/latency')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {

@@ -12,12 +12,14 @@ interface LoadUsageStatsOptions {
   start?: string;
   end?: string;
   apiKeyId?: string;
+  excludedApiKeyIds?: ReadonlyArray<string>;
 }
 
 interface LoadUsageStatsRealtimeOptions {
   force?: boolean;
   staleTimeMs?: number;
   apiKeyId?: string;
+  excludedApiKeyIds?: ReadonlyArray<string>;
   realtimeWindow?: OverviewRealtimeWindow;
 }
 
@@ -45,11 +47,11 @@ let activeRealtimeRequest: Promise<void> | null = null;
 let activeRealtimeRequestKey: string | null = null;
 let activeRealtimeRequestController: AbortController | null = null;
 
-export const buildUsageStatsQueryKey = (request: UsageRangeRequest, apiKeyId?: string): string =>
-  `${request.range}:${request.unit ?? ''}:${request.start ?? ''}:${request.end ?? ''}:${apiKeyId ?? ''}`;
+export const buildUsageStatsQueryKey = (request: UsageRangeRequest, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>): string =>
+  `${request.range}:${request.unit ?? ''}:${request.start ?? ''}:${request.end ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}`;
 
-const buildRealtimeQueryKey = (apiKeyId?: string, realtimeWindow?: OverviewRealtimeWindow): string =>
-  `${apiKeyId ?? ''}:${realtimeWindow ?? ''}`;
+const buildRealtimeQueryKey = (apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>, realtimeWindow?: OverviewRealtimeWindow): string =>
+  `${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}:${realtimeWindow ?? ''}`;
 
 export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
   usage: null,
@@ -72,11 +74,12 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       start,
       end,
       apiKeyId,
+      excludedApiKeyIds,
     } = options;
     const { lastRefreshedAt, loading, usage, lastQueryKey } = get();
     const now = Date.now();
     const request: UsageRangeRequest = { range, unit, start, end };
-    const queryKey = buildUsageStatsQueryKey(request, apiKeyId);
+    const queryKey = buildUsageStatsQueryKey(request, apiKeyId, excludedApiKeyIds);
     const overviewFresh = Boolean(!force && usage && lastRefreshedAt && lastQueryKey === queryKey && now - lastRefreshedAt < staleTimeMs);
 
     if (overviewFresh) {
@@ -100,7 +103,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
 
     activeOverviewRequest = (async () => {
       try {
-        const overview = await fetchUsageOverview(request, controller.signal, apiKeyId);
+        const overview = await fetchUsageOverview(request, controller.signal, apiKeyId, excludedApiKeyIds);
         if (activeOverviewRequestController !== controller) return;
         set({
           usage: overview,
@@ -141,11 +144,12 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       force = false,
       staleTimeMs = USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
+      excludedApiKeyIds,
       realtimeWindow,
     } = options;
     const { lastRealtimeRefreshedAt, realtimeLoading, realtime, lastRealtimeQueryKey, realtimeError, lastRealtimeErrorQueryKey } = get();
     const now = Date.now();
-    const realtimeQueryKey = buildRealtimeQueryKey(apiKeyId, realtimeWindow);
+    const realtimeQueryKey = buildRealtimeQueryKey(apiKeyId, excludedApiKeyIds, realtimeWindow);
     const realtimeFresh = Boolean(!force && realtime && lastRealtimeRefreshedAt && lastRealtimeQueryKey === realtimeQueryKey && now - lastRealtimeRefreshedAt < staleTimeMs);
 
     if (realtimeFresh) {
@@ -176,6 +180,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
         const nextRealtime = await fetchUsageOverviewRealtime({
           signal: controller.signal,
           apiKeyId,
+          excludedApiKeyIds,
           window: realtimeWindow,
         });
         if (activeRealtimeRequestController !== controller) return;

@@ -217,13 +217,17 @@ func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 		t.Fatalf("ListActiveCPAAPIKeys returned error: %v", err)
 	}
 	var targetID string
+	var otherID string
 	for _, key := range activeKeys {
 		if key.APIKey == "sk-target-key" {
 			targetID = strconv.FormatInt(key.ID, 10)
 		}
+		if key.APIKey == "sk-other-key" {
+			otherID = strconv.FormatInt(key.ID, 10)
+		}
 	}
-	if targetID == "" {
-		t.Fatalf("expected synced target API key")
+	if targetID == "" || otherID == "" {
+		t.Fatalf("expected both synced API keys")
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
 		{EventKey: "target-1", APIGroupKey: "sk-target-key", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 10},
@@ -260,6 +264,20 @@ func TestUsageServiceResolvesAPIKeyIDForUsageQueries(t *testing.T) {
 	}
 	if events.TotalCount != 2 || len(events.Events) != 2 {
 		t.Fatalf("expected events to use resolved API key, got %+v", events)
+	}
+
+	exclusionEnd := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
+	excludedOverview, err := provider.GetUsageOverview(context.Background(), servicedto.UsageFilter{
+		ExcludedAPIKeyIDs: []string{otherID},
+		Range:             "custom",
+		StartTime:         &start,
+		EndTime:           &exclusionEnd,
+	})
+	if err != nil {
+		t.Fatalf("GetUsageOverview with exclusions returned error: %v", err)
+	}
+	if excludedOverview.Usage == nil || excludedOverview.Usage.TotalRequests != 2 || excludedOverview.Usage.TotalTokens != 30 {
+		t.Fatalf("expected overview to exclude the selected API key, got %+v", excludedOverview.Usage)
 	}
 }
 

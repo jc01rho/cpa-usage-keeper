@@ -58,6 +58,9 @@ func BuildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQuer
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
 	}
+	if len(filter.ExcludedAPIGroupKeys) > 0 {
+		query = query.Where("api_group_key NOT IN ?", filter.ExcludedAPIGroupKeys)
+	}
 	if err := query.Order("bucket_start ASC").Find(&rows).Error; err != nil {
 		return empty, fmt.Errorf("load analysis latency rollups: %w", err)
 	}

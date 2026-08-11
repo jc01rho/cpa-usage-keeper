@@ -307,6 +307,18 @@ func TestParseUsageFilterQueryAcceptsAPIKeyID(t *testing.T) {
 	}
 }
 
+func TestParseUsageFilterQueryAcceptsMultipleExcludedAPIKeyIDs(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=24h&exclude_api_key_id=12&exclude_api_key_id=34", nil)
+
+	filter, err := parseUsageFilterQuery(req, time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("parseUsageFilterQuery returned error: %v", err)
+	}
+	if len(filter.ExcludedAPIKeyIDs) != 2 || filter.ExcludedAPIKeyIDs[0] != "12" || filter.ExcludedAPIKeyIDs[1] != "34" {
+		t.Fatalf("expected excluded API key ids [12 34], got %v", filter.ExcludedAPIKeyIDs)
+	}
+}
+
 func TestParseUsageTimeFilterQueryIgnoresEventOnlyParameters(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/usage/overview?range=2d&page=0&page_size=25&model=x&source=y&auth_index=z&result=bogus&api_key_id=42", nil)
 	anchor := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)

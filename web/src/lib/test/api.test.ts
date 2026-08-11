@@ -170,6 +170,23 @@ describe('fetchUsageEvents', () => {
     expect(keyUrl.searchParams.get('api_key_id')).toBeNull();
   });
 
+  it('adds every excluded API key id to usage statistics requests', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ window: 'week', grain: 'medium', rows: 7, columns: 52, blocks: [] }),
+    } as Response);
+
+    await fetchUsageActivity({
+      request: { range: '7d' },
+      excludedApiKeyIds: ['12', '34'],
+    });
+
+    const usageUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(usageUrl.searchParams.getAll('exclude_api_key_id')).toEqual(['12', '34']);
+    expect(usageUrl.searchParams.get('api_key_id')).toBeNull();
+  });
+
   it('loads one-year Recent Activity through its dedicated window parameter', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
