@@ -18,6 +18,9 @@ type UsageQueryFilter struct {
 	Page            int
 	PageSize        int
 	Offset          int
+	CursorMode      bool
+	CursorTimestamp *time.Time
+	CursorID        int64
 	Model           string
 	AuthIndex       string
 	APIGroupKey     string

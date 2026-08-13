@@ -724,6 +724,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		StartTime:    filter.StartTime,
 		EndTime:      filter.EndTime,
 		EndExclusive: filter.EndExclusive,
+<<<<<<< HEAD
 		Limit:        filter.Limit,
 		Page:         filter.Page,
 		PageSize:     filter.PageSize,
@@ -733,6 +734,19 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		APIGroupKey:  apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 		Result:       filter.Result,
+=======
+		Limit:           filter.Limit,
+		Page:            filter.Page,
+		PageSize:        filter.PageSize,
+		Offset:          filter.Offset,
+		CursorMode:      filter.CursorMode,
+		CursorTimestamp: filter.CursorTimestamp,
+		CursorID:        filter.CursorID,
+		Model:           filter.Model,
+		AuthIndex:       filter.AuthIndex,
+		APIGroupKey:     apiGroupKey,
+		Result:          filter.Result,
+>>>>>>> upstream/main
 	}, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err
@@ -773,7 +787,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 			PricingStyle:        row.PricingStyle,
 		})
 	}
-	return &servicedto.UsageEventsPage{Events: result, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
+	return &servicedto.UsageEventsPage{Events: result, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages, HasMore: page.HasMore}, nil
 }
 
 // StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。
