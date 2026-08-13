@@ -340,6 +340,8 @@ export interface UsageEventsResponse {
   page: number
   page_size: number
   total_pages: number
+  next_cursor?: string
+  has_more?: boolean
 }
 
 export interface UsageEventRequestLogSection {

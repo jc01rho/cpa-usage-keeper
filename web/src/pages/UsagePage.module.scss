@@ -3131,6 +3131,16 @@
   }
 }
 
+.requestEventsVirtualSpacerRow {
+  pointer-events: none;
+
+  td {
+    height: 0;
+    padding: 0;
+    border: 0;
+  }
+}
+
 .requestEventsNoWrapCell {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
