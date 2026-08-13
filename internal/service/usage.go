@@ -110,14 +110,14 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:   filter.InstanceID,
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
-		QueryNow:     filter.QueryNow,
-		APIGroupKey:  apiGroupKey,
+		InstanceID:           filter.InstanceID,
+		Range:                filter.Range,
+		CustomUnit:           filter.CustomUnit,
+		StartTime:            filter.StartTime,
+		EndTime:              filter.EndTime,
+		EndExclusive:         filter.EndExclusive,
+		QueryNow:             filter.QueryNow,
+		APIGroupKey:          apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 	}, s.recentUsage, s.pricing.NewResolver())
 	if err != nil {
@@ -282,10 +282,10 @@ func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter serv
 		return nil, err
 	}
 	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:      filter.InstanceID,
-		RealtimeWindow:  filter.RealtimeWindow,
-		RealtimeEndTime: filter.RealtimeEndTime,
-		APIGroupKey:     apiGroupKey,
+		InstanceID:           filter.InstanceID,
+		RealtimeWindow:       filter.RealtimeWindow,
+		RealtimeEndTime:      filter.RealtimeEndTime,
+		APIGroupKey:          apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 	}, s.recentUsage, s.pricing.NewResolver())
 	if err != nil {
@@ -522,13 +522,13 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:   filter.InstanceID,
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
-		APIGroupKey:  apiGroupKey,
+		InstanceID:           filter.InstanceID,
+		Range:                filter.Range,
+		CustomUnit:           filter.CustomUnit,
+		StartTime:            filter.StartTime,
+		EndTime:              filter.EndTime,
+		EndExclusive:         filter.EndExclusive,
+		APIGroupKey:          apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 	}, s.pricing.NewResolver())
 	if err != nil {
@@ -544,13 +544,13 @@ func (s *usageService) GetAnalysisLatency(ctx context.Context, filter servicedto
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:   filter.InstanceID,
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
-		APIGroupKey:  apiGroupKey,
+		InstanceID:           filter.InstanceID,
+		Range:                filter.Range,
+		CustomUnit:           filter.CustomUnit,
+		StartTime:            filter.StartTime,
+		EndTime:              filter.EndTime,
+		EndExclusive:         filter.EndExclusive,
+		APIGroupKey:          apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 	})
 	if err != nil {
@@ -718,35 +718,24 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		return nil, err
 	}
 	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:   filter.InstanceID,
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
-<<<<<<< HEAD
-		Limit:        filter.Limit,
-		Page:         filter.Page,
-		PageSize:     filter.PageSize,
-		Offset:       filter.Offset,
-		Model:        filter.Model,
-		AuthIndex:    filter.AuthIndex,
-		APIGroupKey:  apiGroupKey,
+		InstanceID:           filter.InstanceID,
+		Range:                filter.Range,
+		CustomUnit:           filter.CustomUnit,
+		StartTime:            filter.StartTime,
+		EndTime:              filter.EndTime,
+		EndExclusive:         filter.EndExclusive,
+		Limit:                filter.Limit,
+		Page:                 filter.Page,
+		PageSize:             filter.PageSize,
+		Offset:               filter.Offset,
+		CursorMode:           filter.CursorMode,
+		CursorTimestamp:      filter.CursorTimestamp,
+		CursorID:             filter.CursorID,
+		Model:                filter.Model,
+		AuthIndex:            filter.AuthIndex,
+		APIGroupKey:          apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
-		Result:       filter.Result,
-=======
-		Limit:           filter.Limit,
-		Page:            filter.Page,
-		PageSize:        filter.PageSize,
-		Offset:          filter.Offset,
-		CursorMode:      filter.CursorMode,
-		CursorTimestamp: filter.CursorTimestamp,
-		CursorID:        filter.CursorID,
-		Model:           filter.Model,
-		AuthIndex:       filter.AuthIndex,
-		APIGroupKey:     apiGroupKey,
-		Result:          filter.Result,
->>>>>>> upstream/main
+		Result:               filter.Result,
 	}, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err
@@ -798,17 +787,17 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 		return err
 	}
 	return repository.StreamUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:   filter.InstanceID,
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
-		Model:        filter.Model,
-		AuthIndex:    filter.AuthIndex,
-		APIGroupKey:  apiGroupKey,
+		InstanceID:           filter.InstanceID,
+		Range:                filter.Range,
+		CustomUnit:           filter.CustomUnit,
+		StartTime:            filter.StartTime,
+		EndTime:              filter.EndTime,
+		EndExclusive:         filter.EndExclusive,
+		Model:                filter.Model,
+		AuthIndex:            filter.AuthIndex,
+		APIGroupKey:          apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
-		Result:       filter.Result,
+		Result:               filter.Result,
 	}, func(row repodto.UsageEventRecord) error {
 		return emit(servicedto.UsageEventRecord{
 			ID:                  row.ID,
