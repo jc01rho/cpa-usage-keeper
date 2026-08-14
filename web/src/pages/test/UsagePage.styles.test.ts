@@ -259,6 +259,12 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource).not.toContain('selectedInstanceId')
   })
 
+  it('keeps keeper fingerprints out of selectable API key controls', () => {
+    expect(usagePageSource).toContain('const KEEPER_API_KEY_FINGERPRINT_PATTERN = /^akf1_[0-9a-f]{64}$/')
+    expect(usagePageSource).toContain('apiKeyOptions.filter((option) => !KEEPER_API_KEY_FINGERPRINT_PATTERN.test(option.displayKey))')
+    expect(usagePageSource).toContain('? selectableApiKeyOptions.filter((option) => option.instanceId === selectedInstanceId)')
+  })
+
   it('shows a dedicated notice when Usage Events export capacity is full', () => {
     expect(usagePageSource).toContain('error instanceof ApiError && error.status === 429')
     expect(usagePageSource).toContain("t('usage_stats.export_busy')")
