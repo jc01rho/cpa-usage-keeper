@@ -107,6 +107,12 @@ describe('RequestEventsDetailsCard request log virtualization', () => {
   });
 
   afterEach(async () => {
+    // TanStack Virtual 默认在 150ms 后发送滚动结束更新，销毁 Happy DOM 前先等待该更新完成。
+    await act(async () => {
+      const { promise: settleVirtualizer, resolve } = Promise.withResolvers<void>();
+      window.setTimeout(resolve, 200);
+      await settleVirtualizer;
+    });
     await act(async () => root.unmount());
     container.remove();
     document.body.innerHTML = '';

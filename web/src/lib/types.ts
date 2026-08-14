@@ -21,7 +21,11 @@ export interface AuthManagedSessionItem {
   source?: AuthManagedSessionSource
   current?: boolean
   loginAt?: string
+  lastSeenAt?: string
   expiresAt?: string
+  loginIp?: string
+  lastSeenIp?: string
+  userAgent?: string
   apiKeyId?: string
   label?: string
   displayKey?: string
