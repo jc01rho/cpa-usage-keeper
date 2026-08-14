@@ -175,11 +175,11 @@ func TestAuthAPIKeyLoginSetsViewerSessionCookieAndSessionSummary(t *testing.T) {
 	router.ServeHTTP(sessionResp, sessionReq)
 
 	body := sessionResp.Body.String()
-	if sessionResp.Code != http.StatusOK || !contains(body, `"authenticated":true`) || !contains(body, `"role":"api_key_viewer"`) || !contains(body, `"api_key":{"display_key":"sk-*********123456","alias":"Team Key"}`) {
+	if sessionResp.Code != http.StatusOK || !contains(body, `"authenticated":true`) || !contains(body, `"role":"api_key_viewer"`) || !contains(body, `"api_key":{"display_key":"sk-live123456","alias":"Team Key"}`) {
 		t.Fatalf("unexpected session response: %d %s", sessionResp.Code, body)
 	}
-	if contains(body, "sk-live123456") || contains(body, "sk-l************3456") {
-		t.Fatalf("expected session response not to expose raw API key: %s", body)
+	if sessionResp.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("expected no-store session response, got %q", sessionResp.Header().Get("Cache-Control"))
 	}
 }
 
@@ -463,10 +463,13 @@ func TestAuthSessionManagementListsAdminAndAPIKeySessionsWithCurrentFirst(t *tes
 		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	for _, secret := range []string{"sk-live123456", "sk-other654321", "legacy-display-key", "legacy-other-key", adminToken1, adminToken2, viewerToken1, viewerToken2} {
+	for _, secret := range []string{"legacy-display-key", "legacy-other-key", adminToken1, adminToken2, viewerToken1, viewerToken2} {
 		if strings.Contains(body, secret) {
 			t.Fatalf("session management response leaked secret %q: %s", secret, body)
 		}
+	}
+	if resp.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("expected no-store session management response, got %q", resp.Header().Get("Cache-Control"))
 	}
 	var parsed struct {
 		Items []struct {
@@ -528,11 +531,44 @@ func TestAuthSessionManagementListsAdminAndAPIKeySessionsWithCurrentFirst(t *tes
 	if adminRows != 2 {
 		t.Fatalf("expected two admin rows, got %d in %+v", adminRows, parsed.Items)
 	}
-	if apiLabels["42"] != "Team Key\x00sk-*********123456" {
-		t.Fatalf("expected API key 42 to use alias and canonical mask, got %q", apiLabels["42"])
+	if apiLabels["42"] != "Team Key\x00sk-live123456" {
+		t.Fatalf("expected API key 42 to use alias and full key, got %q", apiLabels["42"])
 	}
-	if apiLabels["43"] != "sk-*********654321\x00sk-*********654321" {
-		t.Fatalf("expected API key 43 to fall back to masked key, got %q", apiLabels["43"])
+	if apiLabels["43"] != "sk-other654321\x00sk-other654321" {
+		t.Fatalf("expected API key 43 to fall back to full key, got %q", apiLabels["43"])
+	}
+}
+
+func TestFilterManagedSessionRecordsByAPIKeysKeepsAdminsAndScopedViewers(t *testing.T) {
+	sessions := auth.NewSessionManager(time.Hour)
+	if _, _, err := sessions.Create(); err != nil {
+		t.Fatalf("Create admin returned error: %v", err)
+	}
+	if _, _, err := sessions.CreateAPIKeyViewer(42); err != nil {
+		t.Fatalf("CreateAPIKeyViewer 42 returned error: %v", err)
+	}
+	if _, _, err := sessions.CreateAPIKeyViewer(43); err != nil {
+		t.Fatalf("CreateAPIKeyViewer 43 returned error: %v", err)
+	}
+
+	filtered := filterManagedSessionRecordsByAPIKeys(
+		sessions.List(),
+		map[int64]entities.CPAAPIKey{42: {ID: 42}},
+	)
+	var adminCount, viewerCount int
+	for _, record := range filtered {
+		switch record.Role {
+		case auth.RoleAdmin:
+			adminCount++
+		case auth.RoleAPIKeyViewer:
+			viewerCount++
+			if record.CPAAPIKeyID != 42 {
+				t.Fatalf("unexpected viewer key id %d", record.CPAAPIKeyID)
+			}
+		}
+	}
+	if adminCount != 1 || viewerCount != 1 {
+		t.Fatalf("unexpected filtered records: %+v", filtered)
 	}
 }
 

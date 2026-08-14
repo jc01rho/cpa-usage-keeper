@@ -77,7 +77,10 @@ describe('useUsageActivityData', () => {
 
   it('uses the Admin endpoint with the Overview time query and selected API key scope', async () => {
     apiMocks.fetchUsageActivity.mockResolvedValue(activityFor('week'));
-    const request = { range: '2d' as const };
+    const request = {
+      range: '2d' as const,
+      instanceId: '0197a8ce-0000-7000-8000-000000000042',
+    };
 
     await renderOptions({ viewer: 'admin', request, apiKeyId: '42' });
 

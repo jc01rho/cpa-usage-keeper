@@ -11,6 +11,7 @@ import (
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
+	"cpa-usage-keeper/internal/service"
 	"cpa-usage-keeper/internal/timeutil"
 	"github.com/gin-gonic/gin"
 )
@@ -44,6 +45,7 @@ func registerAuthSessionManagementRoutes(router gin.IRoutes, handler *authHandle
 }
 
 func (h *authHandler) listManagedSessions(c *gin.Context) {
+	setNoStoreHeaders(c)
 	if h == nil || !h.config.Enabled || h.sessions == nil {
 		c.JSON(http.StatusOK, authSessionListResponse{Items: []authSessionItemResponse{}})
 		return
@@ -53,7 +55,27 @@ func (h *authHandler) listManagedSessions(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if service.InstanceFilterFromContext(c.Request.Context()) != "" {
+		records = filterManagedSessionRecordsByAPIKeys(records, apiKeysByID)
+	}
 	c.JSON(http.StatusOK, authSessionListResponse{Items: buildAuthSessionItems(records, apiKeysByID, currentAuthSessionHash(c))})
+}
+
+func filterManagedSessionRecordsByAPIKeys(
+	records []auth.SessionRecord,
+	apiKeysByID map[int64]entities.CPAAPIKey,
+) []auth.SessionRecord {
+	filtered := make([]auth.SessionRecord, 0, len(records))
+	for _, record := range records {
+		if record.Role != auth.RoleAPIKeyViewer {
+			filtered = append(filtered, record)
+			continue
+		}
+		if _, ok := apiKeysByID[record.CPAAPIKeyID]; ok {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered
 }
 
 func (h *authHandler) revokeManagedSession(c *gin.Context) {
@@ -169,7 +191,7 @@ func formatAuthSessionTime(value time.Time) string {
 
 func apiKeySessionDisplay(apiKeyID int64, apiKeysByID map[int64]entities.CPAAPIKey) (string, string) {
 	if row, ok := apiKeysByID[apiKeyID]; ok {
-		return helper.CPAAPIKeyDisplayName(row), helper.CPAAPIKeyMaskedDisplayKey(row)
+		return helper.CPAAPIKeyDisplayName(row), helper.CPAAPIKeyDisplayKey(row)
 	}
 	fallback := fmt.Sprintf("Unknown API Key #%d", apiKeyID)
 	return fallback, fallback

@@ -155,6 +155,7 @@ type analysisAPIKeyInfo struct {
 
 func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider) {
 	router.GET("/usage/analysis", func(c *gin.Context) {
+		setNoStoreHeaders(c)
 		if usageProvider == nil {
 			c.JSON(http.StatusOK, emptyAnalysisResponse())
 			return
@@ -180,6 +181,7 @@ func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageP
 	})
 
 	router.GET("/usage/analysis/latency", func(c *gin.Context) {
+		setNoStoreHeaders(c)
 		if usageProvider == nil {
 			c.JSON(http.StatusOK, emptyAnalysisLatencyDiagnosticsResponse())
 			return
@@ -248,7 +250,7 @@ func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map
 	ambiguousFingerprints := make(map[string]struct{})
 	for _, row := range rows {
 		fingerprint := strings.TrimSpace(row.APIKey)
-		label := helper.RedactSensitiveValue(fingerprint)
+		label := fingerprint
 		if !row.IsDeleted {
 			label = helper.CPAAPIKeyDisplayName(row)
 		}
@@ -444,15 +446,16 @@ func analysisAPIKeyResponseKeyForInstance(instanceID, apiKey string, apiKeyInfos
 	if instanceID == "" {
 		return analysisAPIKeyResponseKey(apiKey, apiKeyInfos)
 	}
-	return helper.RedactSensitiveValue(apiKey)
+	return strings.TrimSpace(apiKey)
 }
 
 func analysisAPIKeyResponseKey(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
-	// Analysis 的结构标识使用 CPA API Key id，展示文案独立走别名/脱敏 key，避免脱敏值碰撞。
+	// Analysis uses the CPA API Key id when metadata is available and otherwise
+	// keeps the full stored key identity so distinct fingerprints cannot collide.
 	if info, ok := apiKeyInfos[apiKey]; ok && info.ID != "" {
 		return info.ID
 	}
-	return helper.RedactSensitiveValue(apiKey)
+	return strings.TrimSpace(apiKey)
 }
 
 func analysisAPIKeyLabelForInstance(instanceID, apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
@@ -462,14 +465,14 @@ func analysisAPIKeyLabelForInstance(instanceID, apiKey string, apiKeyInfos map[s
 	if instanceID == "" {
 		return analysisAPIKeyLabel(apiKey, apiKeyInfos)
 	}
-	return helper.RedactSensitiveValue(apiKey)
+	return strings.TrimSpace(apiKey)
 }
 
 func analysisAPIKeyLabel(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
 	if info, ok := apiKeyInfos[apiKey]; ok && info.Label != "" {
 		return info.Label
 	}
-	return helper.RedactSensitiveValue(apiKey)
+	return strings.TrimSpace(apiKey)
 }
 
 func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyInfos map[string]analysisAPIKeyInfo) analysisHeatmap {

@@ -11,6 +11,7 @@ interface LoadUsageStatsOptions {
   unit?: UsageCustomRangeUnit;
   start?: string;
   end?: string;
+  instanceId?: string;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
 }
@@ -20,6 +21,7 @@ interface LoadUsageStatsRealtimeOptions {
   staleTimeMs?: number;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
+  instanceId?: string;
   realtimeWindow?: OverviewRealtimeWindow;
 }
 
@@ -48,10 +50,10 @@ let activeRealtimeRequestKey: string | null = null;
 let activeRealtimeRequestController: AbortController | null = null;
 
 export const buildUsageStatsQueryKey = (request: UsageRangeRequest, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>): string =>
-  `${request.range}:${request.unit ?? ''}:${request.start ?? ''}:${request.end ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}`;
+  `${request.instanceId ?? ''}:${request.range}:${request.unit ?? ''}:${request.start ?? ''}:${request.end ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}`;
 
-const buildRealtimeQueryKey = (apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>, realtimeWindow?: OverviewRealtimeWindow): string =>
-  `${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}:${realtimeWindow ?? ''}`;
+const buildRealtimeQueryKey = (instanceId?: string, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>, realtimeWindow?: OverviewRealtimeWindow): string =>
+  `${instanceId ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}:${realtimeWindow ?? ''}`;
 
 export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
   usage: null,
@@ -73,12 +75,13 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       unit,
       start,
       end,
+      instanceId,
       apiKeyId,
       excludedApiKeyIds,
     } = options;
     const { lastRefreshedAt, loading, usage, lastQueryKey } = get();
     const now = Date.now();
-    const request: UsageRangeRequest = { range, unit, start, end };
+    const request: UsageRangeRequest = { range, unit, start, end, instanceId };
     const queryKey = buildUsageStatsQueryKey(request, apiKeyId, excludedApiKeyIds);
     const overviewFresh = Boolean(!force && usage && lastRefreshedAt && lastQueryKey === queryKey && now - lastRefreshedAt < staleTimeMs);
 
@@ -145,11 +148,12 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       staleTimeMs = USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
       excludedApiKeyIds,
+      instanceId,
       realtimeWindow,
     } = options;
     const { lastRealtimeRefreshedAt, realtimeLoading, realtime, lastRealtimeQueryKey, realtimeError, lastRealtimeErrorQueryKey } = get();
     const now = Date.now();
-    const realtimeQueryKey = buildRealtimeQueryKey(apiKeyId, excludedApiKeyIds, realtimeWindow);
+    const realtimeQueryKey = buildRealtimeQueryKey(instanceId, apiKeyId, excludedApiKeyIds, realtimeWindow);
     const realtimeFresh = Boolean(!force && realtime && lastRealtimeRefreshedAt && lastRealtimeQueryKey === realtimeQueryKey && now - lastRealtimeRefreshedAt < staleTimeMs);
 
     if (realtimeFresh) {
@@ -181,6 +185,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           signal: controller.signal,
           apiKeyId,
           excludedApiKeyIds,
+          instanceId,
           window: realtimeWindow,
         });
         if (activeRealtimeRequestController !== controller) return;

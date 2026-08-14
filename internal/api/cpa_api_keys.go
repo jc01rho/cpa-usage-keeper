@@ -48,6 +48,7 @@ type cpaAPIKeySettingsListResponse struct {
 type cpaAPIKeyOption struct {
 	ID         string `json:"id"`
 	InstanceID string `json:"instanceId"`
+	DisplayKey string `json:"displayKey"`
 	Label      string `json:"label"`
 }
 
@@ -61,6 +62,7 @@ type updateCPAAPIKeyAliasRequest struct {
 
 func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvider) {
 	router.GET("/usage/api-keys", func(c *gin.Context) {
+		setNoStoreHeaders(c)
 		rows, err := listCPAAPIKeyRows(c, provider)
 		if err != nil {
 			return
@@ -69,6 +71,7 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 	})
 
 	router.GET("/usage/api-keys/settings", func(c *gin.Context) {
+		setNoStoreHeaders(c)
 		rows, err := listCPAAPIKeySettingsRows(c, provider)
 		if err != nil {
 			return
@@ -77,6 +80,7 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 	})
 
 	router.GET("/usage/api-keys/options", func(c *gin.Context) {
+		setNoStoreHeaders(c)
 		rows, err := listCPAAPIKeyOptionRows(c, provider)
 		if err != nil {
 			return
@@ -85,6 +89,7 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 	})
 
 	router.PATCH("/usage/api-keys/:id", func(c *gin.Context) {
+		setNoStoreHeaders(c)
 		if provider == nil {
 			c.JSON(http.StatusNotImplemented, gin.H{"error": "api key provider is not configured"})
 			return
@@ -103,6 +108,21 @@ func registerCPAAPIKeyRoutes(router gin.IRoutes, provider service.CPAAPIKeyProvi
 		if err := validateCPAAPIKeyAlias(request.KeyAlias); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+		if instanceID := service.InstanceFilterFromContext(c.Request.Context()); instanceID != "" {
+			existing, err := provider.FindActiveCPAAPIKeyByID(c.Request.Context(), id)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					c.JSON(http.StatusNotFound, gin.H{"error": "api key not found"})
+					return
+				}
+				writeInternalError(c, "load api key failed", err)
+				return
+			}
+			if existing.InstanceID != instanceID {
+				c.JSON(http.StatusNotFound, gin.H{"error": "api key not found"})
+				return
+			}
 		}
 		row, err := provider.UpdateCPAAPIKeyAlias(c.Request.Context(), id, request.KeyAlias)
 		if err != nil {
@@ -180,7 +200,7 @@ func toCPAAPIKeyResponse(row entities.CPAAPIKey) cpaAPIKeyResponse {
 		ID:           strconv.FormatInt(row.ID, 10),
 		InstanceID:   row.InstanceID,
 		KeyAlias:     row.KeyAlias,
-		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
+		DisplayKey:   helper.CPAAPIKeyDisplayKey(row),
 		Label:        label,
 		LastSyncedAt: lastSyncedAt,
 	}
@@ -198,7 +218,7 @@ func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsRespon
 		InstanceID:   row.InstanceID,
 		APIKey:       row.APIKey,
 		KeyAlias:     row.KeyAlias,
-		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
+		DisplayKey:   helper.CPAAPIKeyDisplayKey(row),
 		Label:        label,
 		LastSyncedAt: lastSyncedAt,
 	}
@@ -209,6 +229,7 @@ func toCPAAPIKeyOption(row entities.CPAAPIKey) cpaAPIKeyOption {
 	return cpaAPIKeyOption{
 		ID:         strconv.FormatInt(row.ID, 10),
 		InstanceID: row.InstanceID,
+		DisplayKey: helper.CPAAPIKeyDisplayKey(row),
 		Label:      label,
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
@@ -178,8 +177,8 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	if !contains(body, `"api_key_composition":[`) || !contains(body, `"model_composition":[`) || !contains(body, `"auth_files_composition":[`) || !contains(body, `"ai_provider_composition":[`) {
 		t.Fatalf("expected composition payloads in response body: %s", body)
 	}
-	if !contains(body, `"key":"sk-*********123456"`) || !contains(body, `"label":"sk-*********123456"`) {
-		t.Fatalf("expected redacted api key composition in response body: %s", body)
+	if !contains(body, `"key":"sk-provider123456"`) || !contains(body, `"label":"sk-provider123456"`) {
+		t.Fatalf("expected full api key composition in response body: %s", body)
 	}
 	if !contains(body, `"key":"aut*********file-1"`) || !contains(body, `"label":"Auth File One"`) || !contains(body, `"percent":100`) {
 		t.Fatalf("expected auth file composition in response body: %s", body)
@@ -245,12 +244,11 @@ func TestUsageAnalysisUsesCPAAPIKeyOptionLabels(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	maskedKey := helper.RedactSensitiveValue("sk-alpha123456")
 	if !contains(body, `"key":"1"`) || !contains(body, `"label":"Primary Key"`) || !contains(body, `"api_key":"1"`) || !contains(body, `"api_key_labels":{"1":"Primary Key"}`) {
 		t.Fatalf("expected analysis payload to use CPA API key id and display label, got %s", body)
 	}
-	if contains(body, "sk-alpha123456") || contains(body, maskedKey) {
-		t.Fatalf("expected raw key and fallback redacted label to stay hidden when a CPA key alias exists, got %s", body)
+	if contains(body, "sk-*********123456") {
+		t.Fatalf("expected masked key to be absent, got %s", body)
 	}
 	if provider.lastFilter.APIKeyID != "1" {
 		t.Fatalf("expected API key id to pass into usage filter, got %+v", provider.lastFilter)
@@ -291,21 +289,17 @@ func TestUsageAnalysisUsesCPAAPIKeyIDsForCollidingDisplayKeys(t *testing.T) {
 	if len(payload.APIKeyComposition) != 2 || payload.APIKeyComposition[0].Key != "1" || payload.APIKeyComposition[1].Key != "2" {
 		t.Fatalf("expected API key composition to use ids, got %+v", payload.APIKeyComposition)
 	}
-	if payload.APIKeyComposition[0].Label != "Primary Key" || payload.APIKeyComposition[1].Label != "sk-*********123456" {
-		t.Fatalf("expected API key composition labels to use alias first then redacted key, got %+v", payload.APIKeyComposition)
+	if payload.APIKeyComposition[0].Label != "Primary Key" || payload.APIKeyComposition[1].Label != "sk-bravo123456" {
+		t.Fatalf("expected API key composition labels to use alias first then full key, got %+v", payload.APIKeyComposition)
 	}
 	if len(payload.Heatmap.APIKeys) != 2 || payload.Heatmap.APIKeys[0] != "2" || payload.Heatmap.APIKeys[1] != "1" {
 		t.Fatalf("expected heatmap API keys to use ids sorted by requests, got %+v", payload.Heatmap.APIKeys)
 	}
-	if payload.Heatmap.APIKeyLabels["1"] != "Primary Key" || payload.Heatmap.APIKeyLabels["2"] != "sk-*********123456" {
+	if payload.Heatmap.APIKeyLabels["1"] != "Primary Key" || payload.Heatmap.APIKeyLabels["2"] != "sk-bravo123456" {
 		t.Fatalf("expected heatmap labels to be keyed by id, got %+v", payload.Heatmap.APIKeyLabels)
 	}
 	if len(payload.Heatmap.Cells) != 2 || payload.Heatmap.Cells[0].APIKey != "1" || payload.Heatmap.Cells[1].APIKey != "2" {
 		t.Fatalf("expected heatmap cells to keep separate id keys, got %+v", payload.Heatmap.Cells)
-	}
-	body := resp.Body.String()
-	if contains(body, "sk-alpha123456") || contains(body, "sk-bravo123456") {
-		t.Fatalf("expected raw keys to stay hidden, got %s", body)
 	}
 }
 
@@ -316,7 +310,7 @@ func TestBuildAnalysisHeatmapPayloadSortsKeysByRequests(t *testing.T) {
 		{APIKey: "sk-high654321", Model: "model-low", Requests: 2, TotalTokens: 20},
 	}, nil)
 
-	if got := payload.APIKeys; len(got) != 2 || got[0] != helper.RedactSensitiveValue("sk-high654321") || got[1] != helper.RedactSensitiveValue("sk-low123456") {
+	if got := payload.APIKeys; len(got) != 2 || got[0] != "sk-high654321" || got[1] != "sk-low123456" {
 		t.Fatalf("expected api keys sorted by total requests desc, got %+v", got)
 	}
 	if got := payload.Models; len(got) != 2 || got[0] != "model-high" || got[1] != "model-low" {
@@ -333,16 +327,16 @@ func TestBuildAnalysisHeatmapPayloadKeepsDuplicateAPIKeyLabelsSeparate(t *testin
 		"sk-beta654321":  {Label: "Shared"},
 	})
 
-	alphaKey := helper.RedactSensitiveValue("sk-alpha123456")
-	betaKey := helper.RedactSensitiveValue("sk-beta654321")
+	alphaKey := "sk-alpha123456"
+	betaKey := "sk-beta654321"
 	if got := payload.APIKeys; len(got) != 2 || got[0] != betaKey || got[1] != alphaKey {
-		t.Fatalf("expected heatmap API keys to use redacted response keys sorted by requests, got %+v", got)
+		t.Fatalf("expected heatmap API keys to use full response keys sorted by requests, got %+v", got)
 	}
 	if payload.APIKeyLabels[alphaKey] != "Shared" || payload.APIKeyLabels[betaKey] != "Shared" {
 		t.Fatalf("expected duplicate labels to be stored separately by response key, got %+v", payload.APIKeyLabels)
 	}
 	if len(payload.Cells) != 2 || payload.Cells[0].APIKey != alphaKey || payload.Cells[1].APIKey != betaKey {
-		t.Fatalf("expected heatmap cells to use redacted response keys, got %+v", payload.Cells)
+		t.Fatalf("expected heatmap cells to use full response keys, got %+v", payload.Cells)
 	}
 }
 

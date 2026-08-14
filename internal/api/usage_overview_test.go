@@ -78,7 +78,11 @@ func TestKeyOverviewIgnoresClientAPIKeyIDAndReturnsViewerOverview(t *testing.T) 
 		t.Fatalf("CreateAPIKeyViewer returned error: %v", err)
 	}
 	provider := &usageFilterStub{overview: &servicedto.UsageOverviewSnapshot{Usage: &dto.StatisticsSnapshot{TotalRequests: 3}}}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
+	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{
+		ID:         42,
+		InstanceID: "0197a8ce-0000-7000-8000-000000000042",
+		DisplayKey: "sk-*********live",
+	}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
 
@@ -90,7 +94,9 @@ func TestKeyOverviewIgnoresClientAPIKeyIDAndReturnsViewerOverview(t *testing.T) 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d %s", resp.Code, resp.Body.String())
 	}
-	if provider.lastFilter.APIKeyID != "42" || provider.lastFilter.Range != "24h" {
+	if provider.lastFilter.APIKeyID != "42" ||
+		provider.lastFilter.InstanceID != "0197a8ce-0000-7000-8000-000000000042" ||
+		provider.lastFilter.Range != "24h" {
 		t.Fatalf("expected key overview to force viewer API key id, got %+v", provider.lastFilter)
 	}
 	if !contains(resp.Body.String(), `"total_requests":3`) {
@@ -116,7 +122,11 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyIDAndAllowsParallelOverviewReques
 			}},
 		},
 	}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, DisplayKey: "sk-*********live"}}
+	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{
+		ID:         42,
+		InstanceID: "0197a8ce-0000-7000-8000-000000000042",
+		DisplayKey: "sk-*********live",
+	}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
 
@@ -136,7 +146,10 @@ func TestKeyOverviewRealtimeIgnoresClientAPIKeyIDAndAllowsParallelOverviewReques
 	if realtimeResp.Code != http.StatusOK {
 		t.Fatalf("expected realtime status 200, got %d %s", realtimeResp.Code, realtimeResp.Body.String())
 	}
-	if provider.lastRealtime.APIKeyID != "42" || provider.lastRealtime.RealtimeWindow != "60m" || provider.lastRealtime.RealtimeEndTime == nil {
+	if provider.lastRealtime.APIKeyID != "42" ||
+		provider.lastRealtime.InstanceID != "0197a8ce-0000-7000-8000-000000000042" ||
+		provider.lastRealtime.RealtimeWindow != "60m" ||
+		provider.lastRealtime.RealtimeEndTime == nil {
 		t.Fatalf("expected key overview realtime to force viewer API key id and pass window, got %+v", provider.lastRealtime)
 	}
 	if !contains(realtimeResp.Body.String(), `"request_level":[{"bucket":"2026-04-22T11:00:00Z","requests_per_minute":6,"requests":12}]`) {
@@ -421,7 +434,7 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 		`"token_velocity":[{"bucket":"2026-04-22T11:00:00Z","tokens_per_minute":120,"tokens":20,"cost":0.123}]`,
 		`"response_level":[{"bucket":"2026-04-22T11:00:00Z","ttft_p95_ms":210,"latency_p95_ms":820}]`,
 		`"response_distribution":{"ttft":{"average_line":[],"particles":[{"bucket":"2026-04-22T11:00:00Z","timestamp":"2026-04-22T11:00:15Z","ms":120,"count":1}],"total_particles":1,"sampled":false,"max_particles":1000},"latency":{"average_line":[],"particles":[],"total_particles":0,"sampled":false,"max_particles":1000}}`,
-		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"sk-*********123456","label":"sk-*********123456","tokens":20,"requests":1,"share":100}]`,
+		`"current_usage":{"models":[{"key":"gpt-5","label":"gpt-5","tokens":20,"requests":1,"cost":0.123,"share":100}],"api_keys":[{"key":"sk-alpha123456","label":"sk-alpha123456","tokens":20,"requests":1,"share":100}]`,
 		`"request_level":[{"bucket":"2026-04-22T11:00:00Z","requests_per_minute":6,"requests":1}]`,
 		`"cache_level":[{"bucket":"2026-04-22T11:00:00Z","cache_read_rate":25,"cache_read_tokens":5,"cache_creation_tokens":2,"input_tokens":20}]`,
 	} {
@@ -429,8 +442,8 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 			t.Fatalf("expected realtime response to contain %s, got %s", expected, body)
 		}
 	}
-	if contains(body, "sk-alpha123456") {
-		t.Fatalf("expected realtime API key usage to redact raw key, got %s", body)
+	if contains(body, "sk-*********123456") {
+		t.Fatalf("expected obsolete masked API key identity to be absent, got %s", body)
 	}
 }
 

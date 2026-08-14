@@ -98,6 +98,7 @@ export interface FetchKeyOverviewRealtimeOptions {
 export interface FetchUsageOverviewRealtimeOptions extends FetchKeyOverviewRealtimeOptions {
   apiKeyId?: string
   excludedApiKeyIds?: ReadonlyArray<string>
+  instanceId?: string
 }
 
 interface EmbedLoginResponse {
@@ -369,6 +370,9 @@ export async function deleteCPAInstance(instanceId: string): Promise<void> {
 const buildUsageRangeParams = (request: UsageRangeRequest): URLSearchParams => {
   const params = new URLSearchParams()
   params.set('range', resolveUsageRequestRange(request.range))
+  if (request.instanceId) {
+    params.set('instance_id', request.instanceId)
+  }
   if (request.unit) {
     params.set('unit', request.unit)
   }
@@ -411,6 +415,9 @@ const buildUsageActivityParams = (request: UsageActivityRequest): URLSearchParam
   if ('window' in request) {
     const params = new URLSearchParams()
     params.set('window', request.window)
+    if (request.instanceId) {
+      params.set('instance_id', request.instanceId)
+    }
     return params
   }
   return buildUsageRangeParams(request)
@@ -472,8 +479,11 @@ export async function fetchUsageActivity({ request, apiKeyId, excludedApiKeyIds,
 }
 
 export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
-  const { signal, apiKeyId, excludedApiKeyIds, window } = options
+  const { signal, apiKeyId, excludedApiKeyIds, instanceId, window } = options
   const params = new URLSearchParams()
+  if (instanceId) {
+    params.set('instance_id', instanceId)
+  }
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
@@ -558,16 +568,22 @@ function parseAttachmentFilename(contentDisposition: string | null, fallback: st
   return match?.[1]?.trim() || fallback
 }
 
-export async function fetchUsageEventModelFilterOptions(signal?: AbortSignal): Promise<UsageEventModelFilterOptionsResponse> {
-  const response = await apiFetch(apiPath('/usage/events/filters/models'), { signal, cache: 'no-store' })
+export async function fetchUsageEventModelFilterOptions(signal?: AbortSignal, instanceId?: string): Promise<UsageEventModelFilterOptionsResponse> {
+  const params = new URLSearchParams()
+  if (instanceId) params.set('instance_id', instanceId)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/events/filters/models')}${query ? `?${query}` : ''}`, { signal, cache: 'no-store' })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage event model filters: ${response.status}`)
   }
   return response.json()
 }
 
-export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal): Promise<UsageEventSourceFilterOptionsResponse> {
-  const response = await apiFetch(apiPath('/usage/events/filters/sources'), { signal, cache: 'no-store' })
+export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal, instanceId?: string): Promise<UsageEventSourceFilterOptionsResponse> {
+  const params = new URLSearchParams()
+  if (instanceId) params.set('instance_id', instanceId)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/events/filters/sources')}${query ? `?${query}` : ''}`, { signal, cache: 'no-store' })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage event source filters: ${response.status}`)
   }

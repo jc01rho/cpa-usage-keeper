@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
-import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
+import { ApiError, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchCPAInstances, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CPAInstance, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -877,7 +877,7 @@ export const triggerBrowserURLDownload = (url: string) => {
   link.remove();
 };
 
-export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
+export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onAuthRequired?: () => void; canFilterByInstance?: boolean }) {
   const { t, i18n } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isEmbeddedInCPAMC = isCPAMCEmbed();
@@ -903,6 +903,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [excludedApiKeyIds, setExcludedApiKeyIds] = useState<ReadonlyArray<string>>([]);
   const [isApiKeyExcludeOpen, setIsApiKeyExcludeOpen] = useState(false);
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
+  const [instances, setInstances] = useState<CPAInstance[]>([]);
+  const [selectedInstanceId, setSelectedInstanceId] = useState('');
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionResponse | null>(null);
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
@@ -912,12 +914,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     nowMs: Date.now(),
     timeZone: status?.timezone ?? timeRangeState.timeZone,
   }), [activeTab, customRange, status?.timezone, timeRangeState.timeZone]);
-  const usageRangeQuery = useMemo(() => buildUsageRangeQuery({
-    range: timeRange,
-    customUnit: activeCustomRange?.unit,
-    customStart: activeCustomRange?.start,
-    customEnd: activeCustomRange?.end,
-  }), [activeCustomRange?.end, activeCustomRange?.start, activeCustomRange?.unit, timeRange]);
+  const usageRangeQuery = useMemo(() => ({
+    ...buildUsageRangeQuery({
+      range: timeRange,
+      customUnit: activeCustomRange?.unit,
+      customStart: activeCustomRange?.start,
+      customEnd: activeCustomRange?.end,
+    }),
+    instanceId: canFilterByInstance ? selectedInstanceId || undefined : undefined,
+  }), [activeCustomRange?.end, activeCustomRange?.start, activeCustomRange?.unit, canFilterByInstance, selectedInstanceId, timeRange]);
   const {
     request: activityRangeRequest,
     manualWindow: manualActivityWindow,
@@ -949,6 +954,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     customUnit: customRange?.unit,
     customStart: customRange?.start,
     customEnd: customRange?.end,
+    instanceId: usageRangeQuery.instanceId,
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
     excludedApiKeyIds,
@@ -995,6 +1001,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     enabled: activeTab === 'overview',
     apiKeyId: selectedApiKeyId,
     excludedApiKeyIds,
+    instanceId: usageRangeQuery.instanceId,
     realtimeWindow,
   });
   const {
@@ -1129,13 +1136,47 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     () => getUsageTabOptions(t, { includeRanking: !isEmbeddedInCPAMC }),
     [isEmbeddedInCPAMC, t],
   );
+  const instanceNameById = useMemo(
+    () => new Map(instances.map((instance) => [instance.instanceId, instance.displayName])),
+    [instances],
+  );
+  const instanceSelectOptions = useMemo(
+    () => [
+      { value: '', label: t('usage_stats.instance_filter_all') },
+      ...instances.map((instance) => ({ value: instance.instanceId, label: instance.displayName })),
+    ],
+    [instances, t],
+  );
+  const scopedApiKeyOptions = useMemo(
+    () => selectedInstanceId
+      ? apiKeyOptions.filter((option) => option.instanceId === selectedInstanceId)
+      : apiKeyOptions,
+    [apiKeyOptions, selectedInstanceId],
+  );
   const apiKeySelectOptions = useMemo(
     () => [
       { value: '', label: t('usage_stats.api_key_filter_all') },
-      ...apiKeyOptions.map((option) => ({ value: option.id, label: option.label })),
+      ...scopedApiKeyOptions.map((option) => {
+        const keyLabel = option.label === option.displayKey
+          ? option.displayKey
+          : `${option.label} · ${option.displayKey}`;
+        const instanceLabel = instanceNameById.get(option.instanceId) ?? option.instanceId;
+        return {
+          value: option.id,
+          label: canFilterByInstance && !selectedInstanceId
+            ? `${instanceLabel} · ${keyLabel}`
+            : keyLabel,
+        };
+      }),
     ],
-    [apiKeyOptions, t],
+    [canFilterByInstance, instanceNameById, scopedApiKeyOptions, selectedInstanceId, t],
   );
+  const handleInstanceSelectionChange = useCallback((instanceId: string) => {
+    setSelectedInstanceId(instanceId);
+    setSelectedApiKeyId('');
+    setExcludedApiKeyIds([]);
+    setIsApiKeyExcludeOpen(false);
+  }, []);
   const handleAPIKeySelectionChange = useCallback((apiKeyId: string) => {
     setSelectedApiKeyId(apiKeyId);
     setIsApiKeyExcludeOpen(false);
@@ -1201,17 +1242,22 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     const controller = new AbortController();
     apiKeyOptionsRequestControllerRef.current = controller;
     try {
-      const response = await fetchCpaApiKeyOptions(controller.signal);
+      const [response, instanceResponse] = await Promise.all([
+        fetchCpaApiKeyOptions(controller.signal),
+        canFilterByInstance ? fetchCPAInstances() : Promise.resolve([]),
+      ]);
       if (apiKeyOptionsRequestControllerRef.current !== controller) {
         return;
       }
       setApiKeyOptions(response.options ?? []);
+      setInstances(instanceResponse.filter((instance) => instance.enabled));
     } catch (error) {
       if (controller.signal.aborted) {
         return;
       }
       if (apiKeyOptionsRequestControllerRef.current === controller) {
         setApiKeyOptions([]);
+        setInstances([]);
       }
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
@@ -1221,7 +1267,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         apiKeyOptionsRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired]);
+  }, [canFilterByInstance, onAuthRequired]);
 
   const loadApiKeySettings = useCallback(async () => {
     apiKeySettingsRequestControllerRef.current?.abort();
@@ -1295,7 +1341,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     try {
       const updated = await updateCpaApiKeyAlias(id, keyAlias);
       setApiKeySettings((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
-      setApiKeyOptions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setApiKeyOptions((current) => current.map((item) => (
+        item.id === updated.id
+          ? { ...item, displayKey: updated.displayKey, label: updated.label }
+          : item
+      )));
       patchLocalRankingProfileCache(updated.id, {
         key_alias: updated.keyAlias,
         display_name: updated.label,
@@ -1537,8 +1587,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
     try {
       const [modelResponse, sourceResponse] = await Promise.all([
-        fetchUsageEventModelFilterOptions(controller.signal),
-        fetchUsageEventSourceFilterOptions(controller.signal),
+        fetchUsageEventModelFilterOptions(controller.signal, usageRangeQuery.instanceId),
+        fetchUsageEventSourceFilterOptions(controller.signal, usageRangeQuery.instanceId),
       ]);
       if (eventsFilterOptionsRequestControllerRef.current !== controller) {
         return;
@@ -1563,7 +1613,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         eventsFilterOptionsRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired]);
+  }, [onAuthRequired, usageRangeQuery.instanceId]);
 
   const loadEvents = useCallback(async () => {
     if (!usageRangeQuery.valid) return;
@@ -2180,8 +2230,22 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     inert={!showRangeControls}
                   >
                     <div className={styles.usageFilterTransitionInner}>
-                      <div className={styles.usageFilterBar}>
+                    <div className={styles.usageFilterBar}>
                     <div className={styles.apiKeyFilterGroup}>
+                    {canFilterByInstance && (
+                      <label className={`${styles.usageFilterField} ${styles.apiKeyFilterField}`.trim()}>
+                        <span className={styles.usageFilterLabel}>{t('usage_stats.instance_filter')}</span>
+                        <Select
+                          value={selectedInstanceId}
+                          options={instanceSelectOptions}
+                          onChange={handleInstanceSelectionChange}
+                          className={styles.apiKeySelectControl}
+                          ariaLabel={t('usage_stats.instance_filter')}
+                          fullWidth={false}
+                          dropdownMinWidth={220}
+                        />
+                      </label>
+                    )}
                     <label className={`${styles.usageFilterField} ${styles.apiKeyFilterField}`.trim()}>
                       <span className={styles.usageFilterLabel}>{t('usage_stats.api_key_filter')}</span>
                       <Select
@@ -2191,7 +2255,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                         className={styles.apiKeySelectControl}
                         ariaLabel={t('usage_stats.api_key_filter')}
                         fullWidth={false}
-                        dropdownMinWidth={180}
+                        dropdownMinWidth={420}
                       />
                     </label>
                     <details
@@ -2222,14 +2286,18 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                           <span className={styles.apiKeyExcludeEmpty}>{t('usage_stats.api_key_exclude_none')}</span>
                         ) : (
                           <div className={styles.apiKeyExcludeOptions}>
-                            {apiKeyOptions.map((option) => (
+                            {scopedApiKeyOptions.map((option) => (
                               <label key={option.id} className={styles.apiKeyExcludeOption}>
                                 <input
                                   type="checkbox"
                                   checked={excludedApiKeyIds.includes(option.id)}
                                   onChange={() => toggleExcludedAPIKey(option.id)}
                                 />
-                                <span>{option.label}</span>
+                                <span>
+                                  {option.label === option.displayKey
+                                    ? option.displayKey
+                                    : `${option.label} · ${option.displayKey}`}
+                                </span>
                               </label>
                             ))}
                           </div>

@@ -48,21 +48,23 @@ export function useUsageActivityData({
   const requestUnit = 'range' in request ? request.unit : undefined;
   const requestStart = 'range' in request ? request.start : undefined;
   const requestEnd = 'range' in request ? request.end : undefined;
+  const requestInstanceId = request.instanceId;
   const normalizedRequest = useMemo<UsageActivityRequest>(() => (
     requestWindow
-      ? { window: requestWindow }
+      ? { window: requestWindow, instanceId: requestInstanceId }
       : {
           range: requestRange as UsageTimeRange,
           unit: requestUnit,
           start: requestStart,
           end: requestEnd,
+          instanceId: requestInstanceId,
         }
-  ), [requestEnd, requestRange, requestStart, requestUnit, requestWindow]);
+  ), [requestEnd, requestInstanceId, requestRange, requestStart, requestUnit, requestWindow]);
   const queryKey = useMemo(
-    () => `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}:${requestWindow ?? ''}:${requestRange ?? ''}:${requestUnit ?? ''}:${requestStart ?? ''}:${requestEnd ?? ''}`,
-    [excludedAPIKeyScope, normalizedAPIKeyID, requestEnd, requestRange, requestStart, requestUnit, requestWindow, viewer],
+    () => `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}:${requestInstanceId ?? ''}:${requestWindow ?? ''}:${requestRange ?? ''}:${requestUnit ?? ''}:${requestStart ?? ''}:${requestEnd ?? ''}`,
+    [excludedAPIKeyScope, normalizedAPIKeyID, requestEnd, requestInstanceId, requestRange, requestStart, requestUnit, requestWindow, viewer],
   );
-  const queryScope = `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}`;
+  const queryScope = `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}:${requestInstanceId ?? ''}`;
   const activeRequestRef = useRef<ActiveActivityRequest | null>(null);
   const [response, setResponse] = useState<UsageActivityResponse | null>(null);
   const [responseQueryKey, setResponseQueryKey] = useState('');

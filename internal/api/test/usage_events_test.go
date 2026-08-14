@@ -273,6 +273,7 @@ func TestUsageEventsEndpointsAcceptNinetyDayCustomRange(t *testing.T) {
 			if response.Code != http.StatusOK {
 				t.Fatalf("expected 90-day custom Events %s to return 200, got %d body=%s", tc.name, response.Code, response.Body.String())
 			}
+			assertNoStoreHeaders(t, response)
 			if tc.export {
 				if provider.exportCalls != 1 || provider.filterCalls != 0 {
 					t.Fatalf("expected only export provider call, export=%d list=%d", provider.exportCalls, provider.filterCalls)
@@ -1259,7 +1260,7 @@ func TestUsageEventsAllInstanceAPIKeyResolutionUsesInstanceAndFingerprint(t *tes
 	}
 }
 
-func TestUsageEventsFallsBackToMaskedCPAAPIKeyFromGroupKey(t *testing.T) {
+func TestUsageEventsFallsBackToFullCPAAPIKeyFromGroupKey(t *testing.T) {
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
 		ID:          50,
 		Timestamp:   time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
@@ -1283,15 +1284,12 @@ func TestUsageEventsFallsBackToMaskedCPAAPIKeyFromGroupKey(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if !contains(body, `"api_key":"sk-*********654321"`) {
-		t.Fatalf("expected masked API key in response body: %s", body)
-	}
-	if contains(body, `sk-beta654321`) {
-		t.Fatalf("expected raw API key to stay hidden, got %s", body)
+	if !contains(body, `"api_key":"sk-beta654321"`) {
+		t.Fatalf("expected full API key in response body: %s", body)
 	}
 }
 
-func TestUsageEventsFallsBackToCanonicalMaskedAPIKeyWhenGroupKeyIsUnmatched(t *testing.T) {
+func TestUsageEventsFallsBackToFullAPIKeyWhenGroupKeyIsUnmatched(t *testing.T) {
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
 		ID:          51,
 		Timestamp:   time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
@@ -1310,11 +1308,8 @@ func TestUsageEventsFallsBackToCanonicalMaskedAPIKeyWhenGroupKeyIsUnmatched(t *t
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if !contains(body, `"api_key":"sk-*********maWyTA"`) {
-		t.Fatalf("expected canonical masked API key in response body: %s", body)
-	}
-	if contains(body, `sk-BabcdefghijklmnopqrstuvwxyzmaWyTA`) || contains(body, `sk-B***************************WyTA`) {
-		t.Fatalf("expected raw and variable-length masked keys to stay hidden, got %s", body)
+	if !contains(body, `"api_key":"sk-BabcdefghijklmnopqrstuvwxyzmaWyTA"`) {
+		t.Fatalf("expected full API key in response body: %s", body)
 	}
 }
 

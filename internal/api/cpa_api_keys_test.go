@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -35,9 +36,12 @@ func TestCPAAPIKeyRoutesReturnDisplayDataWithoutRawKeys(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
+	if resp.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("expected no-store cache policy, got %q", resp.Header().Get("Cache-Control"))
+	}
 	body := resp.Body.String()
-	if strings.Contains(body, "sk-alpha123456") || strings.Contains(body, "sk-beta654321") || strings.Contains(body, "apiKey") || strings.Contains(body, "api_key") {
-		t.Fatalf("response leaked raw key data: %s", body)
+	if !strings.Contains(body, "sk-alpha123456") || !strings.Contains(body, "sk-beta654321") || strings.Contains(body, `"apiKey"`) || strings.Contains(body, `"api_key"`) {
+		t.Fatalf("response did not expose the full display keys: %s", body)
 	}
 	var parsed struct {
 		Items []struct {
@@ -54,10 +58,10 @@ func TestCPAAPIKeyRoutesReturnDisplayDataWithoutRawKeys(t *testing.T) {
 	if len(parsed.Items) != 2 {
 		t.Fatalf("expected two API key rows, got %+v", parsed.Items)
 	}
-	if parsed.Items[0].ID != "1" || parsed.Items[0].KeyAlias != "Primary Key" || parsed.Items[0].DisplayKey != "sk-*********123456" || parsed.Items[0].Label != "Primary Key" || parsed.Items[0].LastSyncedAt == nil {
+	if parsed.Items[0].ID != "1" || parsed.Items[0].KeyAlias != "Primary Key" || parsed.Items[0].DisplayKey != "sk-alpha123456" || parsed.Items[0].Label != "Primary Key" || parsed.Items[0].LastSyncedAt == nil {
 		t.Fatalf("unexpected aliased row: %+v", parsed.Items[0])
 	}
-	if parsed.Items[1].ID != "2" || parsed.Items[1].KeyAlias != "" || parsed.Items[1].DisplayKey != "sk-*********654321" || parsed.Items[1].Label != "sk-*********654321" {
+	if parsed.Items[1].ID != "2" || parsed.Items[1].KeyAlias != "" || parsed.Items[1].DisplayKey != "sk-beta654321" || parsed.Items[1].Label != "sk-beta654321" {
 		t.Fatalf("unexpected fallback row: %+v", parsed.Items[1])
 	}
 }
@@ -137,10 +141,10 @@ func TestCPAAPIKeySettingsRouteReturnsRawKeys(t *testing.T) {
 	if len(parsed.Items) != 2 {
 		t.Fatalf("expected two API key rows, got %+v", parsed.Items)
 	}
-	if parsed.Items[0].ID != "1" || parsed.Items[0].APIKey != "sk-alpha123456" || parsed.Items[0].KeyAlias != "Primary Key" || parsed.Items[0].DisplayKey != "sk-*********123456" || parsed.Items[0].Label != "Primary Key" || parsed.Items[0].LastSyncedAt == nil {
+	if parsed.Items[0].ID != "1" || parsed.Items[0].APIKey != "sk-alpha123456" || parsed.Items[0].KeyAlias != "Primary Key" || parsed.Items[0].DisplayKey != "sk-alpha123456" || parsed.Items[0].Label != "Primary Key" || parsed.Items[0].LastSyncedAt == nil {
 		t.Fatalf("unexpected aliased settings row: %+v", parsed.Items[0])
 	}
-	if parsed.Items[1].ID != "2" || parsed.Items[1].APIKey != "sk-beta654321" || parsed.Items[1].KeyAlias != "" || parsed.Items[1].DisplayKey != "sk-*********654321" || parsed.Items[1].Label != "sk-*********654321" {
+	if parsed.Items[1].ID != "2" || parsed.Items[1].APIKey != "sk-beta654321" || parsed.Items[1].KeyAlias != "" || parsed.Items[1].DisplayKey != "sk-beta654321" || parsed.Items[1].Label != "sk-beta654321" {
 		t.Fatalf("unexpected fallback settings row: %+v", parsed.Items[1])
 	}
 }
@@ -171,8 +175,8 @@ func TestCPAAPIKeyRoutesNormalizeStaleDisplayKeys(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(parsed.Items) != 1 || parsed.Items[0].DisplayKey != "sk-*********maWyTA" || parsed.Items[0].Label != "sk-*********maWyTA" {
-		t.Fatalf("expected canonical display data, got %+v", parsed.Items)
+	if len(parsed.Items) != 1 || parsed.Items[0].DisplayKey != "sk-BabcdefghijklmnopqrstuvwxyzmaWyTA" || parsed.Items[0].Label != "sk-BabcdefghijklmnopqrstuvwxyzmaWyTA" {
+		t.Fatalf("expected full display data, got %+v", parsed.Items)
 	}
 }
 
@@ -198,14 +202,16 @@ func TestCPAAPIKeyOptionsReturnActiveLabels(t *testing.T) {
 	}
 	var parsed struct {
 		Options []struct {
-			ID    string `json:"id"`
-			Label string `json:"label"`
+			ID         string `json:"id"`
+			InstanceID string `json:"instanceId"`
+			DisplayKey string `json:"displayKey"`
+			Label      string `json:"label"`
 		} `json:"options"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(parsed.Options) != 1 || parsed.Options[0].ID != "1" || parsed.Options[0].Label != "Primary Key" {
+	if len(parsed.Options) != 1 || parsed.Options[0].ID != "1" || parsed.Options[0].InstanceID == "" || parsed.Options[0].DisplayKey != "sk-alpha123456" || parsed.Options[0].Label != "Primary Key" {
 		t.Fatalf("unexpected options: %+v", parsed.Options)
 	}
 	var raw struct {
@@ -215,7 +221,7 @@ func TestCPAAPIKeyOptionsReturnActiveLabels(t *testing.T) {
 		t.Fatalf("decode raw response: %v", err)
 	}
 	for _, option := range raw.Options {
-		for _, key := range []string{"keyAlias", "displayKey", "lastSyncedAt"} {
+		for _, key := range []string{"keyAlias", "lastSyncedAt"} {
 			if _, ok := option[key]; ok {
 				t.Fatalf("options response included settings-only field %q: %s", key, resp.Body.String())
 			}
@@ -247,6 +253,50 @@ func TestUpdateCPAAPIKeyAliasUpdatesAndClearsAlias(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].KeyAlias != "" {
 		t.Fatalf("expected alias to be cleared, got %+v", rows)
+	}
+}
+
+func TestUpdateCPAAPIKeyAliasRejectsAnotherInstanceKey(t *testing.T) {
+	db := openCPAAPIKeyAPITestDatabase(t)
+	now := time.Date(2026, 8, 15, 1, 0, 0, 0, time.UTC)
+	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
+	instanceB := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb22"
+	for _, instance := range []entities.CPAInstance{
+		{ID: instanceA, DisplayName: "A", Enabled: true, CreatedAt: now, UpdatedAt: now},
+		{ID: instanceB, DisplayName: "B", Enabled: true, CreatedAt: now, UpdatedAt: now},
+	} {
+		if err := db.Create(&instance).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repository.SyncCPAAPIKeysForInstance(db, instanceA, []string{"sk-alpha123456"}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.SyncCPAAPIKeysForInstance(db, instanceB, []string{"sk-beta654321"}, now); err != nil {
+		t.Fatal(err)
+	}
+	rowsB, err := repository.ListActiveCPAAPIKeysForInstance(db, instanceB)
+	if err != nil || len(rowsB) != 1 {
+		t.Fatalf("load instance B key: rows=%+v err=%v", rowsB, err)
+	}
+	router := NewRouter(nil, statusStub{}, nil, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: service.NewCPAAPIKeyService(db)})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/v1/usage/api-keys/"+strconv.FormatInt(rowsB[0].ID, 10)+"?instance_id="+instanceA,
+		bytes.NewBufferString(`{"keyAlias":"wrong instance"}`),
+	)
+	req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	rowsB, err = repository.ListActiveCPAAPIKeysForInstance(db, instanceB)
+	if err != nil || len(rowsB) != 1 || rowsB[0].KeyAlias != "" {
+		t.Fatalf("expected instance B alias to stay unchanged: rows=%+v err=%v", rowsB, err)
 	}
 }
 

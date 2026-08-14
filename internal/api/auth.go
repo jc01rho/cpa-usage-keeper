@@ -199,6 +199,7 @@ func (h *authHandler) resolveValidSession(c *gin.Context) (resolvedSessionToken,
 }
 
 func (h *authHandler) getSession(c *gin.Context) {
+	setNoStoreHeaders(c)
 	if h == nil || !h.config.Enabled {
 		c.JSON(http.StatusOK, sessionResponse{Authenticated: true, Role: auth.RoleAdmin})
 		return
@@ -220,7 +221,7 @@ func (h *authHandler) getSession(c *gin.Context) {
 			c.JSON(http.StatusOK, sessionResponse{Authenticated: false})
 			return
 		}
-		response.APIKey = &sessionAPIKeyResponse{DisplayKey: helper.CPAAPIKeyMaskedDisplayKey(row), Alias: row.KeyAlias}
+		response.APIKey = &sessionAPIKeyResponse{DisplayKey: helper.CPAAPIKeyDisplayKey(row), Alias: row.KeyAlias}
 	}
 	c.JSON(http.StatusOK, response)
 }
