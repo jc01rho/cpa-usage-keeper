@@ -81,6 +81,8 @@ const (
 	migrationKeeperInstances = "20260803_keeper_instances"
 	// migrationKeeperMetadataSnapshots persists exact-body metadata revision state per instance/category.
 	migrationKeeperMetadataSnapshots = "20260803_keeper_metadata_snapshots"
+	// migrationAddAuthSessionClientMetadata 保存会话客户端与最近活动信息，旧会话只回填活动时间。
+	migrationAddAuthSessionClientMetadata = "20260813_add_auth_session_client_metadata"
 )
 
 type schemaMigration struct {
@@ -199,6 +201,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationKeeperInstances, run: keeperInstancesMigration},
 		{version: migrationAddCPAAPIKeyLocalRankingAvatar, run: addCPAAPIKeyLocalRankingAvatarMigration},
 		{version: migrationKeeperMetadataSnapshots, run: keeperMetadataSnapshotsMigration},
+		{version: migrationAddAuthSessionClientMetadata, run: addAuthSessionClientMetadataMigration},
 	}
 }
 
