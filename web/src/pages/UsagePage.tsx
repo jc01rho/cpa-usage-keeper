@@ -60,6 +60,7 @@ const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-
 export const REQUEST_EVENTS_PREFERENCES_STORAGE_KEY = 'cli-proxy-usage-request-events-preferences-v1';
 const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
+const KEEPER_API_KEY_FINGERPRINT_PATTERN = /^akf1_[0-9a-f]{64}$/;
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'white', labelKey: 'usage_stats.theme_light' },
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
@@ -1147,11 +1148,15 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     ],
     [instances, t],
   );
+  const selectableApiKeyOptions = useMemo(
+    () => apiKeyOptions.filter((option) => !KEEPER_API_KEY_FINGERPRINT_PATTERN.test(option.displayKey)),
+    [apiKeyOptions],
+  );
   const scopedApiKeyOptions = useMemo(
     () => selectedInstanceId
-      ? apiKeyOptions.filter((option) => option.instanceId === selectedInstanceId)
-      : apiKeyOptions,
-    [apiKeyOptions, selectedInstanceId],
+      ? selectableApiKeyOptions.filter((option) => option.instanceId === selectedInstanceId)
+      : selectableApiKeyOptions,
+    [selectableApiKeyOptions, selectedInstanceId],
   );
   const apiKeySelectOptions = useMemo(
     () => [
