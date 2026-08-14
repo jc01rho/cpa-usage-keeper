@@ -119,8 +119,9 @@ describe('fetchUsageEvents', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageOverview({ range: '24h' }, signal, '9007199254740993');
-    await fetchUsageOverviewRealtime({ signal, apiKeyId: '9007199254740993', window: '60m' });
+    const instanceId = '0198aa10-4d88-7a20-8f4e-8c8de4a9cb11';
+    await fetchUsageOverview({ range: '24h', instanceId }, signal, '9007199254740993');
+    await fetchUsageOverviewRealtime({ signal, apiKeyId: '9007199254740993', instanceId, window: '60m' });
     await fetchKeyOverview({ range: '8h' }, signal);
     await fetchKeyOverviewRealtime({ window: '30m', signal });
 
@@ -130,9 +131,11 @@ describe('fetchUsageEvents', () => {
     const keyOverviewRealtimeUrl = new URL(String(fetchMock.mock.calls[3][0]), 'http://localhost');
     expect(overviewUrl.pathname).toBe('/api/v1/usage/overview');
     expect(overviewUrl.searchParams.get('realtime_window')).toBeNull();
+    expect(overviewUrl.searchParams.get('instance_id')).toBe(instanceId);
     expect(overviewRealtimeUrl.pathname).toBe('/api/v1/usage/overview/realtime');
     expect(overviewRealtimeUrl.searchParams.get('window')).toBe('60m');
     expect(overviewRealtimeUrl.searchParams.get('api_key_id')).toBe('9007199254740993');
+    expect(overviewRealtimeUrl.searchParams.get('instance_id')).toBe(instanceId);
     expect(keyOverviewUrl.pathname).toBe('/api/v1/key-overview');
     expect(keyOverviewUrl.searchParams.get('realtime_window')).toBeNull();
     expect(keyOverviewRealtimeUrl.pathname).toBe('/api/v1/key-overview/realtime');

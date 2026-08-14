@@ -138,7 +138,7 @@ function App() {
   } else if (authRole === 'api_key_viewer') {
     page = <KeyOverviewPage apiKey={sessionAPIKey} onAuthRequired={clearSession} />;
   } else {
-    page = <UsagePage onAuthRequired={clearSession} />;
+    page = <UsagePage canFilterByInstance={authRole === 'admin'} onAuthRequired={clearSession} />;
   }
 
   return (

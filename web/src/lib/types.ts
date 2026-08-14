@@ -726,6 +726,8 @@ export interface CpaApiKeySettingsItem extends CpaApiKeyDisplayItem {
 
 export interface CpaApiKeyOption {
   id: string
+  instanceId: string
+  displayKey: string
   label: string
 }
 
@@ -845,10 +847,12 @@ export interface UsageRangeRequest {
 	unit?: UsageCustomRangeUnit
 	start?: string
 	end?: string
+	instanceId?: string
 }
 
 export type UsageActivityRequest = UsageRangeRequest | {
 	window: UsageActivityWindow | 'today' | 'yesterday'
+	instanceId?: string
 }
 
 export interface UsageFilterWindow {

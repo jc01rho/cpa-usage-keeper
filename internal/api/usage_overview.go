@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/auth"
-	"cpa-usage-keeper/internal/helper"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -184,7 +183,8 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-		if _, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID); err != nil {
+		apiKey, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID)
+		if err != nil {
 			if authHandler != nil {
 				authHandler.deleteSession(fmt.Sprint(token))
 				clearSessionCookie(c, authHandler.config.BasePath, resolveSessionToken(c).CookieKind)
@@ -202,6 +202,7 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			return
 		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
+		filter.InstanceID = apiKey.InstanceID
 		writeUsageOverviewResponse(c, usageProvider, filter)
 	})
 	router.GET("/key-overview/realtime", func(c *gin.Context) {
@@ -216,7 +217,8 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 			return
 		}
-		if _, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID); err != nil {
+		apiKey, err := cpaAPIKeyProvider.FindActiveCPAAPIKeyByID(c.Request.Context(), session.CPAAPIKeyID)
+		if err != nil {
 			if authHandler != nil {
 				authHandler.deleteSession(fmt.Sprint(token))
 				clearSessionCookie(c, authHandler.config.BasePath, resolveSessionToken(c).CookieKind)
@@ -234,6 +236,7 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			return
 		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
+		filter.InstanceID = apiKey.InstanceID
 		writeKeyUsageOverviewRealtimeResponse(c, usageProvider, filter)
 	})
 }
@@ -262,6 +265,7 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 }
 
 func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter) {
+	setNoStoreHeaders(c)
 	if usageProvider == nil {
 		c.JSON(http.StatusOK, usageOverviewResponse{
 			Usage:    buildUsageOverviewPayload(nil),
@@ -291,6 +295,7 @@ func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvi
 }
 
 func writeUsageOverviewRealtimeResponse(c *gin.Context, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider, filter servicedto.UsageFilter) {
+	setNoStoreHeaders(c)
 	if usageProvider == nil {
 		c.JSON(http.StatusOK, emptyUsageOverviewRealtime(filter.RealtimeWindow))
 		return
@@ -308,6 +313,7 @@ func writeUsageOverviewRealtimeResponse(c *gin.Context, usageProvider service.Us
 }
 
 func writeKeyUsageOverviewRealtimeResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter) {
+	setNoStoreHeaders(c)
 	if usageProvider == nil {
 		c.JSON(http.StatusOK, emptyKeyUsageOverviewRealtime(filter.RealtimeWindow))
 		return
@@ -494,10 +500,10 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		ResponseLevel:        make([]usageOverviewResponseLevelPoint, 0, len(realtime.ResponseLevel)),
 		ResponseDistribution: mapUsageOverviewResponseDistribution(realtime.ResponseDistribution),
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
-			Models:      mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models, false),
+			Models:      mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models),
 			APIKeys:     mapUsageOverviewRealtimeAPIKeyTopItems(realtime.CurrentUsage.APIKeys, apiKeyInfos),
-			AuthFiles:   mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AuthFiles, false),
-			AIProviders: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AIProviders, false),
+			AuthFiles:   mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AuthFiles),
+			AIProviders: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.AIProviders),
 		},
 		RequestLevel: make([]usageOverviewRequestLevelPoint, 0, len(realtime.RequestLevel)),
 		CacheLevel:   make([]usageOverviewCacheLevelPoint, 0, len(realtime.CacheLevel)),
@@ -558,7 +564,7 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 		ResponseLevel:        make([]usageOverviewResponseLevelPoint, 0, len(realtime.ResponseLevel)),
 		ResponseDistribution: mapUsageOverviewResponseDistribution(realtime.ResponseDistribution),
 		CurrentUsage: keyUsageOverviewRealtimeCurrentUsage{
-			Models: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models, false),
+			Models: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models),
 		},
 		RequestLevel: make([]usageOverviewRequestLevelPoint, 0, len(realtime.RequestLevel)),
 		CacheLevel:   make([]usageOverviewCacheLevelPoint, 0, len(realtime.CacheLevel)),
@@ -646,17 +652,13 @@ func mapUsageOverviewResponseParticles(points []servicedto.RealtimeResponseParti
 	return result
 }
 
-func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem, redactAPIKey bool) []usageOverviewRealtimeUsageTopItem {
+func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem) []usageOverviewRealtimeUsageTopItem {
 	result := make([]usageOverviewRealtimeUsageTopItem, 0, len(items))
 	for _, item := range items {
 		key := item.Key
 		label := item.Label
 		if label == "" {
 			label = key
-		}
-		if redactAPIKey {
-			key = helper.RedactSensitiveValue(key)
-			label = helper.RedactSensitiveValue(label)
 		}
 		result = append(result, usageOverviewRealtimeUsageTopItem{
 			Key:      key,

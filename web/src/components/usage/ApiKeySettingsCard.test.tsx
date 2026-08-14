@@ -7,7 +7,7 @@ import type { CpaApiKeySettingsItem } from '@/lib/types';
 
 const apiKeys: CpaApiKeySettingsItem[] = [
   { id: '9007199254740993', apiKey: 'sk-alpha123456', keyAlias: 'Primary', displayKey: 'sk-*********123456', label: 'Primary', lastSyncedAt: '2026-05-13T00:00:00Z' },
-  { id: '9007199254740994', apiKey: 'sk-beta654321', keyAlias: '', displayKey: 'sk-*********654321', label: 'sk-*********654321', lastSyncedAt: null },
+  { id: '9007199254740994', apiKey: 'sk-beta654321', keyAlias: '', displayKey: 'sk-beta654321', label: 'sk-beta654321', lastSyncedAt: null },
 ];
 
 const renderCard = (props: Partial<React.ComponentProps<typeof ApiKeySettingsCard>> = {}) => renderToStaticMarkup(
@@ -30,9 +30,8 @@ describe('ApiKeySettingsCard', () => {
     expect(countOccurrences(html, 'API Key Settings')).toBe(1);
     expect(html).toContain('Primary');
     expect(html).toContain('sk-*********123456');
-    expect(html).toContain('sk-*********654321');
+    expect(html).toContain('sk-beta654321');
     expect(html).not.toContain('sk-alpha123456');
-    expect(html).not.toContain('sk-beta654321');
     expect(html).not.toContain('placeholder="sk-alpha123456"');
     expect(html).toContain('aria-label="Show full API keys"');
     expect(html).toContain('m2 2 20 20');

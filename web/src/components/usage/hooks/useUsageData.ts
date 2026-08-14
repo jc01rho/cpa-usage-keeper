@@ -26,6 +26,7 @@ export interface UseUsageDataOptions {
   customUnit?: UsageCustomRangeUnit;
   customStart?: string;
   customEnd?: string;
+  instanceId?: string;
   enabled?: boolean;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
@@ -35,7 +36,7 @@ export interface UseUsageDataOptions {
 export const normalizeUsageOverviewRange = normalizeUsageRange;
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
-  const { onAuthRequired, onRangeBoundsConflict, range = '8h', customUnit, customStart, customEnd, enabled = true, apiKeyId, excludedApiKeyIds } = options;
+  const { onAuthRequired, onRangeBoundsConflict, range = '8h', customUnit, customStart, customEnd, instanceId, enabled = true, apiKeyId, excludedApiKeyIds } = options;
   const usageSnapshot = useUsageStatsStore((state) => state.usage);
   const loading = useUsageStatsStore((state) => state.loading);
   const storeError = useUsageStatsStore((state) => state.error);
@@ -44,8 +45,8 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
   const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
 
   const rangeQuery = useMemo(
-    () => buildUsageRangeQuery({ range, customUnit, customStart, customEnd }),
-    [customEnd, customStart, customUnit, range],
+    () => ({ ...buildUsageRangeQuery({ range, customUnit, customStart, customEnd }), instanceId }),
+    [customEnd, customStart, customUnit, instanceId, range],
   );
 
   const loadUsage = useCallback(async () => {
@@ -58,6 +59,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
         unit: rangeQuery.unit,
         start: rangeQuery.start,
         end: rangeQuery.end,
+        instanceId: rangeQuery.instanceId,
         apiKeyId,
         excludedApiKeyIds,
       });
@@ -81,8 +83,9 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       range: rangeQuery.range,
       unit: rangeQuery.unit,
       start: rangeQuery.start,
-      end: rangeQuery.end,
-      apiKeyId,
+        end: rangeQuery.end,
+        instanceId: rangeQuery.instanceId,
+        apiKeyId,
       excludedApiKeyIds,
     }).catch((error) => {
       if (isUsageRangeBoundsConflict(error) && onRangeBoundsConflict?.(error)) {

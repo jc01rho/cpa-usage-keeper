@@ -18,6 +18,11 @@ describe('App role route normalization', () => {
     expect(shouldNormalizeRolePath('api_key_viewer', '/key-overview')).toBe(false);
   });
 
+  it('only enables instance filtering for the admin usage page', () => {
+    expect(appSource).toContain("<KeyOverviewPage apiKey={sessionAPIKey} onAuthRequired={clearSession} />");
+    expect(appSource).toContain("<UsagePage canFilterByInstance={authRole === 'admin'} onAuthRequired={clearSession} />");
+  });
+
   it('clears stale overview auth errors when the session is cleared', () => {
     expect(appSource).toContain("import { useUsageStatsStore } from './stores/useUsageStatsStore';");
     expect(appSource).toMatch(/const clearUsageStats = useUsageStatsStore\(\(state\) => state\.clearUsageStats\);/);

@@ -15,6 +15,7 @@ export interface UseOverviewRealtimeDataOptions {
   enabled?: boolean;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
+  instanceId?: string;
   realtimeWindow?: OverviewRealtimeWindow;
 }
 
@@ -46,14 +47,14 @@ export function resolveDisplayRealtime({
 }
 
 export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions = {}): UseOverviewRealtimeDataReturn {
-  const { onAuthRequired, enabled = true, apiKeyId, excludedApiKeyIds, realtimeWindow } = options;
+  const { onAuthRequired, enabled = true, apiKeyId, excludedApiKeyIds, instanceId, realtimeWindow } = options;
   const realtime = useUsageStatsStore((state) => state.realtime);
   const loading = useUsageStatsStore((state) => state.realtimeLoading);
   const storeError = useUsageStatsStore((state) => state.realtimeError);
   const lastRealtimeQueryKey = useUsageStatsStore((state) => state.lastRealtimeQueryKey);
   const lastRealtimeErrorQueryKey = useUsageStatsStore((state) => state.lastRealtimeErrorQueryKey);
   const loadUsageStatsRealtime = useUsageStatsStore((state) => state.loadUsageStatsRealtime);
-  const realtimeQueryKey = `${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}:${realtimeWindow ?? ''}`;
+  const realtimeQueryKey = `${instanceId ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}:${realtimeWindow ?? ''}`;
   const currentRealtime = resolveDisplayRealtime({
     realtime,
     lastRealtimeQueryKey,
@@ -68,6 +69,7 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
         staleTimeMs: USAGE_STATS_STALE_TIME_MS,
         apiKeyId,
         excludedApiKeyIds,
+        instanceId,
         realtimeWindow,
       });
     } catch (error) {
@@ -76,7 +78,7 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
       }
       throw error;
     }
-  }, [apiKeyId, excludedApiKeyIds, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
+  }, [apiKeyId, excludedApiKeyIds, instanceId, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
 
   useEffect(() => {
     if (!enabled) {
@@ -86,13 +88,14 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
       staleTimeMs: USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
       excludedApiKeyIds,
+      instanceId,
       realtimeWindow,
     }).catch((error) => {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
       }
     });
-  }, [apiKeyId, enabled, excludedApiKeyIds, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
+  }, [apiKeyId, enabled, excludedApiKeyIds, instanceId, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
 
   return {
     realtime: currentRealtime,

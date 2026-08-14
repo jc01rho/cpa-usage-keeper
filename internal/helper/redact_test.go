@@ -32,26 +32,26 @@ func TestCPAAPIKeyDisplayNamePrefersAlias(t *testing.T) {
 	}
 }
 
-func TestCPAAPIKeyDisplayNameFallsBackToMaskedRawKey(t *testing.T) {
+func TestCPAAPIKeyDisplayNameFallsBackToFullRawKey(t *testing.T) {
 	row := entities.CPAAPIKey{APIKey: "sk-alpha123456", DisplayKey: "sk-B********************************Zejy"}
 
-	if got := CPAAPIKeyDisplayName(row); got != "sk-*********123456" {
-		t.Fatalf("expected canonical masked key fallback, got %q", got)
+	if got := CPAAPIKeyDisplayName(row); got != "sk-alpha123456" {
+		t.Fatalf("expected full key fallback, got %q", got)
 	}
 }
 
-func TestCPAAPIKeyMaskedDisplayKeyMasksRawKeyWithCanonicalFormat(t *testing.T) {
+func TestCPAAPIKeyDisplayKeyReturnsFullRawKey(t *testing.T) {
 	row := entities.CPAAPIKey{APIKey: "sk-BabcdefghijklmnopqrstuvwxyzmaWyTA", DisplayKey: "sk-B********************************maWy"}
 
-	if got := CPAAPIKeyMaskedDisplayKey(row); got != "sk-*********maWyTA" {
-		t.Fatalf("expected canonical display key, got %q", got)
+	if got := CPAAPIKeyDisplayKey(row); got != "sk-BabcdefghijklmnopqrstuvwxyzmaWyTA" {
+		t.Fatalf("expected full display key, got %q", got)
 	}
 }
 
-func TestCPAAPIKeyMaskedDisplayKeyFallsBackToStoredDisplayKeyWhenRawKeyIsMissing(t *testing.T) {
+func TestCPAAPIKeyDisplayKeyFallsBackToStoredDisplayKeyWhenRawKeyIsMissing(t *testing.T) {
 	row := entities.CPAAPIKey{DisplayKey: "sk-*********maWyTA"}
 
-	if got := CPAAPIKeyMaskedDisplayKey(row); got != "sk-*********maWyTA" {
+	if got := CPAAPIKeyDisplayKey(row); got != "sk-*********maWyTA" {
 		t.Fatalf("expected stored display key fallback, got %q", got)
 	}
 }

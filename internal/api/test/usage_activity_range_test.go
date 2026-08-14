@@ -283,7 +283,12 @@ func TestKeyActivityForcesViewerAPIKeyAndUsesAnIndependentRateLimitScope(t *test
 			Blocks:  []servicedto.UsageActivityBlock{},
 		},
 	}
-	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{ID: 42, APIKey: "provider-a", DisplayKey: "provider-a"}}
+	keyProvider := &authCPAAPIKeyStub{row: entities.CPAAPIKey{
+		ID:         42,
+		InstanceID: "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11",
+		APIKey:     "provider-a",
+		DisplayKey: "provider-a",
+	}}
 	config := AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	router := NewRouter(nil, nil, provider, nil, config, NewAuthHandler(config, sessions), "", OptionalProviders{CPAAPIKeys: keyProvider})
 
@@ -302,7 +307,9 @@ func TestKeyActivityForcesViewerAPIKeyAndUsesAnIndependentRateLimitScope(t *test
 	if activityResponse.Code != http.StatusOK {
 		t.Fatalf("key Activity status=%d body=%s", activityResponse.Code, activityResponse.Body.String())
 	}
-	if provider.lastFilter.APIKeyID != "42" || provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindowYear {
+	if provider.lastFilter.APIKeyID != "42" ||
+		provider.lastFilter.InstanceID != "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11" ||
+		provider.lastFilter.ActivityWindow != servicedto.UsageActivityWindowYear {
 		t.Fatalf("key Activity should force the viewer API key and preserve time semantics: %+v", provider.lastFilter)
 	}
 }

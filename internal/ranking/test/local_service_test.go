@@ -60,8 +60,8 @@ func TestLocalRankingServiceBuildsTodayWithoutBackfillingOlderPeriods(t *testing
 	if today.Stale || len(today.Entries) != 2 || today.Entries[0].ParticipantID != "1" || today.Entries[0].DisplayName != "Alpha" || today.Entries[0].Value != 800 {
 		t.Fatalf("unexpected today total tokens board: %+v", today)
 	}
-	if strings.Contains(today.Entries[1].DisplayName, keys[1].APIKey) || today.Entries[1].DisplayName == keys[1].APIKey {
-		t.Fatalf("local leaderboard exposed a full API Key: %+v", today.Entries[1])
+	if today.Entries[1].DisplayName != keys[1].APIKey {
+		t.Fatalf("local leaderboard did not expose the full API Key: %+v", today.Entries[1])
 	}
 	cacheRate := loadLocalBoard(t, service, ranking.LeaderboardToday, ranking.MetricCacheReadRate)
 	if len(cacheRate.Entries) != 2 || cacheRate.Entries[1].Value != 83_333 {

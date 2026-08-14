@@ -235,7 +235,7 @@ describe('UsagePage toolbar styles', () => {
   it('threads the tab-effective custom range through Usage and Key Overview queries', () => {
     expect(usagePageSource).toContain('const [timeRangeState, setTimeRangeState]')
     expect(usagePageSource).toContain('const activeCustomRange = useMemo(() => getUsageCustomRangeForTab(')
-    expect(usagePageSource).toContain('const usageRangeQuery = useMemo(() => buildUsageRangeQuery({')
+    expect(usagePageSource).toContain('...buildUsageRangeQuery({')
     expect(usagePageSource).toContain('customRange={activeCustomRange}')
     expect(usagePageSource).toContain("maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined}")
     expect(usagePageSource).toContain('onChange={handleTimeRangeChange}')
@@ -249,6 +249,14 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource).toContain('customRange={customRange}')
     expect(keyOverviewPageSource).toContain('onChange={handleTimeRangeChange}')
     expect(keyOverviewPageSource).toContain('fetchKeyOverview(usageRangeQuery, controller.signal)')
+  })
+
+  it('keeps instance filtering admin-only and threads the selected instance through usage queries', () => {
+    expect(usagePageSource).toContain('canFilterByInstance = false')
+    expect(usagePageSource).toContain("const [selectedInstanceId, setSelectedInstanceId] = useState('')")
+    expect(usagePageSource).toContain('instanceId: canFilterByInstance ? selectedInstanceId || undefined : undefined')
+    expect(usagePageSource).toContain('{canFilterByInstance && (')
+    expect(keyOverviewPageSource).not.toContain('selectedInstanceId')
   })
 
   it('shows a dedicated notice when Usage Events export capacity is full', () => {
@@ -1179,7 +1187,7 @@ describe('UsagePage toolbar styles', () => {
   it('widens only the API key dropdown menu without changing the trigger width', () => {
     expect(selectSource).toContain('dropdownMinWidth?: number')
     expect(selectSource).toContain('rect.left - (width - rect.width) / 2')
-    expect(usagePageSource).toContain('dropdownMinWidth={180}')
+    expect(usagePageSource).toContain('dropdownMinWidth={420}')
   })
 
   it('preserves the API Key sizing while removing the legacy range select and Custom UI', () => {

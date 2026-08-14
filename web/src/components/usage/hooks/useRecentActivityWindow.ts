@@ -14,7 +14,7 @@ export interface UseRecentActivityWindowReturn {
 }
 
 const buildTimeQueryIdentity = (query: UsageRangeRequest): string => (
-  `${query.range}:${query.unit ?? ''}:${query.start ?? ''}:${query.end ?? ''}`
+  `${query.instanceId ?? ''}:${query.range}:${query.unit ?? ''}:${query.start ?? ''}:${query.end ?? ''}`
 );
 
 export function useRecentActivityWindow(query: UsageRangeQuery): UseRecentActivityWindowReturn {
@@ -32,12 +32,12 @@ export function useRecentActivityWindow(query: UsageRangeQuery): UseRecentActivi
 
   const request: UsageActivityRequest = (
     manualWindow
-      ? { window: manualWindow }
+      ? { window: manualWindow, instanceId: query.instanceId }
       : query.range === 'today' || query.range === 'yesterday'
-        ? { window: query.range }
+        ? { window: query.range, instanceId: query.instanceId }
       : query.range === 'custom'
-        ? { range: query.range, unit: query.unit, start: query.start, end: query.end }
-        : { range: query.range }
+        ? { range: query.range, unit: query.unit, start: query.start, end: query.end, instanceId: query.instanceId }
+        : { range: query.range, instanceId: query.instanceId }
   );
 
   const setWindow = useCallback((window: UsageActivityWindow) => {

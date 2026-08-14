@@ -169,6 +169,7 @@ func registerUsageEventsRoute(
 	})
 
 	router.GET("/usage/events", func(c *gin.Context) {
+		setNoStoreHeaders(c)
 		if usageProvider == nil {
 			c.JSON(http.StatusOK, usageEventsResponse{Events: []usageEventPayload{}, Page: 1, PageSize: servicedto.DefaultUsageEventsLimit})
 			return
@@ -266,6 +267,7 @@ func registerUsageEventsRoute(
 	})
 
 	router.GET("/usage/events/export", func(c *gin.Context) {
+		setNoStoreHeaders(c)
 		format := strings.ToLower(strings.TrimSpace(c.Query("format")))
 		if format == "" {
 			format = "csv"
