@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,6 +89,9 @@ func registerMetadataExportRoutes(router *gin.RouterGroup, provider service.Meta
 			}
 			result, perr := provider.IngestMetadataSnapshot(c.Request.Context(), trusted.InstanceID, category, snapshot, body)
 			if perr != nil {
+				if perr.CurrentRevision > 0 {
+					c.Header(protocol.RevisionHintHeader, strconv.FormatInt(perr.CurrentRevision, 10))
+				}
 				writeProtocolError(c, perr.Code)
 				return
 			}

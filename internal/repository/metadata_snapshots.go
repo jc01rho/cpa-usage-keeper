@@ -20,6 +20,17 @@ var (
 	ErrConflictingMetadataRevision = errors.New("metadata revision conflicts")
 )
 
+// RevisionConflictError wraps ErrStaleMetadataRevision or ErrConflictingMetadataRevision
+// and exposes the keeper-side current revision so callers can surface it to the
+// exporter as a transport-level recovery hint.
+type RevisionConflictError struct {
+	Kind            error
+	CurrentRevision int64
+}
+
+func (e *RevisionConflictError) Error() string { return e.Kind.Error() }
+func (e *RevisionConflictError) Unwrap() error { return e.Kind }
+
 type MetadataSnapshotCommitResult struct {
 	Applied   bool
 	ItemCount int64
@@ -53,9 +64,9 @@ func CommitMetadataSnapshot(ctx context.Context, db *gorm.DB, instanceID string,
 		if current.Revision > 0 {
 			switch {
 			case snapshot.Revision < current.Revision:
-				return ErrStaleMetadataRevision
+				return &RevisionConflictError{Kind: ErrStaleMetadataRevision, CurrentRevision: current.Revision}
 			case snapshot.Revision == current.Revision && !bytes.Equal(current.BodyDigest, digest[:]):
-				return ErrConflictingMetadataRevision
+				return &RevisionConflictError{Kind: ErrConflictingMetadataRevision, CurrentRevision: current.Revision}
 			case snapshot.Revision == current.Revision:
 				return nil
 			}

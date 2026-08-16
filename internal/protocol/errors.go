@@ -7,6 +7,8 @@ package protocol
 
 // Error is a stable keeper-export/v1 protocol error (contract section 9).
 type Error struct {
+	CurrentRevision int64 `json:"-"`
+
 	HTTPStatus int    `json:"-"`
 	Code       string `json:"code"`
 	Message    string `json:"message"`
@@ -14,6 +16,14 @@ type Error struct {
 }
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
+
+// RevisionHintHeader is the optional response header the Keeper emits on
+// stale_revision/conflicting_revision responses, advertising its current
+// metadata revision so the exporter can jump its next attempt to current+1
+// instead of walking one revision at a time. It is a transport-level hint
+// (not a frozen body field), so legacy exporters that ignore it stay
+// compatible with the frozen error envelope.
+const RevisionHintHeader = "X-Keeper-Export-Current-Revision"
 
 type errorSpec struct {
 	status    int
