@@ -28,11 +28,16 @@ func (s *MetadataExportService) IngestMetadataSnapshot(ctx context.Context, inst
 		return nil, protocol.ErrorForCode("internal_error")
 	}
 	result, err := repository.CommitMetadataSnapshot(ctx, s.db, instanceID, category, snapshot, body, s.now())
+	var conflict *repository.RevisionConflictError
 	switch {
-	case errors.Is(err, repository.ErrStaleMetadataRevision):
-		return nil, protocol.ErrorForCode("stale_revision")
-	case errors.Is(err, repository.ErrConflictingMetadataRevision):
-		return nil, protocol.ErrorForCode("conflicting_revision")
+	case errors.As(err, &conflict):
+		code := "stale_revision"
+		if errors.Is(err, repository.ErrConflictingMetadataRevision) {
+			code = "conflicting_revision"
+		}
+		perr := protocol.ErrorForCode(code)
+		perr.CurrentRevision = conflict.CurrentRevision
+		return nil, perr
 	case err != nil:
 		return nil, protocol.ErrorForCode("storage_error")
 	}

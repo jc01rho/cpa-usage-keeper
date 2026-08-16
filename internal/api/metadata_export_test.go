@@ -183,10 +183,13 @@ func TestMetadataExportHTTPRejectsHyphenatedHeaderBeforeInvalidCredential(t *tes
 
 func TestMetadataExportHTTPRevisionErrorsAndScope(t *testing.T) {
 	body := []byte(`{"protocolVersion":"keeper-export/v1","revision":1,"complete":true,"generatedAt":"2026-08-03T12:36:00.000Z","items":[]}`)
-	provider := &metadataAPIProvider{perr: protocol.ErrorForCode("conflicting_revision")}
+	provider := &metadataAPIProvider{perr: &protocol.Error{Code: "conflicting_revision", Message: "metadata revision was previously accepted with different content", CurrentRevision: 42}}
 	got := usageAPIRequest(metadataAPIRouter(provider, service.ScopeMetadataPush), http.MethodPut, "/api/v1/export/metadata/auth_files", body, map[string]string{"Authorization": "Bearer x", "Content-Type": "application/json"})
 	if got.Code != 409 || !strings.Contains(got.Body.String(), "conflicting_revision") {
 		t.Fatalf("conflict=%d %s", got.Code, got.Body.String())
+	}
+	if got.Header().Get(protocol.RevisionHintHeader) != "42" {
+		t.Fatalf("revision hint header = %q, want 42", got.Header().Get(protocol.RevisionHintHeader))
 	}
 	got = usageAPIRequest(metadataAPIRouter(&metadataAPIProvider{}, service.ScopeUsagePush), http.MethodPut, "/api/v1/export/metadata/auth_files", body, map[string]string{"Authorization": "Bearer x", "Content-Type": "application/json"})
 	if got.Code != 403 || !strings.Contains(got.Body.String(), "insufficient_scope") {
