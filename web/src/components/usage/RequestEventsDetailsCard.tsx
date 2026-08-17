@@ -121,6 +121,8 @@ type RequestEventRow = {
   sourceRaw: string;
   source: string;
   sourceType: string;
+  instanceId: string;
+  instanceName: string;
   authIndex: string;
   isDelete: boolean;
   failed: boolean;
@@ -331,6 +333,7 @@ export interface RequestEventsDetailsCardProps {
   onRequestLogClose?: () => void;
   onRequestLogDownload?: (eventId: string) => void;
   requestLogDownloading?: boolean;
+  instanceNameById?: ReadonlyMap<string, string>;
 }
 
 const toNumber = (value: unknown): number => {
@@ -694,6 +697,7 @@ export function RequestEventsDetailsCard({
   onRequestLogClose,
   onRequestLogDownload,
   requestLogDownloading = false,
+  instanceNameById,
 }: RequestEventsDetailsCardProps) {
   const { t } = useTranslation();
   const {
@@ -726,6 +730,8 @@ export function RequestEventsDetailsCard({
           : normalizeAuthIndex(authIndexRaw) || '-';
       const source = String(event.source ?? '').trim() || '-';
       const sourceType = String(event.source_type ?? '').trim();
+      const instanceId = String(event.instance_id ?? '').trim();
+      const instanceName = (instanceId && instanceNameById?.get(instanceId)?.trim()) || instanceId || '-';
       const apiKey = String(event.api_key ?? '').trim() || '-';
       const modelValue = String(event.model ?? '').trim();
       const model = modelValue || '-';
@@ -773,6 +779,8 @@ export function RequestEventsDetailsCard({
         sourceRaw: sourceRaw || '-',
         source,
         sourceType,
+        instanceId: instanceId || '-',
+        instanceName,
         authIndex,
         isDelete: event.isDelete === true,
         failed: event.failed === true,
@@ -803,7 +811,7 @@ export function RequestEventsDetailsCard({
         costLabel: costAvailable && cost !== null ? formatUsd(cost) : '-',
       };
     });
-  }, [events, t]);
+  }, [events, instanceNameById, t]);
   const virtualizeRows = rows.length > REQUEST_EVENT_VIRTUALIZATION_THRESHOLD;
   // TanStack Virtual 依赖内部可变测量状态，不参与 React Compiler 自动记忆化。
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -1006,6 +1014,16 @@ export function RequestEventsDetailsCard({
                 </span>
               )}
             </span>
+          </td>
+        ),
+      },
+      {
+        id: 'cpa_instance',
+        label: t('usage_stats.request_events_cpa_instance'),
+        header: <th>{t('usage_stats.request_events_cpa_instance')}</th>,
+        renderCell: (row) => (
+          <td className={styles.requestEventsSourceCell} title={row.instanceName}>
+            {row.instanceName}
           </td>
         ),
       },

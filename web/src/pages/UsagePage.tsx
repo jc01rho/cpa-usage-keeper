@@ -84,8 +84,8 @@ const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 50;
 const REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS = 90;
-// v7 是完整列顺序格式；v8 加入客户端请求元数据列，并保留历史自定义顺序。
-const REQUEST_EVENTS_PREFERENCES_VERSION = 8;
+// v7 是完整列顺序格式；v8 加入客户端请求元数据列；v9 在 Source 后加入 CPA Instance。
+const REQUEST_EVENTS_PREFERENCES_VERSION = 9;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 const CPA_MANAGEMENT_PAGE = 'management.html';
@@ -352,6 +352,13 @@ const LEGACY_REQUEST_EVENT_COLUMN_IDS_V7 = [
   'total_cost',
 ] as const;
 
+const LEGACY_REQUEST_EVENT_COLUMN_IDS_V8 = [
+  ...LEGACY_REQUEST_EVENT_COLUMN_IDS_V7,
+  'client_ip',
+  'x_forwarded_for',
+  'user_agent',
+] as const;
+
 const LEGACY_REQUEST_EVENT_COLUMN_IDS_V5 = LEGACY_REQUEST_EVENT_COLUMN_IDS_V7;
 
 const LEGACY_REQUEST_EVENT_COLUMN_IDS_V6 = [
@@ -489,6 +496,7 @@ const normalizeRequestEventPreferenceColumnIds = (value: unknown, version: unkno
 
   const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
   const legacyFullSelection = version !== REQUEST_EVENTS_PREFERENCES_VERSION && (
+    (version === 8 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V8)) ||
     (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7)) ||
     (version === 6 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V6)) ||
     (version === 5 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V5)) ||
@@ -520,7 +528,10 @@ const normalizeRequestEventPreferenceColumnOrder = (value: unknown, version: unk
     return [...REQUEST_EVENT_COLUMN_IDS];
   }
   const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
-  if (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7)) {
+  if (
+    (version === 8 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V8)) ||
+    (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7))
+  ) {
     return [...REQUEST_EVENT_COLUMN_IDS];
   }
   return normalizeRequestEventColumnOrder(rawColumnIds.filter(isRequestEventColumnId));
@@ -2482,6 +2493,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
                   onRequestLogClose={handleRequestLogClose}
                   onRequestLogDownload={handleRequestLogDownload}
                   requestLogDownloading={requestLogDownloading}
+                  instanceNameById={instanceNameById}
                 />
               </>
             )}
