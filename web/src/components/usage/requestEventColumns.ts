@@ -2,6 +2,7 @@ export const REQUEST_EVENT_COLUMN_IDS = [
   'timestamp',
   'api_key',
   'source',
+  'cpa_instance',
   'model',
   'model_alias',
   'reasoning_effort',

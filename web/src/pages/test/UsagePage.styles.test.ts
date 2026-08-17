@@ -1380,7 +1380,7 @@ describe('UsagePage toolbar styles', () => {
       expect(block).toContain('renderClientMetadataCell(')
     })
 
-    ;['api_key', 'source', 'model'].forEach((columnId) => {
+    ;['api_key', 'source', 'cpa_instance', 'model'].forEach((columnId) => {
       expect(requestEventColumnDefinitionBlock(columnId)).not.toContain('styles.requestEventsNoWrapCell')
     })
   })

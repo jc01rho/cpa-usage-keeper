@@ -317,6 +317,7 @@ export interface UsageEvent {
   source: string
   source_raw?: string
   source_type?: string
+  instance_id?: string
   auth_index?: string
   isDelete?: boolean
   failed: boolean

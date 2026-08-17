@@ -52,6 +52,12 @@ const V7_FULL_COLUMNS = [
   'total_tokens',
   'total_cost',
 ] as const;
+const V8_FULL_COLUMNS = [
+  ...V7_FULL_COLUMNS,
+  'client_ip',
+  'x_forwarded_for',
+  'user_agent',
+] as const;
 const LEGACY_V4_FULL_COLUMNS = V7_FULL_COLUMNS.map((columnId) => (
   columnId === 'cache_read_rate' ? 'cache_rate' : columnId
 ));
@@ -67,7 +73,7 @@ describe('UsagePage request event cache column preferences', () => {
       visibleColumnIds: V7_FULL_COLUMNS,
     });
 
-    expect(preferences.version).toBe(8);
+    expect(preferences.version).toBe(9);
     expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
   });
 
@@ -79,7 +85,7 @@ describe('UsagePage request event cache column preferences', () => {
       columnOrder: V7_FULL_COLUMNS,
     });
 
-    expect(preferences.version).toBe(8);
+    expect(preferences.version).toBe(9);
     expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
     expect(preferences.columnOrder.slice(-3)).toEqual([
       'client_ip',
@@ -87,6 +93,19 @@ describe('UsagePage request event cache column preferences', () => {
       'user_agent',
     ]);
   });
+  it('upgrades a v8 full selection to all current columns including CPA Instance', () => {
+    const preferences = normalizeRequestEventsPreferences({
+      version: 8,
+      pageSize: 100,
+      visibleColumnIds: V8_FULL_COLUMNS,
+      columnOrder: V8_FULL_COLUMNS,
+    });
+
+    expect(preferences.version).toBe(9);
+    expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
+    expect(preferences.visibleColumnIds).toContain('cpa_instance');
+  });
+
   it('keeps a complete custom order independently from hidden columns', () => {
     const columnOrder = [
       'total_cost',
@@ -100,7 +119,7 @@ describe('UsagePage request event cache column preferences', () => {
       columnOrder,
     });
 
-    expect(preferences.version).toBe(8);
+    expect(preferences.version).toBe(9);
     expect(preferences.visibleColumnIds).toEqual(['timestamp', 'model']);
     expect(preferences.columnOrder).toEqual(columnOrder);
   });
@@ -127,7 +146,7 @@ describe('UsagePage request event cache column preferences', () => {
       visibleColumnIds: LEGACY_V3_FULL_COLUMNS,
     });
 
-    expect(preferences.version).toBe(8);
+    expect(preferences.version).toBe(9);
     expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
     expect(preferences.visibleColumnIds).toContain('cache_read_tokens');
     expect(preferences.visibleColumnIds).toContain('cache_creation_tokens');
@@ -140,7 +159,7 @@ describe('UsagePage request event cache column preferences', () => {
       visibleColumnIds: MERGED_V6_FULL_COLUMNS,
     });
 
-    expect(preferences.version).toBe(8);
+    expect(preferences.version).toBe(9);
     expect(preferences.visibleColumnIds).toEqual(REQUEST_EVENT_COLUMN_IDS);
     expect(preferences.visibleColumnIds).not.toContain('response_service_tier' as never);
   });
