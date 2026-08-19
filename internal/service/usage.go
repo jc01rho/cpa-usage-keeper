@@ -718,7 +718,6 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		return nil, err
 	}
 	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:           filter.InstanceID,
 		Range:                filter.Range,
 		CustomUnit:           filter.CustomUnit,
 		StartTime:            filter.StartTime,
@@ -731,11 +730,14 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		CursorMode:           filter.CursorMode,
 		CursorTimestamp:      filter.CursorTimestamp,
 		CursorID:             filter.CursorID,
+		SkipTotalCount:       filter.SkipTotalCount,
 		Model:                filter.Model,
 		AuthIndex:            filter.AuthIndex,
+		AuthType:             filter.AuthType,
 		APIGroupKey:          apiGroupKey,
-		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 		Result:               filter.Result,
+		InstanceID:           filter.InstanceID,
+		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 	}, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err
@@ -787,7 +789,6 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 		return err
 	}
 	return repository.StreamUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:           filter.InstanceID,
 		Range:                filter.Range,
 		CustomUnit:           filter.CustomUnit,
 		StartTime:            filter.StartTime,
@@ -795,9 +796,11 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 		EndExclusive:         filter.EndExclusive,
 		Model:                filter.Model,
 		AuthIndex:            filter.AuthIndex,
+		AuthType:             filter.AuthType,
 		APIGroupKey:          apiGroupKey,
-		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 		Result:               filter.Result,
+		InstanceID:           filter.InstanceID,
+		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 	}, func(row repodto.UsageEventRecord) error {
 		return emit(servicedto.UsageEventRecord{
 			ID:                  row.ID,
