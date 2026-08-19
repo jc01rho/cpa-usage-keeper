@@ -464,6 +464,27 @@ describe('fetchUsageEvents', () => {
     expect(parsed.searchParams.get('page')).toBeNull();
   });
 
+  it('loads latest credential events without a fixed range and includes the identity type', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ events: [], total_count: 0, page: 1, page_size: 50, total_pages: 0, has_more: false }),
+    } as Response);
+
+    await fetchUsageEvents(undefined, undefined, {
+      pageSize: 50,
+      cursorMode: true,
+      source: 'shared-auth',
+      authType: 2,
+    });
+
+    const parsed = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(parsed.searchParams.get('range')).toBeNull();
+    expect(parsed.searchParams.get('source')).toBe('shared-auth');
+    expect(parsed.searchParams.get('auth_type')).toBe('2');
+    expect(parsed.searchParams.get('cursor_mode')).toBe('true');
+  });
+
   it('exports usage events with filters but without pagination params', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const blob = new Blob(['id,timestamp\n']);

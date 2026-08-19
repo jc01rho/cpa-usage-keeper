@@ -23,6 +23,7 @@ import {
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
+  CredentialDetailDrawer,
   CredentialProviderFilterBar,
   TimeRangeControl,
   useUsageData,
@@ -31,7 +32,8 @@ import {
   useOverviewRealtimeData,
   usePricingData,
   useSparklines,
-  useCredentialsTabData
+  useCredentialsTabData,
+  type CredentialDetailSelection,
 } from '@/components/usage';
 import {
   RequestEventsDetailsCard,
@@ -1068,6 +1070,8 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
   const [eventsColumnOrder, setEventsColumnOrder] = useState<RequestEventColumnId[]>(initialRequestEventsPreferences.columnOrder);
   const [eventsExportingFormat, setEventsExportingFormat] = useState<UsageEventsExportFormat | null>(null);
   const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
+  const [credentialDetailSelection, setCredentialDetailSelection] = useState<CredentialDetailSelection | null>(null);
+  const [credentialDetailOpen, setCredentialDetailOpen] = useState(false);
   const [requestLogResponse, setRequestLogResponse] = useState<UsageEventRequestLogResponse | null>(null);
   const [requestLogError, setRequestLogError] = useState('');
   const [requestLogLoadingEventId, setRequestLogLoadingEventId] = useState<string | null>(null);
@@ -1830,6 +1834,16 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     setRequestLogDownloading(false);
   }, []);
 
+  const handleCredentialDetailClose = useCallback(() => {
+    handleRequestLogClose();
+    setCredentialDetailOpen(false);
+  }, [handleRequestLogClose]);
+
+  const handleCredentialDetailOpen = useCallback((selection: CredentialDetailSelection) => {
+    setCredentialDetailSelection(selection);
+    setCredentialDetailOpen(true);
+  }, []);
+
   const handleRequestLogDownload = useCallback(async (eventId: string) => {
     if (!requestLogAccessEnabled) return;
     requestLogDownloadGenerationRef.current += 1;
@@ -1971,9 +1985,9 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
   }, []);
 
 	  useEffect(() => {
-	    if (activeTab === 'events') return;
+	    if (activeTab === 'events' || credentialDetailOpen) return;
 	    handleRequestLogClose();
-	  }, [activeTab, handleRequestLogClose]);
+	  }, [activeTab, credentialDetailOpen, handleRequestLogClose]);
 
 	  useEffect(() => {
 	    if (activeTab !== 'events') {
@@ -2533,6 +2547,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
                       onResetQuotaForAuthIndex={credentialsData.resetQuotaForAuthIndex}
                       aliasSavingId={credentialsData.aliasSavingId}
                       onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'auth-file', row })}
                       onRefreshInspectionStatus={credentialsData.refreshQuotaInspectionStatus}
                       onStartInspection={credentialsData.startQuotaInspection}
                       onAfterInvalidAccountAction={credentialsData.refresh}
@@ -2549,6 +2564,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
                       loading={credentialsData.loading}
                       aliasSavingId={credentialsData.aliasSavingId}
                       onSaveAlias={credentialsData.saveUsageIdentityAlias}
+                      onOpenDetails={(row) => handleCredentialDetailOpen({ kind: 'ai-provider', row })}
                       onPageChange={credentialsData.setAiProviderPage}
                       onPageSizeChange={credentialsData.setAiProviderPageSize}
                       onSortChange={credentialsData.setAiProviderSort}
@@ -2592,6 +2608,20 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
           </div>
         </main>
       </div>
+      <CredentialDetailDrawer
+        open={credentialDetailOpen}
+        selection={credentialDetailSelection}
+        onAuthRequired={onAuthRequired}
+        requestLogAccessEnabled={requestLogAccessEnabled}
+        onRequestLogOpen={handleRequestLogOpen}
+        requestLogLoadingEventId={requestLogLoadingEventId}
+        requestLogResponse={requestLogResponse}
+        requestLogError={requestLogError}
+        onRequestLogClose={handleRequestLogClose}
+        onRequestLogDownload={handleRequestLogDownload}
+        requestLogDownloading={requestLogDownloading}
+        onClose={handleCredentialDetailClose}
+      />
       <Modal
         open={logoutConfirmOpen}
         title={t('usage_stats.logout_confirm_title')}
