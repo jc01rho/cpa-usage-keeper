@@ -4053,12 +4053,12 @@
 }
 
 :global([data-theme='dark']) .tokenActivityCard {
-  --activity-heatmap-idle: #1f2937;
-  --token-activity-level-1: #172554;
-  --token-activity-level-2: #1e3a8a;
-  --token-activity-level-3: #1d4ed8;
-  --token-activity-level-4: #3b82f6;
-  --token-activity-level-5: #60a5fa;
+  // 两种主题都用浅→深表示 Token 量增加；暗色背景下收窄亮度范围以保留辨识度。
+  --token-activity-level-1: #60a5fa;
+  --token-activity-level-2: #3b82f6;
+  --token-activity-level-3: #2563eb;
+  --token-activity-level-4: #1d4ed8;
+  --token-activity-level-5: #1e40af;
 }
 
 .activityCardHeader {

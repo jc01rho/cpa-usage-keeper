@@ -7,11 +7,13 @@ import type { AiProviderCredentialRow, AuthFileCredentialRow, CredentialDetailSe
 import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
 
 const fetchUsageEvents = vi.fn()
+const fetchErrorEvents = vi.fn()
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
+    fetchErrorEvents: (...args: unknown[]) => fetchErrorEvents(...args),
     fetchUsageEvents: (...args: unknown[]) => fetchUsageEvents(...args),
   }
 })
@@ -127,6 +129,24 @@ const response = (id: string, cursor?: string) => ({
   has_more: Boolean(cursor),
 })
 
+const errorResponse = (id: string, cursor?: string) => ({
+  events: [{
+    id,
+    timestamp: '2026-08-17T10:00:00Z',
+    provider: 'codex',
+    model: `error-model-${id}`,
+    status_code: 429,
+    body_summary: `quota exceeded ${id}`,
+    body_truncated: false,
+    code: 'rate_limit',
+    retryable: true,
+    credential_retry_after: '2026-08-17T10:05:00Z',
+    model_retry_after: '2026-08-17T10:03:00Z',
+  }],
+  next_cursor: cursor,
+  has_more: Boolean(cursor),
+})
+
 describe('CredentialDetailDrawer', () => {
   let container: HTMLDivElement
   let root: Root
@@ -135,12 +155,20 @@ describe('CredentialDetailDrawer', () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     fetchUsageEvents.mockReset()
     fetchUsageEvents.mockResolvedValueOnce(response('1', 'cursor-1')).mockResolvedValueOnce(response('2'))
+    fetchErrorEvents.mockReset()
+    fetchErrorEvents.mockResolvedValueOnce(errorResponse('error-1', 'error-cursor-1')).mockResolvedValueOnce(errorResponse('error-2'))
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
   })
 
   afterEach(async () => {
+    // TanStack Virtual 默认在 150ms 后发送滚动结束更新，销毁 Happy DOM 前先等待该更新完成。
+    await act(async () => {
+      const { promise: settleVirtualizer, resolve } = Promise.withResolvers<void>()
+      window.setTimeout(resolve, 200)
+      await settleVirtualizer
+    })
     await act(async () => root.unmount())
     container.remove()
     document.body.innerHTML = ''
@@ -274,6 +302,51 @@ describe('CredentialDetailDrawer', () => {
     expect(fetchUsageEvents).toHaveBeenCalledTimes(1)
   })
 
+  it('loads credential errors lazily by Keeper identity id', async () => {
+    await act(async () => {
+      root.render(
+        <CredentialDetailDrawer
+          open
+          selection={selection}
+          onClose={() => undefined}
+        />,
+      )
+      await Promise.resolve()
+    })
+
+    expect(fetchErrorEvents).not.toHaveBeenCalled()
+    await act(async () => {
+      document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="errors"]')?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(fetchErrorEvents).toHaveBeenCalledWith('provider-1', expect.any(AbortSignal), undefined, 50)
+    expect(document.body.querySelector('[data-credential-error-event-id="error-1"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('error-model-error-1')
+    expect(document.body.textContent).toContain('quota exceeded error-1')
+    expect(document.body.textContent).toContain('usage_stats.credentials_error_next_retry')
+    expect(document.body.textContent).toContain('usage_stats.credentials_error_model_next_retry')
+    expect(document.body.textContent).not.toContain('usage_stats.credentials_error_auth_state')
+    expect(document.body.textContent).not.toContain('usage_stats.credentials_error_quota')
+
+    const scroller = document.body.querySelector<HTMLElement>('[data-credential-error-events-scroller="true"]')
+    expect(scroller).not.toBeNull()
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 600 },
+      scrollHeight: { configurable: true, value: 1800 },
+    })
+    scroller!.scrollTop = 1_300
+    await act(async () => {
+      scroller?.dispatchEvent(new Event('scroll', { bubbles: true }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(fetchErrorEvents).toHaveBeenLastCalledWith('provider-1', expect.any(AbortSignal), 'error-cursor-1', 50)
+    expect(document.body.querySelector('[data-credential-error-event-id="error-2"]')).not.toBeNull()
+  })
+
   it('uses roving focus and arrow keys for the detail tabs', async () => {
     fetchUsageEvents.mockReset()
     fetchUsageEvents.mockResolvedValue(response('1'))
@@ -290,8 +363,10 @@ describe('CredentialDetailDrawer', () => {
 
     const overviewTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')
     const requestsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')
+    const errorsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="errors"]')
     expect(overviewTab?.tabIndex).toBe(0)
     expect(requestsTab?.tabIndex).toBe(-1)
+    expect(errorsTab?.tabIndex).toBe(-1)
 
     overviewTab?.focus()
     await act(async () => {
@@ -305,7 +380,15 @@ describe('CredentialDetailDrawer', () => {
     expect(requestsTab?.tabIndex).toBe(0)
 
     await act(async () => {
-      requestsTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+      requestsTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(document.activeElement).toBe(errorsTab)
+    expect(errorsTab?.getAttribute('aria-selected')).toBe('true')
+
+    await act(async () => {
+      errorsTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
       await Promise.resolve()
     })
     expect(document.activeElement).toBe(overviewTab)

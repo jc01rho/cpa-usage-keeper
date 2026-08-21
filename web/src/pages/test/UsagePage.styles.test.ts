@@ -69,6 +69,20 @@ const styleRuleBlock = (source: string, selector: string) => {
   return source.slice(open + 1, close)
 }
 
+const cssHexVariable = (rule: string, name: string) => {
+  const match = rule.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6});`))
+  if (!match) throw new Error(`Missing CSS variable: ${name}`)
+  return match[1]
+}
+
+const relativeLuminance = (hex: string) => {
+  const channels = hex.slice(1).match(/.{2}/g)?.map((value) => Number.parseInt(value, 16) / 255) ?? []
+  const [red, green, blue] = channels.map((value) => (
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  ))
+  return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
+}
+
 describe('UsagePage toolbar styles', () => {
   it('renders every authenticated page header logo at 20px without pill chrome', () => {
     for (const pageStyles of [usagePageStyles, keyOverviewPageStyles]) {
@@ -609,6 +623,8 @@ describe('UsagePage toolbar styles', () => {
   it('renders Recent Activity between the stat cards and realtime metrics', () => {
     const realtimeCard = styleRuleBlock(usagePageStyles, '.overviewRealtimeCard')
     const realtimeCompactCard = styleRuleBlock(usagePageStyles, '.overviewRealtimeCardCompact')
+    const lightTokenActivityCard = styleRuleBlock(usagePageStyles, '.tokenActivityCard')
+    const darkTokenActivityCard = styleRuleBlock(usagePageStyles, ":global([data-theme='dark']) .tokenActivityCard")
 
     expect(usagePageSource).toContain('<OverviewRealtimePanel')
     expect(keyOverviewPageSource).toContain('<OverviewRealtimePanel')
@@ -631,7 +647,11 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toContain('--token-activity-level-3: #60a5fa;')
     expect(usagePageStyles).toContain('--token-activity-level-4: #3b82f6;')
     expect(usagePageStyles).toContain('--token-activity-level-5: #1d4ed8;')
-    expect(usagePageStyles).toMatch(/:global\(\[data-theme='dark'\]\) \.tokenActivityCard\s*\{[\s\S]*?--token-activity-level-1:\s*#172554;/)
+    expect(darkTokenActivityCard).not.toContain('--activity-heatmap-idle:')
+    const lightLevelLuminance = [1, 2, 3, 4, 5].map((level) => relativeLuminance(cssHexVariable(lightTokenActivityCard, `--token-activity-level-${level}`)))
+    const darkLevelLuminance = [1, 2, 3, 4, 5].map((level) => relativeLuminance(cssHexVariable(darkTokenActivityCard, `--token-activity-level-${level}`)))
+    lightLevelLuminance.slice(0, -1).forEach((luminance, index) => expect(luminance).toBeGreaterThan(lightLevelLuminance[index + 1]))
+    darkLevelLuminance.slice(0, -1).forEach((luminance, index) => expect(luminance).toBeGreaterThan(darkLevelLuminance[index + 1]))
     expect(usagePageStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/)
     expect(usagePageStyles).toMatch(/\.overviewRealtimeGrid\s*\{[\s\S]*?@include mobile\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
     expect(usagePageStyles).toMatch(/\.overviewRealtimeCardFull\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/)

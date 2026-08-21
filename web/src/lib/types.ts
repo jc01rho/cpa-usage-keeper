@@ -349,6 +349,40 @@ export interface UsageEventsResponse {
   has_more?: boolean
 }
 
+export interface ErrorEvent {
+  /** Keeper 本地事件主键，仅用于列表 key 与 cursor 稳定排序。 */
+  id: string
+  /** CPA 生成 Error Event 的时间，不是 Keeper 接收时间。 */
+  timestamp: string
+  /** CPA result.provider；缺失表示上游未提供。 */
+  provider?: string
+  /** CPA result.model；缺失表示上游未提供。 */
+  model?: string
+  /** CPA Error.HTTPStatus；上游无状态时当前契约为 500。 */
+  status_code: number
+  /** 原始 body 删除当前 Identity API Key、清理控制字符并限制长度后的展示摘要。 */
+  body_summary: string
+  /** 表示 body_summary 是否因 API 长度上限被截断。 */
+  body_truncated: boolean
+  /** CPA Error.Code；缺失表示上游没有结构化错误码。 */
+  code?: string
+  /** 错误发生时 CPA 是否认为该错误可重试。 */
+  retryable: boolean
+  /** 错误发生时 CPA 给出的凭证级下一次允许重试时间。 */
+  credential_retry_after?: string
+  /** 错误发生时 CPA 给出的模型级下一次允许重试时间。 */
+  model_retry_after?: string
+}
+
+export interface ErrorEventsResponse {
+  /** 当前 Identity 的 Error Event 游标页；body_summary 已删除真实 API Key。 */
+  events: ErrorEvent[]
+  /** 下一页 cursor；没有更多数据时缺失。 */
+  next_cursor?: string
+  /** 是否仍有下一页，前端不依赖总数查询。 */
+  has_more: boolean
+}
+
 export interface UsageEventRequestLogSection {
   title: string
   content: string

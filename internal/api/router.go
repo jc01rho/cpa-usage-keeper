@@ -53,6 +53,7 @@ type OptionalProviders struct {
 	MetadataExport service.MetadataExportProvider
 	MetadataStatus service.MetadataStatusProvider
 	UsageIdentity  service.UsageIdentityProvider
+	ErrorEvents    service.ErrorEventProvider
 	CPAInstances   CPAInstanceProvider
 	Quota          QuotaProvider
 	CPAAPIKeys     service.CPAAPIKeyProvider
@@ -107,6 +108,7 @@ func NewRouter(
 	var metadataExportProvider service.MetadataExportProvider
 	var metadataStatusProvider service.MetadataStatusProvider
 	var usageIdentityProvider service.UsageIdentityProvider
+	var errorEventProvider service.ErrorEventProvider
 	var quotaProvider QuotaProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
 	var authFilesProvider service.AuthFilesManagementProvider
@@ -119,6 +121,7 @@ func NewRouter(
 		metadataExportProvider = optionalProviders[0].MetadataExport
 		metadataStatusProvider = optionalProviders[0].MetadataStatus
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
+		errorEventProvider = optionalProviders[0].ErrorEvents
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
 		authFilesProvider = optionalProviders[0].AuthFiles
@@ -148,6 +151,7 @@ func NewRouter(
 	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
 	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider, cpaAPIKeyProvider, requestLogProvider, requestLogDownloadTokens, statusConfig.CPARequestLogAccessEnabled)
 	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider)
+	registerErrorEventRoutes(adminProtected, errorEventProvider)
 	registerAuthFileManagementRoutes(adminProtected, authFilesProvider)
 	registerAuthSessionManagementRoutes(adminProtected, authHandler)
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
