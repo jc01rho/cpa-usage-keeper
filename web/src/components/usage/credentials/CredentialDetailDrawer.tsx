@@ -4,9 +4,10 @@ import { Modal } from '@/components/ui/Modal'
 import { IconRefreshCw } from '@/components/ui/icons'
 import { ProviderBrandIcon } from '@/components/ProviderBrandIcon'
 import { RequestEventLogModal } from '@/components/usage/RequestEventLogModal'
-import { ApiError, fetchUsageEvents } from '@/lib/api'
-import type { UsageEvent, UsageEventRequestLogResponse } from '@/lib/types'
+import { ApiError, fetchErrorEvents, fetchUsageEvents } from '@/lib/api'
+import type { ErrorEvent, UsageEvent, UsageEventRequestLogResponse } from '@/lib/types'
 import { AuthFileQuotaPanel } from './AuthFileCredentialsSection'
+import { CredentialErrorEventsList } from './CredentialErrorEventsList'
 import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialPriorityBadge, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
 import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
@@ -16,8 +17,9 @@ import styles from './CredentialDetailDrawer.module.scss'
 import credentialStyles from './CredentialSections.module.scss'
 
 const REQUEST_EVENTS_PAGE_SIZE = 50
+const ERROR_EVENTS_PAGE_SIZE = 50
 
-type CredentialDetailTab = 'overview' | 'requests'
+type CredentialDetailTab = 'overview' | 'requests' | 'errors'
 
 interface CredentialDetailDrawerProps {
   open: boolean
@@ -49,6 +51,21 @@ export function appendCredentialDetailEvents(
   return merged
 }
 
+function appendCredentialErrorEvents(
+  currentEvents: readonly ErrorEvent[],
+  incomingEvents: readonly ErrorEvent[],
+): ErrorEvent[] {
+  const seen = new Set(currentEvents.map((event) => String(event.id ?? '').trim()).filter(Boolean))
+  const merged = [...currentEvents]
+  for (const event of incomingEvents) {
+    const id = String(event.id ?? '').trim()
+    if (id && seen.has(id)) continue
+    if (id) seen.add(id)
+    merged.push(event)
+  }
+  return merged
+}
+
 export function CredentialDetailDrawer({
   open,
   selection,
@@ -66,10 +83,13 @@ export function CredentialDetailDrawer({
   const { t } = useTranslation()
   const overviewTabId = useId()
   const requestsTabId = useId()
+  const errorsTabId = useId()
   const overviewPanelId = useId()
   const requestsPanelId = useId()
+  const errorsPanelId = useId()
   const overviewTabRef = useRef<HTMLButtonElement | null>(null)
   const requestsTabRef = useRef<HTMLButtonElement | null>(null)
+  const errorsTabRef = useRef<HTMLButtonElement | null>(null)
   const [activeTab, setActiveTab] = useState<CredentialDetailTab>('overview')
   const [events, setEvents] = useState<UsageEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(false)
@@ -79,12 +99,21 @@ export function CredentialDetailDrawer({
   const [eventsNextCursor, setEventsNextCursor] = useState<string | null>(null)
   const firstPageControllerRef = useRef<AbortController | null>(null)
   const loadMoreControllerRef = useRef<AbortController | null>(null)
+  const [errorEvents, setErrorEvents] = useState<ErrorEvent[]>([])
+  const [errorEventsLoading, setErrorEventsLoading] = useState(false)
+  const [errorEventsLoadingMore, setErrorEventsLoadingMore] = useState(false)
+  const [errorEventsAutoLoadMore, setErrorEventsAutoLoadMore] = useState(true)
+  const [errorEventsError, setErrorEventsError] = useState('')
+  const [errorEventsNextCursor, setErrorEventsNextCursor] = useState<string | null>(null)
+  const errorFirstPageControllerRef = useRef<AbortController | null>(null)
+  const errorLoadMoreControllerRef = useRef<AbortController | null>(null)
 
   const row = selection?.row ?? null
   const identity = row?.identity ?? null
   const selectionKey = selection ? `${selection.kind}:${identity?.id || identity?.identity || ''}` : ''
   const sourceFilter = identity?.identity?.trim() ?? ''
   const authTypeFilter = identity?.auth_type
+  const identityId = String(identity?.id ?? '').trim()
 
   const resetRequestEvents = useCallback(() => {
     firstPageControllerRef.current?.abort()
@@ -99,18 +128,33 @@ export function CredentialDetailDrawer({
     setEventsNextCursor(null)
   }, [])
 
+  const resetErrorEvents = useCallback(() => {
+    errorFirstPageControllerRef.current?.abort()
+    errorLoadMoreControllerRef.current?.abort()
+    errorFirstPageControllerRef.current = null
+    errorLoadMoreControllerRef.current = null
+    setErrorEvents([])
+    setErrorEventsLoading(false)
+    setErrorEventsLoadingMore(false)
+    setErrorEventsAutoLoadMore(true)
+    setErrorEventsError('')
+    setErrorEventsNextCursor(null)
+  }, [])
+
   // 关闭动画继续使用 Modal 的内容快照；同步清理内部状态，保证下次打开不会提交上一凭证的数据。
   useLayoutEffect(() => {
     if (open) return
     setActiveTab('overview')
     resetRequestEvents()
-  }, [open, resetRequestEvents])
+    resetErrorEvents()
+  }, [open, resetErrorEvents, resetRequestEvents])
 
   useEffect(() => {
     if (!open || !selectionKey) return
     setActiveTab('overview')
     resetRequestEvents()
-  }, [open, resetRequestEvents, selectionKey])
+    resetErrorEvents()
+  }, [open, resetErrorEvents, resetRequestEvents, selectionKey])
 
   const loadFirstPage = useCallback(async () => {
     if (!open || activeTab !== 'requests' || !sourceFilter) return
@@ -162,33 +206,92 @@ export function CredentialDetailDrawer({
     }
   }, [activeTab, loadFirstPage, open])
 
+  const loadFirstErrorPage = useCallback(async () => {
+    if (!open || activeTab !== 'errors' || !identityId) return
+    errorFirstPageControllerRef.current?.abort()
+    errorLoadMoreControllerRef.current?.abort()
+    errorLoadMoreControllerRef.current = null
+    const controller = new AbortController()
+    errorFirstPageControllerRef.current = controller
+    setErrorEventsLoading(true)
+    setErrorEventsLoadingMore(false)
+    setErrorEventsAutoLoadMore(true)
+    setErrorEventsError('')
+    try {
+      // Errors API 使用 Keeper Identity ID 定位凭证，前端不接触 CPA auth_index 等敏感关联字段。
+      const response = await fetchErrorEvents(identityId, controller.signal, undefined, ERROR_EVENTS_PAGE_SIZE)
+      if (errorFirstPageControllerRef.current !== controller) return
+      setErrorEvents(response.events)
+      setErrorEventsNextCursor(response.has_more === true ? response.next_cursor?.trim() || null : null)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setErrorEvents([])
+      setErrorEventsNextCursor(null)
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.()
+        return
+      }
+      setErrorEventsError(error instanceof Error ? error.message : t('usage_stats.credentials_detail_errors_load_failed'))
+    } finally {
+      if (errorFirstPageControllerRef.current === controller) {
+        errorFirstPageControllerRef.current = null
+        setErrorEventsLoading(false)
+      }
+    }
+  }, [activeTab, identityId, onAuthRequired, open, t])
+
+  useEffect(() => {
+    if (!open || activeTab !== 'errors') return
+    void loadFirstErrorPage()
+    return () => {
+      errorFirstPageControllerRef.current?.abort()
+      errorFirstPageControllerRef.current = null
+      errorLoadMoreControllerRef.current?.abort()
+      errorLoadMoreControllerRef.current = null
+    }
+  }, [activeTab, loadFirstErrorPage, open])
+
   useEffect(() => () => {
     firstPageControllerRef.current?.abort()
     loadMoreControllerRef.current?.abort()
+    errorFirstPageControllerRef.current?.abort()
+    errorLoadMoreControllerRef.current?.abort()
   }, [])
 
   const activateTab = useCallback((tab: CredentialDetailTab, focus = false) => {
-    if (tab === 'overview') onRequestLogClose?.()
+    if (tab !== 'requests') onRequestLogClose?.()
     setActiveTab(tab)
     if (focus) {
-      const target = tab === 'overview' ? overviewTabRef.current : requestsTabRef.current
+      const target = tab === 'overview'
+        ? overviewTabRef.current
+        : tab === 'requests'
+          ? requestsTabRef.current
+          : errorsTabRef.current
       target?.focus()
     }
   }, [onRequestLogClose])
 
   const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    const currentTab: CredentialDetailTab = event.currentTarget === requestsTabRef.current ? 'requests' : 'overview'
+    const tabs: CredentialDetailTab[] = ['overview', 'requests', 'errors']
+    const currentTab: CredentialDetailTab = event.currentTarget === requestsTabRef.current
+      ? 'requests'
+      : event.currentTarget === errorsTabRef.current
+        ? 'errors'
+        : 'overview'
+    const currentIndex = tabs.indexOf(currentTab)
     let nextTab: CredentialDetailTab | null = null
     switch (event.key) {
       case 'ArrowLeft':
+        nextTab = tabs[(currentIndex - 1 + tabs.length) % tabs.length]
+        break
       case 'ArrowRight':
-        nextTab = currentTab === 'overview' ? 'requests' : 'overview'
+        nextTab = tabs[(currentIndex + 1) % tabs.length]
         break
       case 'Home':
-        nextTab = 'overview'
+        nextTab = tabs[0]
         break
       case 'End':
-        nextTab = 'requests'
+        nextTab = tabs[tabs.length - 1]
         break
       default:
         return
@@ -231,6 +334,36 @@ export function CredentialDetailDrawer({
       }
     }
   }, [authTypeFilter, eventsLoading, eventsLoadingMore, eventsNextCursor, onAuthRequired, sourceFilter, t])
+
+  const loadMoreErrorEvents = useCallback(async () => {
+    const cursor = errorEventsNextCursor?.trim()
+    if (!cursor || errorLoadMoreControllerRef.current || errorEventsLoading || errorEventsLoadingMore || !identityId) return
+    const controller = new AbortController()
+    errorLoadMoreControllerRef.current = controller
+    setErrorEventsLoadingMore(true)
+    setErrorEventsError('')
+    try {
+      const response = await fetchErrorEvents(identityId, controller.signal, cursor, ERROR_EVENTS_PAGE_SIZE)
+      if (errorLoadMoreControllerRef.current !== controller) return
+      setErrorEvents((current) => appendCredentialErrorEvents(current, response.events))
+      setErrorEventsAutoLoadMore(true)
+      setErrorEventsNextCursor(response.has_more === true ? response.next_cursor?.trim() || null : null)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.()
+        return
+      }
+      // 分页失败保留已展示的数据，并暂停滚动自动重试，等待用户主动点击重试。
+      setErrorEventsAutoLoadMore(false)
+      setErrorEventsError(error instanceof Error ? error.message : t('usage_stats.credentials_detail_errors_load_failed'))
+    } finally {
+      if (errorLoadMoreControllerRef.current === controller) {
+        errorLoadMoreControllerRef.current = null
+        setErrorEventsLoadingMore(false)
+      }
+    }
+  }, [errorEventsLoading, errorEventsLoadingMore, errorEventsNextCursor, identityId, onAuthRequired, t])
 
   if (!selection || !row || !identity) return null
 
@@ -296,14 +429,30 @@ export function CredentialDetailDrawer({
             >
               {t('usage_stats.credentials_detail_requests_tab')}
             </button>
+            <button
+              ref={errorsTabRef}
+              id={errorsTabId}
+              type="button"
+              role="tab"
+              className={styles.tabButton}
+              aria-selected={activeTab === 'errors'}
+              aria-controls={errorsPanelId}
+              tabIndex={activeTab === 'errors' ? 0 : -1}
+              data-credential-detail-tab="errors"
+              onClick={() => activateTab('errors')}
+              onKeyDown={handleTabKeyDown}
+            >
+              {t('usage_stats.credentials_detail_errors_tab')}
+            </button>
           </div>
-          {activeTab === 'requests' && eventsError && events.length === 0 && !eventsLoading ? (
+          {((activeTab === 'requests' && eventsError && events.length === 0 && !eventsLoading)
+            || (activeTab === 'errors' && errorEventsError && errorEvents.length === 0 && !errorEventsLoading)) ? (
             <button
               type="button"
               className={`${credentialStyles.credentialRowRefreshButton} ${styles.retryButton}`}
               data-credential-detail-retry
               aria-label={t('common.retry')}
-              onClick={() => void loadFirstPage()}
+              onClick={() => void (activeTab === 'requests' ? loadFirstPage() : loadFirstErrorPage())}
             >
               <IconRefreshCw size={13} />
             </button>
@@ -345,7 +494,7 @@ export function CredentialDetailDrawer({
             />
           </section>
           </section>
-        ) : (
+        ) : activeTab === 'requests' ? (
           <section id={requestsPanelId} role="tabpanel" aria-labelledby={requestsTabId} className={styles.requestsPanel}>
             {eventsError ? <div className={styles.requestError} role="status">{eventsError}</div> : null}
             {eventsError && events.length === 0 ? null : (
@@ -359,6 +508,20 @@ export function CredentialDetailDrawer({
                 requestLogAccessEnabled={requestLogAccessEnabled}
                 onRequestLogOpen={onRequestLogOpen}
                 requestLogLoadingEventId={requestLogLoadingEventId}
+              />
+            )}
+          </section>
+        ) : (
+          <section id={errorsPanelId} role="tabpanel" aria-labelledby={errorsTabId} className={styles.errorsPanel}>
+            {errorEventsError ? <div className={styles.requestError} role="status">{errorEventsError}</div> : null}
+            {errorEventsError && errorEvents.length === 0 ? null : (
+              <CredentialErrorEventsList
+                events={errorEvents}
+                loading={errorEventsLoading}
+                hasMore={Boolean(errorEventsNextCursor)}
+                loadingMore={errorEventsLoadingMore}
+                autoLoadMore={errorEventsAutoLoadMore}
+                onLoadMore={() => void loadMoreErrorEvents()}
               />
             )}
           </section>
