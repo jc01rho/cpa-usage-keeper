@@ -8,15 +8,21 @@ import { CredentialDetailDrawer } from '../CredentialDetailDrawer'
 
 const fetchUsageEvents = vi.fn()
 const fetchErrorEvents = vi.fn()
+const fetchCodexQuotaHistory = vi.fn()
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
+    fetchCodexQuotaHistory: (...args: unknown[]) => fetchCodexQuotaHistory(...args),
     fetchErrorEvents: (...args: unknown[]) => fetchErrorEvents(...args),
     fetchUsageEvents: (...args: unknown[]) => fetchUsageEvents(...args),
   }
 })
+
+vi.mock('react-chartjs-2', () => ({
+  Bar: () => <div data-testid="quota-efficiency-chart" />,
+}))
 
 vi.mock('react-i18next', () => {
   const t = (key: string, params?: Record<string, unknown>) => params ? `${key}:${JSON.stringify(params)}` : key
@@ -103,6 +109,38 @@ const authFileRow = {
 
 const authFileSelection: CredentialDetailSelection = { kind: 'auth-file', row: authFileRow }
 
+const nonCodexAuthFileSelection: CredentialDetailSelection = {
+  kind: 'auth-file',
+  row: {
+    ...authFileRow,
+    identity: { ...authFileRow.identity, id: 'claude-auth-file', identity: 'claude-auth', type: 'claude', provider: 'claude' },
+    displayName: 'Claude Auth File',
+    typeLabel: 'claude',
+    providerLabel: 'claude',
+  },
+}
+
+const quotaHistoryResponse = {
+  generated_at: '2026-08-21T12:00:00Z',
+  range_start: '2026-07-22T12:00:00Z',
+  windows: [{
+    window_role: 'primary' as const,
+    window_kind: 'weekly' as const,
+    window_seconds: 604800,
+    has_current_cycle: true,
+    last_observed_at: '2026-08-21T11:50:00Z',
+  }],
+  selected_window: {
+    window_role: 'primary' as const,
+    window_kind: 'weekly' as const,
+    window_seconds: 604800,
+    has_current_cycle: true,
+    last_observed_at: '2026-08-21T11:50:00Z',
+  },
+  current_cycle: null,
+  completed_cycles: [],
+}
+
 const response = (id: string, cursor?: string) => ({
   events: [{
     id,
@@ -157,6 +195,8 @@ describe('CredentialDetailDrawer', () => {
     fetchUsageEvents.mockResolvedValueOnce(response('1', 'cursor-1')).mockResolvedValueOnce(response('2'))
     fetchErrorEvents.mockReset()
     fetchErrorEvents.mockResolvedValueOnce(errorResponse('error-1', 'error-cursor-1')).mockResolvedValueOnce(errorResponse('error-2'))
+    fetchCodexQuotaHistory.mockReset()
+    fetchCodexQuotaHistory.mockResolvedValue(quotaHistoryResponse)
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -190,6 +230,54 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent)
       .toBe('user106@edu.sso.monsterx.it.com.json')
     expect(document.body.textContent).not.toContain('usage_stats.credentials_detail_cumulative')
+  })
+
+  it('shows and lazily loads quota history only for a Codex Auth File', async () => {
+    await act(async () => {
+      root.render(<CredentialDetailDrawer open selection={authFileSelection} onClose={() => undefined} />)
+      await Promise.resolve()
+    })
+
+    const quotaTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')
+    expect(quotaTab).not.toBeNull()
+    expect(fetchCodexQuotaHistory).not.toHaveBeenCalled()
+    await act(async () => {
+      quotaTab?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledWith('auth-file-identity-1', {}, expect.any(AbortSignal))
+    expect(document.body.querySelector('[data-codex-quota-history-panel="true"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('usage_stats.credentials_quota_history_no_current')
+    expect(document.body.textContent).not.toContain('usage_stats.credentials_quota_history_window_selector')
+
+    await act(async () => {
+      root.render(<CredentialDetailDrawer open selection={nonCodexAuthFileSelection} onClose={() => undefined} />)
+      await Promise.resolve()
+    })
+    expect(document.body.querySelector('[data-credential-detail-tab="quota-history"]')).toBeNull()
+    expect(document.body.querySelector('[data-credential-detail-tab="overview"]')?.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('includes the Codex quota history tab in roving keyboard order', async () => {
+    await act(async () => {
+      root.render(<CredentialDetailDrawer open selection={authFileSelection} onClose={() => undefined} />)
+      await Promise.resolve()
+    })
+    const overviewTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="overview"]')
+    const quotaTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="quota-history"]')
+    const requestsTab = document.body.querySelector<HTMLButtonElement>('[data-credential-detail-tab="requests"]')
+    overviewTab?.focus()
+    await act(async () => {
+      overviewTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      await Promise.resolve()
+    })
+    expect(document.activeElement).toBe(quotaTab)
+    await act(async () => {
+      quotaTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      await Promise.resolve()
+    })
+    expect(document.activeElement).toBe(requestsTab)
   })
 
   it('loads the dedicated latest-event list lazily and appends the next cursor page on scroll', async () => {

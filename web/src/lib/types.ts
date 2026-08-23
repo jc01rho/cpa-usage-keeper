@@ -560,6 +560,65 @@ export interface UsageQuotaCacheResponse {
   items: UsageQuotaCacheItem[]
 }
 
+// CodexQuotaHistoryWindow 以 Primary/Secondary 角色和上游真实秒数组成窗口系列键。
+export interface CodexQuotaHistoryWindow {
+  window_role: 'primary' | 'secondary'
+  window_kind?: 'five_hour' | 'weekly' | 'monthly'
+  window_seconds: number
+  has_current_cycle: boolean
+  last_observed_at: string
+}
+
+// CodexQuotaHistoryUsage 是周期摘要与百分比变化区间共同复用的动态用量。
+export interface CodexQuotaHistoryUsage {
+  requests: number
+  successful_requests: number
+  failed_requests: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  total_tokens: number
+  total_cost_usd: number
+  cost_available: boolean
+}
+
+// CodexQuotaHistoryTransition 只表示真实观察到的相邻百分比变化；跨档不会补中间点。
+export interface CodexQuotaHistoryTransition {
+  from_remaining_percent: number
+  to_remaining_percent: number
+  percentage_points: number
+  is_direct: boolean
+  interval_started_at: string
+  interval_ended_at: string
+  usage: CodexQuotaHistoryUsage
+  tokens_per_point: number
+  cost_per_point: number
+  cost_per_point_available: boolean
+}
+
+// CodexQuotaHistoryCycle 同时提供周期真实边界、Keeper 观察边界、周期总量和效率区间。
+export interface CodexQuotaHistoryCycle {
+  id: number
+  window_started_at: string
+  reset_at: string
+  first_observed_at: string
+  last_observed_at: string
+  usage: CodexQuotaHistoryUsage
+  transitions: CodexQuotaHistoryTransition[]
+}
+
+// CodexQuotaHistoryResponse 一次请求驱动当前周期图表、周期摘要和最近三十天历史列表。
+export interface CodexQuotaHistoryResponse {
+  generated_at: string
+  range_start: string
+  windows: CodexQuotaHistoryWindow[]
+  selected_window: CodexQuotaHistoryWindow | null
+  current_cycle: CodexQuotaHistoryCycle | null
+  completed_cycles: CodexQuotaHistoryCycle[]
+}
+
 export interface AuthFilesManagementResponse {
   names: string[]
   affected: number
