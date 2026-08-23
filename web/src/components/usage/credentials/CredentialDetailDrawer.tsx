@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Modal } from '@/components/ui/Modal'
 import { IconRefreshCw } from '@/components/ui/icons'
@@ -12,6 +12,7 @@ import { CredentialHealthPanel } from './CredentialHealthPanel'
 import { CredentialPriorityBadge, formatCredentialNumber, formatCredentialPercent } from './CredentialSectionShell'
 import { CredentialSubscriptionBadge } from './CredentialSubscriptionBadge'
 import { CredentialRequestEventsList } from './CredentialRequestEventsList'
+import { CodexQuotaHistoryPanel } from './CodexQuotaHistoryPanel'
 import type { CredentialDetailSelection } from './credentialViewModels'
 import styles from './CredentialDetailDrawer.module.scss'
 import credentialStyles from './CredentialSections.module.scss'
@@ -19,7 +20,7 @@ import credentialStyles from './CredentialSections.module.scss'
 const REQUEST_EVENTS_PAGE_SIZE = 50
 const ERROR_EVENTS_PAGE_SIZE = 50
 
-type CredentialDetailTab = 'overview' | 'requests' | 'errors'
+type CredentialDetailTab = 'overview' | 'quota-history' | 'requests' | 'errors'
 
 interface CredentialDetailDrawerProps {
   open: boolean
@@ -82,12 +83,15 @@ export function CredentialDetailDrawer({
 }: CredentialDetailDrawerProps) {
   const { t } = useTranslation()
   const overviewTabId = useId()
+  const quotaHistoryTabId = useId()
   const requestsTabId = useId()
   const errorsTabId = useId()
   const overviewPanelId = useId()
+  const quotaHistoryPanelId = useId()
   const requestsPanelId = useId()
   const errorsPanelId = useId()
   const overviewTabRef = useRef<HTMLButtonElement | null>(null)
+  const quotaHistoryTabRef = useRef<HTMLButtonElement | null>(null)
   const requestsTabRef = useRef<HTMLButtonElement | null>(null)
   const errorsTabRef = useRef<HTMLButtonElement | null>(null)
   const [activeTab, setActiveTab] = useState<CredentialDetailTab>('overview')
@@ -114,6 +118,10 @@ export function CredentialDetailDrawer({
   const sourceFilter = identity?.identity?.trim() ?? ''
   const authTypeFilter = identity?.auth_type
   const identityId = String(identity?.id ?? '').trim()
+  const hasCodexQuotaHistory = selection?.kind === 'auth-file' && identity?.type?.trim().toLowerCase() === 'codex'
+  const availableTabs = useMemo<CredentialDetailTab[]>(() => hasCodexQuotaHistory
+    ? ['overview', 'quota-history', 'requests', 'errors']
+    : ['overview', 'requests', 'errors'], [hasCodexQuotaHistory])
 
   const resetRequestEvents = useCallback(() => {
     firstPageControllerRef.current?.abort()
@@ -155,6 +163,11 @@ export function CredentialDetailDrawer({
     resetRequestEvents()
     resetErrorEvents()
   }, [open, resetErrorEvents, resetRequestEvents, selectionKey])
+
+  useEffect(() => {
+    // 同一个身份在同步后可能改变类型；不再是 Codex 时立即退出专属标签，避免展示不属于当前凭证的数据。
+    if (activeTab === 'quota-history' && !hasCodexQuotaHistory) setActiveTab('overview')
+  }, [activeTab, hasCodexQuotaHistory])
 
   const loadFirstPage = useCallback(async () => {
     if (!open || activeTab !== 'requests' || !sourceFilter) return
@@ -262,43 +275,45 @@ export function CredentialDetailDrawer({
     if (tab !== 'requests') onRequestLogClose?.()
     setActiveTab(tab)
     if (focus) {
-      const target = tab === 'overview'
-        ? overviewTabRef.current
-        : tab === 'requests'
-          ? requestsTabRef.current
-          : errorsTabRef.current
+      const target = {
+        overview: overviewTabRef.current,
+        'quota-history': quotaHistoryTabRef.current,
+        requests: requestsTabRef.current,
+        errors: errorsTabRef.current,
+      }[tab]
       target?.focus()
     }
   }, [onRequestLogClose])
 
   const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    const tabs: CredentialDetailTab[] = ['overview', 'requests', 'errors']
-    const currentTab: CredentialDetailTab = event.currentTarget === requestsTabRef.current
-      ? 'requests'
-      : event.currentTarget === errorsTabRef.current
-        ? 'errors'
-        : 'overview'
-    const currentIndex = tabs.indexOf(currentTab)
+    const currentTab: CredentialDetailTab = event.currentTarget === quotaHistoryTabRef.current
+      ? 'quota-history'
+      : event.currentTarget === requestsTabRef.current
+        ? 'requests'
+        : event.currentTarget === errorsTabRef.current
+          ? 'errors'
+          : 'overview'
+    const currentIndex = availableTabs.indexOf(currentTab)
     let nextTab: CredentialDetailTab | null = null
     switch (event.key) {
       case 'ArrowLeft':
-        nextTab = tabs[(currentIndex - 1 + tabs.length) % tabs.length]
+        nextTab = availableTabs[(currentIndex - 1 + availableTabs.length) % availableTabs.length]
         break
       case 'ArrowRight':
-        nextTab = tabs[(currentIndex + 1) % tabs.length]
+        nextTab = availableTabs[(currentIndex + 1) % availableTabs.length]
         break
       case 'Home':
-        nextTab = tabs[0]
+        nextTab = availableTabs[0]
         break
       case 'End':
-        nextTab = tabs[tabs.length - 1]
+        nextTab = availableTabs[availableTabs.length - 1]
         break
       default:
         return
     }
     event.preventDefault()
     activateTab(nextTab, true)
-  }, [activateTab])
+  }, [activateTab, availableTabs])
 
   const loadMore = useCallback(async () => {
     const cursor = eventsNextCursor?.trim()
@@ -414,6 +429,23 @@ export function CredentialDetailDrawer({
             >
               {t('usage_stats.credentials_detail_overview_tab')}
             </button>
+            {hasCodexQuotaHistory ? (
+              <button
+                ref={quotaHistoryTabRef}
+                id={quotaHistoryTabId}
+                type="button"
+                role="tab"
+                className={styles.tabButton}
+                aria-selected={activeTab === 'quota-history'}
+                aria-controls={quotaHistoryPanelId}
+                tabIndex={activeTab === 'quota-history' ? 0 : -1}
+                data-credential-detail-tab="quota-history"
+                onClick={() => activateTab('quota-history')}
+                onKeyDown={handleTabKeyDown}
+              >
+                {t('usage_stats.credentials_quota_history_tab')}
+              </button>
+            ) : null}
             <button
               ref={requestsTabRef}
               id={requestsTabId}
@@ -493,6 +525,10 @@ export function CredentialDetailDrawer({
               statsUpdatedAt={identity.stats_updated_at}
             />
           </section>
+          </section>
+        ) : activeTab === 'quota-history' && hasCodexQuotaHistory ? (
+          <section id={quotaHistoryPanelId} role="tabpanel" aria-labelledby={quotaHistoryTabId} className={styles.quotaHistoryPanel}>
+            <CodexQuotaHistoryPanel authIndex={sourceFilter} onAuthRequired={onAuthRequired} />
           </section>
         ) : activeTab === 'requests' ? (
           <section id={requestsPanelId} role="tabpanel" aria-labelledby={requestsTabId} className={styles.requestsPanel}>

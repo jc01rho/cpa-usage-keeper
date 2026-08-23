@@ -1,4 +1,4 @@
-import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CPAInstance, type CPAInstanceCredential, type CreateCPAInstanceRequest, type CreateCPAInstanceResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type ListCPAInstanceCredentialsResponse, type ListCPAInstancesResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCPAInstanceRequest, type UpdateCPAInstanceResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CPAInstance, type CPAInstanceCredential, type CreateCPAInstanceRequest, type CreateCPAInstanceResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type ListCPAInstanceCredentialsResponse, type ListCPAInstancesResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCPAInstanceRequest, type UpdateCPAInstanceResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
@@ -728,6 +728,27 @@ export async function fetchUsageQuotaCache(authIndexes: string[], signal?: Abort
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to load cached usage quotas: ${response.status}`)
+  }
+  return response.json()
+}
+
+export interface FetchCodexQuotaHistoryOptions {
+  windowRole?: 'primary' | 'secondary'
+  windowSeconds?: number
+}
+
+export async function fetchCodexQuotaHistory(
+  authIndex: string,
+  options: FetchCodexQuotaHistoryOptions = {},
+  signal?: AbortSignal,
+): Promise<CodexQuotaHistoryResponse> {
+  const params = new URLSearchParams()
+  if (options.windowRole) params.set('window_role', options.windowRole)
+  if (options.windowSeconds != null) params.set('window_seconds', String(options.windowSeconds))
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath(`/quota/history/${encodeURIComponent(authIndex)}`)}${query ? `?${query}` : ''}`, { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load Codex quota history: ${response.status}`)
   }
   return response.json()
 }
