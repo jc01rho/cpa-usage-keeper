@@ -73,13 +73,14 @@ const extractFirstTableRowCellMarkup = (html: string) => {
 }
 
 describe('RequestEventsDetailsCard compact columns', () => {
-  it('renders the agreed 17 display columns in order', () => {
+  it('renders the agreed 18 display columns in order (fork adds CPA Instance)', () => {
     const html = renderCard()
 
     expect(extractTableHeaders(html)).toEqual([
       'Timestamp',
       'API Key',
       'Source',
+      'CPA Instance',
       'Model',
       'Effort',
       'Speed Mode',
@@ -101,22 +102,23 @@ describe('RequestEventsDetailsCard compact columns', () => {
     const html = renderCard()
     const cells = extractFirstTableRowCells(html)
 
-    expect(cells).toHaveLength(17)
+    expect(cells).toHaveLength(18)
     expect(cells[2]).toContain('OpenAI Team')
     expect(cells[2]).toContain('Deleted')
     expect(cells[2]).not.toContain('openai')
     expect(html).toMatch(/data-provider-brand-icon="openai"[^>]*style="width:14px;height:14px"/)
-    expect(cells[3]).toBe('gpt-5.6keeper-gpt')
-    expect(cells[4]).toBe('high')
-    expect(cells[5]).toBe('Fast / Flex')
-    expect(cells[7]).toBe('SSE/messages')
-    expect(cells[8]).toBe('120msTTFT 45ms')
-    expect(cells[9]).toBe('30.0 t/s')
-    expect(cells[10]).toBe('200Input 100Output 60 (Reasoning 20)')
-    expect(cells[11]).toBe('20.00%Read 20Write 5')
-    expect(cells[12]).toBe('$0.1234Claude Style')
-    expect(cells[13]).toBe('OpenAIResponsesExecutor')
-    expect(cells.slice(14)).toEqual([
+    expect(cells[3]).toBe('-')
+    expect(cells[4]).toBe('gpt-5.6keeper-gpt')
+    expect(cells[5]).toBe('high')
+    expect(cells[6]).toBe('Fast / Flex')
+    expect(cells[8]).toBe('SSE/messages')
+    expect(cells[9]).toBe('120msTTFT 45ms')
+    expect(cells[10]).toBe('30.0 t/s')
+    expect(cells[11]).toBe('200Input 100Output 60 (Reasoning 20)')
+    expect(cells[12]).toBe('20.00%Read 20Write 5')
+    expect(cells[13]).toBe('$0.1234Claude Style')
+    expect(cells[14]).toBe('OpenAIResponsesExecutor')
+    expect(cells.slice(15)).toEqual([
       '192.0.2.10',
       '203.0.113.5, 198.51.100.8',
       'keeper-client/1.0',
@@ -126,11 +128,11 @@ describe('RequestEventsDetailsCard compact columns', () => {
   it('emphasizes standalone primary values except client metadata', () => {
     const cellMarkup = extractFirstTableRowCellMarkup(renderCard())
 
-    for (const index of [1, 4, 5, 9, 13]) {
+    for (const index of [1, 5, 6, 10, 14]) {
       expect(cellMarkup[index]).toContain('requestEventsPrimaryCell')
     }
-    expect(cellMarkup[12]).toContain('requestEventsStackedPrimary')
-    for (const index of [14, 15, 16]) {
+    expect(cellMarkup[13]).toContain('requestEventsStackedPrimary')
+    for (const index of [3, 15, 16, 17]) {
       expect(cellMarkup[index]).not.toContain('requestEventsPrimaryCell')
     }
   })
