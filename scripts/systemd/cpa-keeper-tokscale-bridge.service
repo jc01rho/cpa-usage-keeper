@@ -1,10 +1,16 @@
 [Unit]
-Description=cpa-usage-keeper -> tokscale gjc bridge
-After=network.target
+Description=cpa-usage-keeper -> tokscale bridge + leaderboard submit
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Edit to match your deployment:
-#   --db      path to the keeper SQLite database (app.db)
-#   --dest    scanned by tokscale via settings.json extraScanPaths.gjc
-ExecStart=/usr/bin/python3 %h/git/cli-proxy/cpa-usage-keeper/scripts/tokscale_bridge.py --db %h/cpa-usage-keeper/data/app.db
+# 1) Refresh gjc JSONL from the keeper DB (read-only; dates owning rows
+#    created in the last 7 days, rewritten from ALL rows of each date).
+# 2) Submit the same 7-day window to the tokscale leaderboard. The submit
+#    window intentionally matches the bridge refresh window so late-arriving
+#    keeper-export batches are re-submitted after their date files update.
+ExecStart=/usr/bin/python3 /home/ubuntu/usage-dashboard/scripts/tokscale_bridge.py --db /home/ubuntu/usage-dashboard/data/app.db
+ExecStart=/usr/bin/tokscale submit --week
+# Keep the scan+submit bounded so overlapping timer runs cannot stack.
+TimeoutStartSec=10min

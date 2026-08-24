@@ -47,7 +47,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-DEFAULT_CLIENT_STAMP = "cpa-keeper"
+DEFAULT_CLIENT_STAMP = "senpi"
 DEFAULT_DEST = Path.home() / ".local" / "share" / "cpa-keeper-tokscale" / "sessions"
 DEFAULT_SINCE_DAYS = 7
 ID_CHUNK = 500

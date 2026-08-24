@@ -25,7 +25,10 @@ CLIProxyAPIPlus and landed in the keeper SQLite database.
 4. Writes gjc-format JSONL grouped by local date to
    `~/.local/share/cpa-keeper-tokscale/sessions/<date>.jsonl`.
 5. Tokscale's gjc parser reads the files via `extraScanPaths` (below). Bridge
-   messages are stamped with source client `cpa-keeper` (override: `--client`).
+   messages are stamped with source client `senpi` (tokscale's `--client` filter
+   and leaderboard accept registered client enums only; `cpa-keeper`/`omon` are
+   not registered — pick a registered name from `tokscale --help`, override with
+   `--client`).
 
 ## Cost Field Policy (keeper-authoritative)
 
@@ -111,12 +114,14 @@ systemctl --user daemon-reload
 systemctl --user enable --now cpa-keeper-tokscale-bridge.timer
 ```
 
-The timer runs every 10 minutes. Routine runs refresh only dates that own a
-row **created** within the last 7 days (`--since-days`), which also catches
-late-arriving keeper-export push batches for older dates; each refreshed
+The timer runs every 10 minutes and each run does both steps: refresh the
+JSONL files, then `tokscale submit --week` — the submit window matches the
+bridge refresh window (`--since-days 7`), so late-arriving keeper-export
+batches are re-submitted after their date files update. Each refreshed
 date file is rewritten from **all** of that date's rows, so a partial
 refresh can never drop earlier rows of a rewritten date. Date files with no
-matching rows on a run are left untouched.
+matching rows on a run are left untouched. Submit the full history once
+manually (`tokscale submit`) — the timer only re-sends the trailing week.
 
 ## Known Limitations
 
