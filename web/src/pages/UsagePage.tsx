@@ -39,6 +39,7 @@ import {
   RequestEventsDetailsCard,
   REQUEST_EVENT_COLUMN_IDS,
   normalizeRequestEventColumnOrder,
+  normalizeRequestEventVisibleColumnIds,
   type RequestEventColumnId,
 } from '@/components/usage/RequestEventsDetailsCard';
 import { clampCustomRangeToCurrentBounds, clampStoredUsageRangeStateToCurrentBounds, parseLegacyCustomRange, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
@@ -86,7 +87,7 @@ const DEFAULT_USAGE_TAB: UsageTab = 'overview';
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 50;
 const REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS = 90;
-// v7 是完整列顺序格式；v8 加入客户端请求元数据列；v9 在 Source 后加入 CPA Instance。
+// v9 将强关联字段折叠为组合列，并加入 Executor；fork 版在 Source 后保留 CPA Instance 列；旧版本直接重置列设置以避免错误折叠。
 const REQUEST_EVENTS_PREFERENCES_VERSION = 9;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
@@ -283,176 +284,6 @@ const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
   columnOrder: [...REQUEST_EVENT_COLUMN_IDS],
 });
 
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V3 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V4 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V7 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_read_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V8 = [
-  ...LEGACY_REQUEST_EVENT_COLUMN_IDS_V7,
-  'client_ip',
-  'x_forwarded_for',
-  'user_agent',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V5 = LEGACY_REQUEST_EVENT_COLUMN_IDS_V7;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V6 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'service_tier',
-  'response_service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cache_read_tokens',
-  'cache_creation_tokens',
-  'cache_read_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V2 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'reasoning_effort',
-  'service_tier',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V1 = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'reasoning_effort',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
-const LEGACY_REQUEST_EVENT_COLUMN_IDS_V1_WITH_MODEL_ALIAS = [
-  'timestamp',
-  'api_key',
-  'source',
-  'model',
-  'model_alias',
-  'reasoning_effort',
-  'result',
-  'request_type',
-  'endpoint',
-  'ttft',
-  'latency',
-  'speed',
-  'input_tokens',
-  'output_tokens',
-  'reasoning_tokens',
-  'cached_tokens',
-  'cache_rate',
-  'total_tokens',
-  'total_cost',
-] as const;
-
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
@@ -479,73 +310,32 @@ const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventFil
   };
 };
 
-const hasSameRequestEventColumnOrder = (
-  left: readonly string[],
-  right: readonly string[]
-): boolean => left.length === right.length && left.every((columnId, index) => columnId === right[index]);
-
-const migrateRequestEventColumnId = (value: unknown): RequestEventColumnId | null => {
-  if (value === 'cached_tokens') return 'cache_read_tokens';
-  if (value === 'cache_rate') return 'cache_read_rate';
-  if (value === 'response_service_tier') return 'service_tier';
-  return isRequestEventColumnId(value) ? value : null;
-};
-
-const normalizeRequestEventPreferenceColumnIds = (value: unknown, version: unknown): RequestEventColumnId[] => {
+const normalizeRequestEventPreferenceColumnIds = (value: unknown): RequestEventColumnId[] => {
   if (!Array.isArray(value)) {
     return [...REQUEST_EVENT_COLUMN_IDS];
   }
-
-  const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
-  const legacyFullSelection = version !== REQUEST_EVENTS_PREFERENCES_VERSION && (
-    (version === 8 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V8)) ||
-    (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7)) ||
-    (version === 6 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V6)) ||
-    (version === 5 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V5)) ||
-    (version === 4 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V4)) ||
-    (version === 3 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V3)) ||
-    (version === 2 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V2)) ||
-    (typeof version === 'number' && version < 2 && (
-      hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V1) ||
-      hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V1_WITH_MODEL_ALIAS)
-    ))
-  );
-  if (legacyFullSelection) {
-    return [...REQUEST_EVENT_COLUMN_IDS];
-  }
-
-  const seen = new Set<RequestEventColumnId>();
-  const normalized: RequestEventColumnId[] = [];
-  for (const rawColumnId of rawColumnIds) {
-    const columnId = migrateRequestEventColumnId(rawColumnId);
-    if (columnId === null || seen.has(columnId)) continue;
-    seen.add(columnId);
-    normalized.push(columnId);
-  }
-  return normalized.length > 0 ? normalized : [...REQUEST_EVENT_COLUMN_IDS];
+  return normalizeRequestEventVisibleColumnIds(value.filter(isRequestEventColumnId));
 };
 
-const normalizeRequestEventPreferenceColumnOrder = (value: unknown, version: unknown): RequestEventColumnId[] => {
+const normalizeRequestEventPreferenceColumnOrder = (value: unknown): RequestEventColumnId[] => {
   if (!Array.isArray(value)) {
     return [...REQUEST_EVENT_COLUMN_IDS];
   }
-  const rawColumnIds = value.filter((columnId): columnId is string => typeof columnId === 'string');
-  if (
-    (version === 8 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V8)) ||
-    (version === 7 && hasSameRequestEventColumnOrder(rawColumnIds, LEGACY_REQUEST_EVENT_COLUMN_IDS_V7))
-  ) {
-    return [...REQUEST_EVENT_COLUMN_IDS];
-  }
-  return normalizeRequestEventColumnOrder(rawColumnIds.filter(isRequestEventColumnId));
+  return normalizeRequestEventColumnOrder(value.filter(isRequestEventColumnId));
 };
 
 export const normalizeRequestEventsPreferences = (value: unknown): RequestEventsPreferences => {
   const preferences = isRecord(value) ? value : {};
+  const hasCurrentColumnSettings = preferences.version === REQUEST_EVENTS_PREFERENCES_VERSION;
   return {
     version: REQUEST_EVENTS_PREFERENCES_VERSION,
     filters: normalizeRequestEventPreferenceFilters(preferences.filters),
-    visibleColumnIds: normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds, preferences.version),
-    columnOrder: normalizeRequestEventPreferenceColumnOrder(preferences.columnOrder, preferences.version),
+    visibleColumnIds: hasCurrentColumnSettings
+      ? normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds)
+      : [...REQUEST_EVENT_COLUMN_IDS],
+    columnOrder: hasCurrentColumnSettings
+      ? normalizeRequestEventPreferenceColumnOrder(preferences.columnOrder)
+      : [...REQUEST_EVENT_COLUMN_IDS],
   };
 };
 

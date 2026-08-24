@@ -14,8 +14,9 @@ import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { MainActionButton } from '@/components/ui/MainActionButton';
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip';
+import { ProviderBrandIcon } from '@/components/ProviderBrandIcon';
 import { Select } from '@/components/ui/Select';
-import { IconChevronDown, IconDownload, IconScrollText, IconSettings } from '@/components/ui/icons';
+import { IconChevronDown, IconDownload, IconSettings } from '@/components/ui/icons';
 import type { UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption } from '@/lib/types';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import {
@@ -34,6 +35,7 @@ import {
 } from './requestEventColumns';
 import { RequestEventsColumnSettingsModal } from './RequestEventsColumnSettingsModal';
 import { RequestEventLogModal } from './RequestEventLogModal';
+import { RequestEventResultBadge } from './RequestEventResultBadge';
 
 export { splitRequestLogVirtualChunks } from './RequestEventLogModal';
 
@@ -47,7 +49,7 @@ export {
 
 const ALL_FILTER = '__all__';
 const REQUEST_EVENT_VIRTUALIZATION_THRESHOLD = 50;
-const REQUEST_EVENT_VIRTUAL_ROW_HEIGHT = 44;
+const REQUEST_EVENT_VIRTUAL_ROW_HEIGHT = 70;
 const REQUEST_EVENT_VIRTUAL_OVERSCAN = 8;
 const REQUEST_EVENT_VIRTUAL_INITIAL_VIEWPORT_HEIGHT = 760;
 const REQUEST_EVENT_LOAD_MORE_THRESHOLD_PX = 1200;
@@ -99,7 +101,8 @@ type RequestEventRow = {
   requestId: string;
   timestamp: string;
   timestampMs: number;
-  timestampLabel: string;
+  timestampTimeLabel: string;
+  timestampDateLabel: string;
   apiKey: string;
   model: string;
   modelAlias: string;
@@ -143,6 +146,8 @@ type RequestEventRow = {
   cost: number | null;
   costAvailable: boolean;
   costLabel: string;
+  pricingStyle: string;
+  executorType: string;
 };
 
 type RequestEventColumnDefinition = {
@@ -219,10 +224,13 @@ const toNumber = (value: unknown): number => {
   return parsed;
 };
 
-const formatRequestEventTimestamp = (timestamp: string): string => {
+const formatRequestEventTimestamp = (timestamp: string): { time: string; date: string } => {
   const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
-  if (!match) return timestamp || '-';
-  return `${match[1]}/${match[2]}/${match[3]} ${match[4]}:${match[5]}:${match[6]}`;
+  if (!match) return { time: timestamp || '-', date: '' };
+  return {
+    time: `${match[4]}:${match[5]}:${match[6]}`,
+    date: `${match[1]}/${match[2]}/${match[3]}`,
+  };
 };
 
 const formatCacheReadRate = (cacheReadTokens: number, inputTokens: number): string => {
@@ -424,7 +432,6 @@ export function RequestEventsDetailsCard({
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [columnSettingsSession, setColumnSettingsSession] = useState(0);
   const requestEventsTableWrapperRef = useRef<HTMLDivElement | null>(null);
-  const resultLocale = t('usage_stats.success') === 'Success' ? 'en' : 'zh';
   const latencyHint = t('usage_stats.latency_unit_hint', {
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
@@ -457,6 +464,7 @@ export function RequestEventsDetailsCard({
       const speedMode = formatSpeedMode(speedModeRaw, t);
       const responseSpeedMode = formatSpeedMode(responseSpeedModeRaw, t);
       const endpointFields = parseRequestEndpoint(event.endpoint);
+      const timestampLabels = formatRequestEventTimestamp(timestamp);
       const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
       const reasoningTokens = Math.max(toNumber(event.tokens?.reasoning_tokens), 0);
@@ -469,9 +477,15 @@ export function RequestEventsDetailsCard({
       const clientIP = String(event.client_ip ?? '').trim() || '-';
       const xForwardedFor = String(event.x_forwarded_for ?? '').trim() || '-';
       const userAgent = String(event.user_agent ?? '').trim() || '-';
+      const executorType = String(event.executor_type ?? '').trim() || '-';
       // 费用由后端按当前价格配置运行时计算，前端只负责展示可用/不可用状态。
       const costAvailable = event.cost_available === true;
       const cost = costAvailable ? Math.max(toNumber(event.cost_usd), 0) : null;
+      const pricingStyle = event.pricing_style === 'claude'
+        ? t('usage_stats.credentials_detail_pricing_style_claude')
+        : event.pricing_style === 'openai'
+          ? t('usage_stats.credentials_detail_pricing_style_openai')
+          : '-';
 
       return {
         event,
@@ -479,7 +493,8 @@ export function RequestEventsDetailsCard({
         requestId: String(event.request_id ?? '').trim(),
         timestamp,
         timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
-        timestampLabel: formatRequestEventTimestamp(timestamp),
+        timestampTimeLabel: timestampLabels.time,
+        timestampDateLabel: timestampLabels.date,
         apiKey,
         model,
         modelAlias,
@@ -523,6 +538,8 @@ export function RequestEventsDetailsCard({
         cost,
         costAvailable,
         costLabel: costAvailable && cost !== null ? formatUsd(cost) : '-',
+        pricingStyle,
+        executorType,
       };
     });
   }, [events, instanceNameById, t]);
@@ -686,8 +703,9 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.request_events_timestamp'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_timestamp')}</th>,
         renderCell: (row) => (
-          <td title={row.timestamp} className={styles.requestEventsNoWrapCell}>
-            {row.timestampLabel}
+          <td title={row.timestamp} className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
+            <span className={styles.requestEventsStackedPrimary}>{row.timestampTimeLabel}</span>
+            {row.timestampDateLabel ? <span className={styles.requestEventsStackedSecondary}>{row.timestampDateLabel}</span> : null}
           </td>
         ),
       },
@@ -695,7 +713,7 @@ export function RequestEventsDetailsCard({
         id: 'api_key',
         label: t('usage_stats.api_key_filter'),
         header: <th>{t('usage_stats.api_key_filter')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsAPIKeyCell} title={row.apiKey}>{row.apiKey}</td>,
+        renderCell: (row) => <td className={`${styles.requestEventsAPIKeyCell} ${styles.requestEventsPrimaryCell}`} title={row.apiKey}>{row.apiKey}</td>,
       },
       {
         id: 'source',
@@ -704,17 +722,15 @@ export function RequestEventsDetailsCard({
         renderCell: (row) => (
           <td className={styles.requestEventsSourceCell} title={row.source}>
             <span className={styles.requestEventsSourceStack}>
-              <span className={styles.requestEventsSourceValue}>{row.source}</span>
-              {(row.isDelete || row.sourceType) && (
+              <span className={styles.requestEventsSourceIdentity}>
+                <ProviderBrandIcon providerType={row.sourceType} size={14} />
+                <span className={styles.requestEventsSourceValue}>{row.source}</span>
+              </span>
+              {row.isDelete ? (
                 <span className={styles.requestEventsSourceTags}>
-                  {row.sourceType && (
-                    <span className={styles.credentialType}>{row.sourceType}</span>
-                  )}
-                  {row.isDelete && (
-                    <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
-                  )}
+                  <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
                 </span>
-              )}
+              ) : null}
             </span>
           </td>
         ),
@@ -733,19 +749,18 @@ export function RequestEventsDetailsCard({
         id: 'model',
         label: t('usage_stats.model_name'),
         header: <th>{t('usage_stats.model_name')}</th>,
-        renderCell: (row) => <td className={styles.modelCell}>{row.model}</td>,
-      },
-      {
-        id: 'model_alias',
-        label: t('usage_stats.model_alias'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.model_alias')}</th>,
-        renderCell: (row) => <td className={styles.modelCell} title={row.modelAlias}>{row.modelAlias}</td>,
+        renderCell: (row) => (
+          <td className={`${styles.modelCell} ${styles.requestEventsStackedCell}`}>
+            <span className={styles.requestEventsStackedPrimary} title={row.model}>{row.model}</span>
+            <span className={styles.requestEventsStackedSecondary} title={row.modelAlias}>{row.modelAlias}</span>
+          </td>
+        ),
       },
       {
         id: 'reasoning_effort',
         label: t('usage_stats.reasoning_effort'),
         header: <th className={styles.requestEventsNoWrapCell} title={t('usage_stats.reasoning_effort_hint')}>{t('usage_stats.reasoning_effort')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningEffort}</td>,
+        renderCell: (row) => <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>{row.reasoningEffort}</td>,
       },
       {
         id: 'service_tier',
@@ -755,7 +770,7 @@ export function RequestEventsDetailsCard({
           const tooltipLines = buildSpeedModeTooltipLines(row, t);
           return (
             <td
-              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsSpeedModeCell}`}
+              className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsSpeedModeCell} ${styles.requestEventsPrimaryCell}`}
               tabIndex={0}
               aria-label={tooltipLines.join('; ')}
               onMouseEnter={(event) => handleRequestEventsTooltipMouseEnter(tooltipLines, event.currentTarget)}
@@ -773,66 +788,97 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.request_events_result'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_result')}</th>,
         renderCell: (row) => {
-          const resultLabel = row.failed ? t('usage_stats.failure') : t('usage_stats.success');
           const loading = requestLogLoadingEventId === row.id;
-          const resultClassName = row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess;
           const canOpenLog = Boolean(requestLogAccessEnabled && row.requestId && onRequestLogOpen);
           return (
             <td className={styles.requestEventsNoWrapCell}>
-              {canOpenLog ? (
-                <button
-                  type="button"
-                  className={`${resultClassName} ${styles.requestEventsResultLogButton}`.trim()}
-                  data-result-locale={resultLocale}
-                  onClick={() => {
-                    onRequestLogOpen?.(row.event);
-                  }}
-                  title={t('usage_stats.request_events_log_hint')}
-                  aria-label={loading ? t('usage_stats.request_events_log_loading_aria', { result: resultLabel }) : t('usage_stats.request_events_log_open_aria', { result: resultLabel })}
-                  aria-busy={loading}
-                  disabled={loading}
-                >
-                  <span>{resultLabel}</span>
-                  <span className={styles.requestEventsResultLogIcon} aria-hidden="true">
-                    <IconScrollText size={9} />
-                  </span>
-                </button>
-              ) : (
-                <span className={resultClassName} data-result-locale={resultLocale}>{resultLabel}</span>
-              )}
+              <RequestEventResultBadge
+                failed={row.failed}
+                loading={loading}
+                onOpen={canOpenLog ? () => onRequestLogOpen?.(row.event) : undefined}
+              />
             </td>
           );
         },
       },
       {
         id: 'request_type',
-        label: t('usage_stats.request_type'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_type')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.requestType}</td>,
-      },
-      {
-        id: 'endpoint',
-        label: t('usage_stats.request_endpoint'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_endpoint')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell} title={row.endpoint}>{row.endpoint}</td>,
-      },
-      {
-        id: 'ttft',
-        label: t('usage_stats.ttft'),
-        header: <th className={styles.requestEventsNoWrapCell} title={ttftHint}>{t('usage_stats.ttft')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.ttftLabel}</td>,
+        label: t('usage_stats.request_events_request'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_request')}</th>,
+        renderCell: (row) => (
+          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
+            <span className={styles.requestEventsStackedPrimary}>{row.requestType}</span>
+            <span className={styles.requestEventsStackedSecondary} title={row.endpoint}>{row.endpoint}</span>
+          </td>
+        ),
       },
       {
         id: 'latency',
-        label: t('usage_stats.latency'),
-        header: <th className={styles.requestEventsNoWrapCell} title={latencyHint}>{t('usage_stats.latency')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.latencyLabel}</td>,
+        label: t('usage_stats.request_events_latency'),
+        header: <th className={styles.requestEventsNoWrapCell} title={`${latencyHint}; ${ttftHint}`}>{t('usage_stats.request_events_latency')}</th>,
+        renderCell: (row) => (
+          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
+            <span className={styles.requestEventsStackedPrimary}>{row.latencyLabel}</span>
+            <span className={styles.requestEventsStackedSecondary}>
+              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.ttft')}</span> {row.ttftLabel}
+            </span>
+          </td>
+        ),
       },
       {
         id: 'speed',
         label: t('usage_stats.speed'),
         header: <th className={styles.requestEventsNoWrapCell} title={speedHint}>{t('usage_stats.speed')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.speedLabel}</td>,
+        renderCell: (row) => <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsPrimaryCell}`}>{row.speedLabel}</td>,
+      },
+      {
+        id: 'total_tokens',
+        label: t('usage_stats.request_events_tokens'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_tokens')}</th>,
+        renderCell: (row) => (
+          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
+            <span className={styles.requestEventsStackedPrimary}>{row.totalTokensLabel}</span>
+            <span className={styles.requestEventsStackedSecondary}>
+              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.input_tokens')}</span> {row.inputTokensLabel}
+            </span>
+            <span className={styles.requestEventsStackedSecondary}>
+              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.output_tokens')}</span> {row.outputTokensLabel} ({t('usage_stats.reasoning_tokens')} {row.reasoningTokensLabel})
+            </span>
+          </td>
+        ),
+      },
+      {
+        id: 'cache_read_rate',
+        label: t('usage_stats.request_events_cache'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_cache')}</th>,
+        renderCell: (row) => (
+          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
+            <span className={styles.requestEventsStackedPrimary}>{row.cacheReadRate}</span>
+            <span className={styles.requestEventsStackedSecondary}>
+              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.credentials_detail_cache_read')}</span> {row.cacheReadTokensLabel}
+            </span>
+            <span className={styles.requestEventsStackedSecondary}>
+              <span className={styles.requestEventsStackedLabel}>{t('usage_stats.credentials_detail_cache_write')}</span> {row.cacheCreationTokensLabel}
+            </span>
+          </td>
+        ),
+      },
+      {
+        id: 'total_cost',
+        label: t('usage_stats.request_events_cost'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_cost')}</th>,
+        renderCell: (row) => (
+          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`} title={row.costAvailable ? undefined : t('usage_stats.cost_need_price')}>
+            <span className={styles.requestEventsStackedPrimary}>{row.costLabel}</span>
+            <span className={styles.requestEventsStackedSecondary}>{row.pricingStyle}</span>
+          </td>
+        ),
+      },
+      {
+        id: 'executor_type',
+        label: t('usage_stats.credentials_detail_executor'),
+        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.credentials_detail_executor')}</th>,
+        renderCell: (row) => <td className={`${styles.requestEventsExecutorCell} ${styles.requestEventsPrimaryCell}`} title={row.executorType}>{row.executorType}</td>,
       },
       {
         id: 'client_ip',
@@ -861,58 +907,6 @@ export function RequestEventsDetailsCard({
           REQUEST_EVENT_USER_AGENT_DISPLAY_LENGTH,
         ),
       },
-      {
-        id: 'input_tokens',
-        label: t('usage_stats.input_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.input_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.inputTokensLabel}</td>,
-      },
-      {
-        id: 'output_tokens',
-        label: t('usage_stats.output_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.output_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.outputTokensLabel}</td>,
-      },
-      {
-        id: 'reasoning_tokens',
-        label: t('usage_stats.reasoning_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.reasoning_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.reasoningTokensLabel}</td>,
-      },
-      {
-        id: 'cache_read_tokens',
-        label: t('usage_stats.cache_read_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_read_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheReadTokensLabel}</td>,
-      },
-      {
-        id: 'cache_creation_tokens',
-        label: t('usage_stats.cache_creation_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_creation_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheCreationTokensLabel}</td>,
-      },
-      {
-        id: 'cache_read_rate',
-        label: t('usage_stats.cache_rate'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.cache_rate')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.cacheReadRate}</td>,
-      },
-      {
-        id: 'total_tokens',
-        label: t('usage_stats.total_tokens'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.total_tokens')}</th>,
-        renderCell: (row) => <td className={styles.requestEventsNoWrapCell}>{row.totalTokensLabel}</td>,
-      },
-      {
-        id: 'total_cost',
-        label: t('usage_stats.total_cost'),
-        header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.total_cost')}</th>,
-        renderCell: (row) => (
-          <td className={styles.requestEventsNoWrapCell} title={row.costAvailable ? undefined : t('usage_stats.cost_need_price')}>
-            {row.costLabel}
-          </td>
-        ),
-      },
     ];
 
     return definitions;
@@ -926,7 +920,6 @@ export function RequestEventsDetailsCard({
     requestLogAccessEnabled,
     requestLogLoadingEventId,
     renderClientMetadataCell,
-    resultLocale,
     speedHint,
     t,
     ttftHint,
