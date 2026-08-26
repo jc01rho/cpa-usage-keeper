@@ -723,7 +723,7 @@ export function RequestEventsDetailsCard({
           <td className={styles.requestEventsSourceCell} title={row.source}>
             <span className={styles.requestEventsSourceStack}>
               <span className={styles.requestEventsSourceIdentity}>
-                <ProviderBrandIcon providerType={row.sourceType} size={14} />
+                <ProviderBrandIcon providerType={row.sourceType} size={25} />
                 <span className={styles.requestEventsSourceValue}>{row.source}</span>
               </span>
               {row.isDelete ? (
