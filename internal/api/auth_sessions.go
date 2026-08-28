@@ -131,7 +131,6 @@ func (h *authHandler) revokeManagedSession(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
-	h.clearSessionStateForTokens(result.Tokens)
 	if sessionID == currentAuthSessionHash(c) {
 		clearSessionCookie(c, h.config.BasePath, resolveSessionToken(c).CookieKind)
 	}

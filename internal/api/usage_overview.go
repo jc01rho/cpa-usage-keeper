@@ -197,10 +197,6 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 			writeUsageFilterParseError(c, err)
 			return
 		}
-		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token)) {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
-			return
-		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
 		filter.InstanceID = apiKey.InstanceID
 		writeUsageOverviewResponse(c, usageProvider, filter)
@@ -229,10 +225,6 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 		filter, err := parseKeyUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
 			writeUsageFilterParseError(c, err)
-			return
-		}
-		if authHandler != nil && !authHandler.allowKeyOverviewRequest(fmt.Sprint(token), "realtime") {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
 			return
 		}
 		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
