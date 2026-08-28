@@ -1569,7 +1569,7 @@ describe('UsagePage toolbar styles', () => {
     expect(priceSettingsSource).not.toContain('styles.usagePillAction')
   })
 
-  it('keeps the Request Event export menu styled and hoverable like the credential inspection control', () => {
+  it('keeps the Request Event export menu aligned with the credential inspection control', () => {
     const exportMenuBlock = styleRuleBlock(usagePageStyles, '.requestEventsExportMenu')
     const exportDropdownBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('.requestEventsExportDropdown {'),
