@@ -16,8 +16,12 @@ import (
 )
 
 const (
-	sessionCookieName      = "cpa_usage_keeper_session"
-	embedSessionCookieName = "cpa_usage_keeper_embed_session"
+	sessionCookieName         = "cpa_usage_keeper_session"
+	embedSessionCookieName    = "cpa_usage_keeper_embed_session"
+	authTokenContextKey       = "auth_token"
+	authSessionContextKey     = "auth_session"
+	authResolvedContextKey    = "auth_resolved_session"
+	activeViewerKeyContextKey = "active_viewer_api_key"
 
 	embedHeaderName               = "X-CPA-Usage-Keeper-Embed"
 	embedHeaderValueCPAMC         = "cpamc"
@@ -151,11 +155,50 @@ func (h *authHandler) roleMiddleware(allowedRoles ...auth.Role) gin.HandlerFunc 
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
-		c.Set("auth_token", resolved.Token)
-		c.Set("auth_session", session)
+		c.Set(authTokenContextKey, resolved.Token)
+		c.Set(authSessionContextKey, session)
+		c.Set(authResolvedContextKey, resolved)
 		h.sessions.Touch(resolved.Token, sessionClientIP(c))
 		c.Next()
 	}
+}
+
+func (h *authHandler) activeAPIKeyViewerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if h == nil || !h.config.Enabled {
+			c.Next()
+			return
+		}
+		resolvedValue, hasResolved := c.Get(authResolvedContextKey)
+		resolved, resolvedOK := resolvedValue.(resolvedSessionToken)
+		sessionValue, hasSession := c.Get(authSessionContextKey)
+		session, sessionOK := sessionValue.(auth.Session)
+		if !hasResolved || !resolvedOK || !hasSession || !sessionOK || session.Role != auth.RoleAPIKeyViewer {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		row, ok := h.activeViewerAPIKey(c, resolved, session)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		c.Set(activeViewerKeyContextKey, row)
+		c.Next()
+	}
+}
+
+func activeAPIKeyViewerContext(c *gin.Context) (auth.Session, entities.CPAAPIKey, bool) {
+	if c == nil {
+		return auth.Session{}, entities.CPAAPIKey{}, false
+	}
+	sessionValue, hasSession := c.Get(authSessionContextKey)
+	session, sessionOK := sessionValue.(auth.Session)
+	keyValue, hasKey := c.Get(activeViewerKeyContextKey)
+	key, keyOK := keyValue.(entities.CPAAPIKey)
+	if !hasSession || !sessionOK || !hasKey || !keyOK || session.CPAAPIKeyID <= 0 || session.CPAAPIKeyID != key.ID {
+		return auth.Session{}, entities.CPAAPIKey{}, false
+	}
+	return session, key, true
 }
 
 func sessionRoleAllowed(role auth.Role, allowedRoles []auth.Role) bool {

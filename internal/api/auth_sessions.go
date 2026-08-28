@@ -228,7 +228,7 @@ func parseUpdateAuthSessionAliasRequest(c *gin.Context) (string, bool) {
 }
 
 func currentAuthSessionHash(c *gin.Context) string {
-	if value, ok := c.Get("auth_token"); ok {
+	if value, ok := c.Get(authTokenContextKey); ok {
 		if token, ok := value.(string); ok && token != "" {
 			return auth.SessionTokenHash(token)
 		}

@@ -61,24 +61,28 @@ const resources = {
         password_hint: 'Use the configured dashboard password for full administrative access.',
         api_key_label: 'CPA API Key',
         api_key_placeholder: 'Paste your CPA API Key',
-        api_key_hint: 'API Key access opens a read-only overview for that key only.',
+        api_key_hint: 'API Key access opens read-only Overview and Analysis pages scoped to that key.',
         login_submit: 'Open admin console',
-        api_key_login_submit: 'Open key overview',
+        api_key_login_submit: 'Open key dashboard',
         invalid_password: 'Incorrect password',
         invalid_api_key: 'API Key is incorrect',
         login_rate_limited: 'Too many attempts. Please wait a moment and try again.',
         login_failed: 'Unable to complete login right now',
-        api_key_login_failed: 'Unable to open the API Key overview right now',
+        api_key_login_failed: 'Unable to open the API Key dashboard right now',
         session_expired: 'Your session expired. Please sign in again.'
       },
       key_overview: {
         eyebrow: 'Key overview',
         title: 'API Key usage overview',
         subtitle: 'Read-only CPA usage analytics scoped to this key, including request volume, token mix, cost trend, and reliability timeline.',
-        tabs_aria_label: 'API Key overview sections',
+        tabs_aria_label: 'API Key viewer sections',
         identity_unknown: 'Current API Key',
         logout: 'Sign out',
         load_failed: 'Unable to load API Key overview'
+      },
+      key_analysis: {
+        load_failed: 'Unable to load API Key analysis',
+        latency_load_failed: 'Unable to load API Key latency diagnostics'
       },
       usage_stats: {
         title: 'Usage',
@@ -951,24 +955,28 @@ const resources = {
         password_hint: '使用已配置的控制台密码进入完整管理界面。',
         api_key_label: 'CPA API Key',
         api_key_placeholder: '粘贴你的 CPA API Key',
-        api_key_hint: 'API Key 访问只会打开对应 API Key 的只读用量概览。',
+        api_key_hint: 'API Key 访问可只读查看当前 Key 的概览与分析页面。',
         login_submit: '进入管理控制台',
-        api_key_login_submit: '打开 API Key 概览',
+        api_key_login_submit: '打开 API Key 看板',
         invalid_password: '密码错误',
         invalid_api_key: 'API Key 错误',
         login_rate_limited: '尝试次数过多，请稍后再试。',
         login_failed: '当前无法完成登录',
-        api_key_login_failed: '当前无法打开 API Key 概览',
+        api_key_login_failed: '当前无法打开 API Key 看板',
         session_expired: '登录状态已失效，请重新登录。'
       },
       key_overview: {
         eyebrow: 'API Key 概览',
         title: 'API Key 用量概览',
         subtitle: '只读查看当前 API Key 的 CPA 用量分析，包括请求量、Token 构成、成本趋势与稳定性时间线。',
-        tabs_aria_label: 'API Key 概览分区',
+        tabs_aria_label: 'API Key 查看页面分区',
         identity_unknown: '当前 API Key',
         logout: '退出登录',
         load_failed: '无法加载 API Key 概览'
+      },
+      key_analysis: {
+        load_failed: '无法加载 API Key 分析',
+        latency_load_failed: '无法加载 API Key 延迟诊断'
       },
       usage_stats: {
         title: '用量',
@@ -1835,24 +1843,28 @@ const resources = {
         password_hint: '使用已設定的控制台密碼進入完整管理介面。',
         api_key_label: 'CPA API Key',
         api_key_placeholder: '貼上你的 CPA API Key',
-        api_key_hint: 'API Key 存取只會開啟對應 API Key 的唯讀用量總覽。',
+        api_key_hint: 'API Key 存取可唯讀查看目前 Key 的總覽與分析頁面。',
         login_submit: '進入管理控制台',
-        api_key_login_submit: '開啟 API Key 總覽',
+        api_key_login_submit: '開啟 API Key 看板',
         invalid_password: '密碼錯誤',
         invalid_api_key: 'API Key 錯誤',
         login_rate_limited: '嘗試次數過多，請稍後再試。',
         login_failed: '目前無法完成登入',
-        api_key_login_failed: '目前無法開啟 API Key 總覽',
+        api_key_login_failed: '目前無法開啟 API Key 看板',
         session_expired: '登入狀態已失效，請重新登入。'
       },
       key_overview: {
         eyebrow: 'API Key 總覽',
         title: 'API Key 用量總覽',
         subtitle: '唯讀查看目前 API Key 的 CPA 用量分析，包括請求量、Token 組成、成本趨勢與穩定性時間軸。',
-        tabs_aria_label: 'API Key 總覽分區',
+        tabs_aria_label: 'API Key 查看頁面分區',
         identity_unknown: '目前 API Key',
         logout: '登出',
         load_failed: '無法載入 API Key 總覽'
+      },
+      key_analysis: {
+        load_failed: '無法載入 API Key 分析',
+        latency_load_failed: '無法載入 API Key 延遲診斷'
       },
       usage_stats: {
         title: '用量',
