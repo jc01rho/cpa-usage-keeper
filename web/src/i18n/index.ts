@@ -78,8 +78,7 @@ const resources = {
         tabs_aria_label: 'API Key overview sections',
         identity_unknown: 'Current API Key',
         logout: 'Sign out',
-        load_failed: 'Unable to load API Key overview',
-        rate_limited: 'The overview is refreshing too often. Please wait a moment before trying again.'
+        load_failed: 'Unable to load API Key overview'
       },
       usage_stats: {
         title: 'Usage',
@@ -735,7 +734,6 @@ const resources = {
         recent_activity_window_month: 'Month',
         recent_activity_window_year: 'Year',
         recent_activity_load_failed: 'Unable to load recent activity.',
-        recent_activity_rate_limited: 'Too many recent activity requests. Please try again shortly.',
         recent_activity_empty: 'No activity data.',
         service_health_unhealthy: 'Unhealthy',
         service_health_healthy: 'Healthy',
@@ -970,8 +968,7 @@ const resources = {
         tabs_aria_label: 'API Key 概览分区',
         identity_unknown: '当前 API Key',
         logout: '退出登录',
-        load_failed: '无法加载 API Key 概览',
-        rate_limited: '概览刷新过于频繁，请稍候再试。'
+        load_failed: '无法加载 API Key 概览'
       },
       usage_stats: {
         title: '用量',
@@ -1621,7 +1618,6 @@ const resources = {
         recent_activity_window_month: '月',
         recent_activity_window_year: '年',
         recent_activity_load_failed: '无法加载最近活动。',
-        recent_activity_rate_limited: '最近活动请求过于频繁，请稍后重试。',
         recent_activity_empty: '暂无活动数据。',
         service_health_unhealthy: '不健康',
         service_health_healthy: '健康',
@@ -1856,8 +1852,7 @@ const resources = {
         tabs_aria_label: 'API Key 總覽分區',
         identity_unknown: '目前 API Key',
         logout: '登出',
-        load_failed: '無法載入 API Key 總覽',
-        rate_limited: '總覽重新整理過於頻繁，請稍候再試。'
+        load_failed: '無法載入 API Key 總覽'
       },
       usage_stats: {
         title: '用量',
@@ -2473,7 +2468,6 @@ const resources = {
         recent_activity_window_month: '月',
         recent_activity_window_year: '年',
         recent_activity_load_failed: '無法載入最近活動。',
-        recent_activity_rate_limited: '最近活動請求過於頻繁，請稍後重試。',
         recent_activity_empty: '暫無活動資料。',
         service_health_unhealthy: '不健康',
         service_health_healthy: '健康',
