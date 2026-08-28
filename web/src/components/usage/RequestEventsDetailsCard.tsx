@@ -356,8 +356,6 @@ function RequestEventsExportMenu({
   return (
     <div
       className={styles.requestEventsExportMenu}
-      onMouseEnter={() => !disabled && setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
     >
