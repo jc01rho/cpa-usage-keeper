@@ -2,18 +2,21 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(new URL('./KeyOverviewPage.tsx', import.meta.url), 'utf8')
-const styles = readFileSync(new URL('./KeyOverviewPage.module.scss', import.meta.url), 'utf8')
+const styles = readFileSync(new URL('../features/key-viewer/KeyViewerShell.module.scss', import.meta.url), 'utf8')
+const shellSource = readFileSync(new URL('../features/key-viewer/KeyViewerShell.tsx', import.meta.url), 'utf8')
 
 describe('KeyOverviewPage layout', () => {
   it('keeps the viewer page on independent styles while matching the admin overview toolbar structure', () => {
     expect(source).not.toContain('UsagePage.module.scss')
-    expect(source).toContain('className={styles.themeSwitcher}')
-    expect(source.match(/<MainActionButton/g)).toHaveLength(2)
-    expect(source).toContain("aria-label={t('common.logout')}")
-    expect(source).not.toContain('styles.logoutSwitcher')
-    expect(source).not.toContain('styles.logoutPill')
+    expect(source).toContain("import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';")
+    expect(shellSource).toContain('className={styles.themeSwitcher}')
+    expect(source.match(/<MainActionButton/g)).toHaveLength(1)
+    expect(shellSource.match(/<MainActionButton/g)).toHaveLength(1)
+    expect(shellSource).toContain("aria-label={t('common.logout')}")
+    expect(shellSource).not.toContain('styles.logoutSwitcher')
+    expect(shellSource).not.toContain('styles.logoutPill')
     expect(source).not.toContain('check_updates')
-    expect(source.indexOf('className={styles.tabBar}')).toBeLessThan(source.indexOf('className={styles.toolbarActionsRight}'))
+    expect(shellSource.indexOf('className={styles.tabBar}')).toBeLessThan(shellSource.indexOf('className={styles.toolbarActionsRight}'))
     expect(source).toContain('<TimeRangeControl')
     expect(source).toContain('parseStoredUsageRangeState')
     expect(source).not.toContain('className={styles.timeRangeGroup}')

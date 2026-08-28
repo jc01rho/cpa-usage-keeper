@@ -1,5 +1,5 @@
-@use '../styles/variables' as *;
-@use '../styles/mixins' as *;
+@use '../../styles/variables' as *;
+@use '../../styles/mixins' as *;
 
 .pageShell {
   min-height: 100svh;
@@ -186,6 +186,8 @@
 }
 
 .toolbarRow {
+  position: relative;
+  z-index: 6;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -294,6 +296,30 @@
   color: var(--danger-color);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.errorBoxWithAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.errorRetryButton {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--danger-color) 14%, var(--bg-primary));
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
 }
 
 .loadingOverlay {
