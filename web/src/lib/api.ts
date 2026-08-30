@@ -175,7 +175,7 @@ export function clearEmbedSessionToken(): void {
   }
 }
 
-async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
   if (isMutatingMethod(init?.method)) {
     headers.set('X-CPA-Usage-Keeper-Request', 'fetch')

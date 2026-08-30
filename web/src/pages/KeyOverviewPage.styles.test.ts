@@ -6,7 +6,7 @@ const styles = readFileSync(new URL('../features/key-viewer/KeyViewerShell.modul
 const shellSource = readFileSync(new URL('../features/key-viewer/KeyViewerShell.tsx', import.meta.url), 'utf8')
 
 describe('KeyOverviewPage layout', () => {
-  it('keeps the viewer page on independent styles while matching the admin overview toolbar structure', () => {
+  it('keeps the viewer page data-specific while matching the admin overview toolbar structure', () => {
     expect(source).not.toContain('UsagePage.module.scss')
     expect(source).toContain("import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';")
     expect(shellSource).toContain('className={styles.themeSwitcher}')
@@ -16,9 +16,10 @@ describe('KeyOverviewPage layout', () => {
     expect(shellSource).not.toContain('styles.logoutSwitcher')
     expect(shellSource).not.toContain('styles.logoutPill')
     expect(source).not.toContain('check_updates')
-    expect(shellSource.indexOf('className={styles.tabBar}')).toBeLessThan(shellSource.indexOf('className={styles.toolbarActionsRight}'))
+    expect(shellSource).toContain('styles.tabBarConnected')
+    expect(shellSource).toContain('className={styles.toolbarActionsRight}')
     expect(source).toContain('<TimeRangeControl')
-    expect(source).toContain('parseStoredUsageRangeState')
+    expect(source).toContain('loadKeyViewerTimeRange')
     expect(source).not.toContain('className={styles.timeRangeGroup}')
     expect(source).toContain('className={styles.usageRefreshSlot}')
     expect(source).not.toContain('className={styles.toolbarMetaRow}')

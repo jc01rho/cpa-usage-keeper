@@ -19,24 +19,18 @@ import {
 } from '@/components/usage';
 import type { UsageOverviewPayload } from '@/components/usage/hooks/useUsageData';
 import { getCurrentOverviewUsage, getDailyAverageCardUsage, getOverviewDisplayLoading, isDailyAverageRange } from '@/utils/usage/overview';
-import { clampStoredUsageRangeStateToCurrentBounds, parseStoredUsageRangeState, resolveUsageRangeRecoveryTimeZone, serializeUsageRangeState, type StoredUsageRangeState } from '@/utils/usage/customRange';
+import { clampStoredUsageRangeStateToCurrentBounds, resolveUsageRangeRecoveryTimeZone, type StoredUsageRangeState } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
+import { loadKeyViewerTimeRange, persistKeyViewerTimeRange } from '@/features/key-viewer/timeRange';
 import styles from '@/features/key-viewer/KeyViewerShell.module.scss';
 
-const KEY_OVERVIEW_RANGE_STORAGE_KEY = 'cli-proxy-key-overview-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
-const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
 const KEY_OVERVIEW_REALTIME_VISIBLE_DIMENSIONS = ['models'] as const;
 const KEY_OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 
 const loadTimeRange = (): StoredUsageRangeState => {
-  try {
-    if (typeof localStorage === 'undefined') return { range: DEFAULT_TIME_RANGE };
-    return parseStoredUsageRangeState(localStorage.getItem(KEY_OVERVIEW_RANGE_STORAGE_KEY), { nowMs: Date.now() });
-  } catch {
-    return { range: DEFAULT_TIME_RANGE };
-  }
+  return loadKeyViewerTimeRange();
 };
 
 const isOverviewRealtimeWindow = (value: unknown): value is OverviewRealtimeWindow => (
@@ -202,12 +196,16 @@ export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverv
     return true;
   }, [rangeRecoveryTimeZone, timeRangeState]);
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
+    let nextState: StoredUsageRangeState;
     if (range === 'custom' && nextCustomRange) {
-      setTimeRangeState({ range, customRange: nextCustomRange, timeZone: rangeTimeZone });
-      return;
+      nextState = { range, customRange: nextCustomRange, timeZone: rangeTimeZone };
+    } else {
+      nextState = { ...timeRangeState, range };
     }
-    setTimeRangeState((current) => ({ ...current, range }));
-  }, [rangeTimeZone]);
+    setTimeRangeState(nextState);
+    // 切换页面可能紧接着发生，先同步写入共享缓存，再等待状态 effect。
+    persistKeyViewerTimeRange(nextState);
+  }, [rangeTimeZone, timeRangeState]);
 
   const loadOverview = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     if (!usageRangeQuery.valid) return;
@@ -306,11 +304,7 @@ export function KeyOverviewPage({ apiKey, onNavigate, onAuthRequired }: KeyOverv
   }), [handleAutoRefreshError, refreshKeyOverview]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(KEY_OVERVIEW_RANGE_STORAGE_KEY, serializeUsageRangeState(timeRangeState));
-    } catch {
-      // ignore storage failures
-    }
+    persistKeyViewerTimeRange(timeRangeState);
   }, [timeRangeState]);
 
   useEffect(() => {
