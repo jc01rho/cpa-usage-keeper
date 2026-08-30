@@ -11,24 +11,15 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useThemeStore } from '@/stores';
 import {
   clampStoredUsageRangeStateToCurrentBounds,
-  parseStoredUsageRangeState,
   resolveUsageRangeRecoveryTimeZone,
-  serializeUsageRangeState,
   type StoredUsageRangeState,
 } from '@/utils/usage/customRange';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
+import { loadKeyViewerTimeRange, persistKeyViewerTimeRange } from '@/features/key-viewer/timeRange';
 import styles from '@/features/key-viewer/KeyViewerShell.module.scss';
 
-const KEY_ANALYSIS_RANGE_STORAGE_KEY = 'cli-proxy-key-analysis-range-v1';
-const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
-
 const loadTimeRange = (): StoredUsageRangeState => {
-  try {
-    if (typeof localStorage === 'undefined') return { range: DEFAULT_TIME_RANGE };
-    return parseStoredUsageRangeState(localStorage.getItem(KEY_ANALYSIS_RANGE_STORAGE_KEY), { nowMs: Date.now() });
-  } catch {
-    return { range: DEFAULT_TIME_RANGE };
-  }
+  return loadKeyViewerTimeRange();
 };
 
 export interface KeyAnalysisPageProps {
@@ -75,12 +66,16 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
   }, [timeRangeState]);
 
   const handleTimeRangeChange = useCallback((range: UsageTimeRange, nextCustomRange?: UsageCustomRange) => {
+    let nextState: StoredUsageRangeState;
     if (range === 'custom' && nextCustomRange) {
-      setTimeRangeState({ range, customRange: nextCustomRange, timeZone: rangeTimeZone });
-      return;
+      nextState = { range, customRange: nextCustomRange, timeZone: rangeTimeZone };
+    } else {
+      nextState = { ...timeRangeState, range };
     }
-    setTimeRangeState((current) => ({ ...current, range }));
-  }, [rangeTimeZone]);
+    setTimeRangeState(nextState);
+    // 切换页面可能紧接着发生，先同步写入共享缓存，再等待状态 effect。
+    persistKeyViewerTimeRange(nextState);
+  }, [rangeTimeZone, timeRangeState]);
 
   const loadAnalysis = useCallback(async () => {
     if (!usageRangeQuery.valid) return;
@@ -140,11 +135,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
   }, [loadAnalysis]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(KEY_ANALYSIS_RANGE_STORAGE_KEY, serializeUsageRangeState(timeRangeState));
-    } catch {
-      // 忽略浏览器存储不可用；页面仍使用当前内存状态。
-    }
+    persistKeyViewerTimeRange(timeRangeState);
   }, [timeRangeState]);
 
   const handleManualRefresh = useCallback(async () => {

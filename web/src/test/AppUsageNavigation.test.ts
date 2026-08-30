@@ -21,8 +21,16 @@ describe('App usage-page route authorization', () => {
     expect(shouldNormalizeRolePath('api_key_viewer', '/key-overview')).toBe(false);
     expect(getRoleTargetPath('api_key_viewer', '/key-analysis')).toBe('/key-analysis');
     expect(shouldNormalizeRolePath('api_key_viewer', '/key-analysis')).toBe(false);
+    expect(getRoleTargetPath('api_key_viewer', '/key-ranking')).toBe('/key-ranking');
+    expect(shouldNormalizeRolePath('api_key_viewer', '/key-ranking')).toBe(false);
     expect(getRoleTargetPath('api_key_viewer', '/key-analysis/')).toBe('/key-overview');
     expect(getRoleTargetPath('api_key_viewer', '//example.com/key-analysis')).toBe('/key-overview');
+  });
+
+  it('routes API key viewers to the dedicated Ranking page', () => {
+    expect(appSource).toContain("import { KeyRankingPage } from './pages/KeyRankingPage';");
+    expect(appSource).toContain("keyViewerPath === '/key-ranking'");
+    expect(appSource).toContain('<KeyRankingPage');
   });
 
   it('keeps Ranking unavailable in CPAMC embed mode', () => {

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse } from '@/lib/types';
 import { serializeUsageRangeState } from '@/utils/usage/customRange';
+import { KEY_VIEWER_TIME_RANGE_STORAGE_KEY } from '@/features/key-viewer/timeRange';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -145,7 +146,7 @@ describe('KeyAnalysisPage requests', () => {
   });
 
   it('does not reload when the response timezone replaces a stored custom-range timezone', async () => {
-    localStorage.setItem('cli-proxy-key-analysis-range-v1', serializeUsageRangeState({
+    localStorage.setItem(KEY_VIEWER_TIME_RANGE_STORAGE_KEY, serializeUsageRangeState({
       range: 'custom',
       customRange: { unit: 'day', start: '2026-08-20', end: '2026-08-21' },
       timeZone: 'America/New_York',
