@@ -1565,6 +1565,18 @@ describe('UsagePage toolbar styles', () => {
     })
   })
 
+  it('normalizes Request Event Log metric icons on a shared slot', () => {
+    const iconSlotBlock = styleRuleBlock(usagePageStyles, '.requestEventsMetricIconSlot')
+    const cacheIconBlock = styleRuleBlock(usagePageStyles, '.requestEventsCacheIcon')
+
+    expect(iconSlotBlock).toMatch(/width:\s*16px;/)
+    expect(iconSlotBlock).toMatch(/height:\s*16px;/)
+    expect(iconSlotBlock).toContain('justify-content: center;')
+    expect(cacheIconBlock).toContain('transform: scale(0.9);')
+    expect(requestEventsSource).toContain('styles.requestEventsMetricIconSlot')
+    expect(requestEventsSource).toContain('styles.requestEventsCacheIcon')
+  })
+
   it('provides reusable pill controls and global command actions for usage subpages', () => {
     const actionButton = styleRuleBlock(componentsStyles, '.btn-action')
 
