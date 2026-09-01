@@ -114,8 +114,8 @@ describe('RequestEventsDetailsCard compact columns', () => {
     expect(cells[8]).toBe('SSE/messages')
     expect(cells[9]).toBe('120msTTFT 45ms')
     expect(cells[10]).toBe('30.0 t/s')
-    expect(cells[11]).toBe('200Input 100Output 60 (Reasoning 20)')
-    expect(cells[12]).toBe('20.00%Read 20Write 5')
+    expect(cells[11]).toBe('2001006020')
+    expect(cells[12]).toBe('20.00%205')
     expect(cells[13]).toBe('$0.1234Claude Style')
     expect(cells[14]).toBe('OpenAIResponsesExecutor')
     expect(cells.slice(15)).toEqual([
