@@ -31,6 +31,7 @@ import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainme
 import {
   calculateCacheReadRate,
   formatDurationMs,
+  formatCompactTokenValue,
   formatUsd,
   LATENCY_SOURCE_FIELD,
   normalizeAuthIndex,
@@ -145,6 +146,12 @@ type RequestEventRow = {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   totalTokens: number;
+  inputTokensDisplayLabel: string;
+  outputTokensDisplayLabel: string;
+  reasoningTokensDisplayLabel: string;
+  cacheReadTokensDisplayLabel: string;
+  cacheCreationTokensDisplayLabel: string;
+  totalTokensDisplayLabel: string;
   inputTokensLabel: string;
   outputTokensLabel: string;
   reasoningTokensLabel: string;
@@ -177,17 +184,19 @@ function RequestEventsTokenMetric({
   direction,
   label,
   value,
+  fullValue,
 }: {
   direction: 'input' | 'output';
   label: string;
   value: string;
+  fullValue: string;
 }) {
   const Icon = direction === 'input' ? IconArrowUpFromLine : IconArrowDownToLine;
   return (
     <span
       className={`${styles.requestEventsTokenMetric} ${direction === 'input' ? styles.requestEventsTokenMetricInput : styles.requestEventsTokenMetricOutput}`}
       role="img"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${fullValue}`}
       data-token-direction={direction}
       data-token-flow={direction === 'input' ? 'upload' : 'download'}
     >
@@ -199,12 +208,12 @@ function RequestEventsTokenMetric({
   );
 }
 
-function RequestEventsReasoningMetric({ label, value }: { label: string; value: string }) {
+function RequestEventsReasoningMetric({ label, value, fullValue }: { label: string; value: string; fullValue: string }) {
   return (
     <span
       className={`${styles.requestEventsTokenMetric} ${styles.requestEventsTokenMetricReasoning}`}
       role="img"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${fullValue}`}
       data-token-direction="reasoning"
     >
       <span className={styles.requestEventsMetricIconSlot} aria-hidden="true">
@@ -219,17 +228,19 @@ function RequestEventsCacheMetric({
   operation,
   label,
   value,
+  fullValue,
 }: {
   operation: 'read' | 'write';
   label: string;
   value: string;
+  fullValue: string;
 }) {
   const Icon = operation === 'read' ? IconDatabaseArrowUp : IconDatabaseArrowDown;
   return (
     <span
       className={`${styles.requestEventsCacheMetric} ${operation === 'read' ? styles.requestEventsCacheMetricRead : styles.requestEventsCacheMetricWrite}`}
       role="img"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${fullValue}`}
       data-cache-operation={operation}
       data-cache-flow={operation === 'read' ? 'upload' : 'download'}
     >
@@ -628,6 +639,12 @@ export function RequestEventsDetailsCard({
         cacheReadTokens,
         cacheCreationTokens,
         totalTokens,
+        inputTokensDisplayLabel: formatCompactTokenValue(inputTokens),
+        outputTokensDisplayLabel: formatCompactTokenValue(outputTokens),
+        reasoningTokensDisplayLabel: formatCompactTokenValue(reasoningTokens),
+        cacheReadTokensDisplayLabel: formatCompactTokenValue(cacheReadTokens),
+        cacheCreationTokensDisplayLabel: formatCompactTokenValue(cacheCreationTokens),
+        totalTokensDisplayLabel: formatCompactTokenValue(totalTokens),
         inputTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(inputTokens),
         outputTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(outputTokens),
         reasoningTokensLabel: REQUEST_EVENT_INTEGER_FORMATTER.format(reasoningTokens),
@@ -947,23 +964,26 @@ export function RequestEventsDetailsCard({
               onFocus={(event) => handleRequestEventsTooltipFocus(tooltipLines, event.currentTarget)}
               onBlur={(event) => handleRequestEventsTooltipBlur(event.currentTarget)}
             >
-              <span className={styles.requestEventsStackedPrimary}>{row.totalTokensLabel}</span>
+              <span className={styles.requestEventsStackedPrimary}>{row.totalTokensDisplayLabel}</span>
               <div className={styles.requestEventsTokenMetricRow}>
                 <RequestEventsTokenMetric
                   direction="input"
                   label={t('usage_stats.input_tokens')}
-                  value={row.inputTokensLabel}
+                  value={row.inputTokensDisplayLabel}
+                  fullValue={row.inputTokensLabel}
                 />
               </div>
               <div className={styles.requestEventsTokenMetricRow}>
                 <RequestEventsTokenMetric
                   direction="output"
                   label={t('usage_stats.output_tokens')}
-                  value={row.outputTokensLabel}
+                  value={row.outputTokensDisplayLabel}
+                  fullValue={row.outputTokensLabel}
                 />
                 <RequestEventsReasoningMetric
                   label={t('usage_stats.reasoning_tokens')}
-                  value={row.reasoningTokensLabel}
+                  value={row.reasoningTokensDisplayLabel}
+                  fullValue={row.reasoningTokensLabel}
                 />
               </div>
             </td>
@@ -993,12 +1013,14 @@ export function RequestEventsDetailsCard({
                 <RequestEventsCacheMetric
                   operation="read"
                   label={t('usage_stats.cache_read_tokens')}
-                  value={row.cacheReadTokensLabel}
+                  value={row.cacheReadTokensDisplayLabel}
+                  fullValue={row.cacheReadTokensLabel}
                 />
                 <RequestEventsCacheMetric
                   operation="write"
                   label={t('usage_stats.cache_creation_tokens')}
-                  value={row.cacheCreationTokensLabel}
+                  value={row.cacheCreationTokensDisplayLabel}
+                  fullValue={row.cacheCreationTokensLabel}
                 />
               </div>
             </td>
