@@ -47,6 +47,9 @@ func nextAutoRefreshDelay(service *quota.Service, settings quota.AutoRefreshSett
 //go:linkname sleepAutoRefreshDelay cpa-usage-keeper/internal/quota.(*Service).sleepAutoRefreshDelay
 func sleepAutoRefreshDelay(service *quota.Service, ctx context.Context, delay time.Duration) int
 
+//go:linkname newSuspendAwareTimer cpa-usage-keeper/internal/quota.newSuspendAwareTimer
+func newSuspendAwareTimer(delay time.Duration) (<-chan time.Time, func(), error)
+
 //go:linkname resetInspectionCompletedAt cpa-usage-keeper/internal/quota.(*Service).resetInspectionCompletedAt
 func resetInspectionCompletedAt(service *quota.Service)
 
