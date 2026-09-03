@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchCPAInstances, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
-import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CPAInstance, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
+import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchVersion, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
+import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthManagedSessionItem, CpaApiKeyOption, CpaApiKeySettingsItem, OverviewRealtimeWindow, StatusResponse, UsageCustomRange, UsageEvent, UsageEventRequestLogResponse, UsageSourceFilterOption, UsageTimeRange, VersionResponse } from '@/lib/types';
 import { DEFAULT_USAGE_TAB, getUsageTabPath, handleUsageTabKeyActivation, resolveInitialUsageTab, shouldHandleUsageNavigation, USAGE_TAB_OPTIONS, type UsageTab } from '@/lib/usageNavigation';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -18,9 +18,8 @@ import {
   RecentActivityPanel,
   OverviewRealtimePanel,
   AnalysisPanel,
-   ApiKeySettingsCard,
-   CPAInstancesPanel,
-   SessionSettingsCard,
+  ApiKeySettingsCard,
+  SessionSettingsCard,
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
@@ -61,10 +60,10 @@ import styles from './UsagePage.module.scss';
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
 const LEGACY_CUSTOM_RANGE_STORAGE_KEY = 'cli-proxy-usage-custom-range-v1';
 const OVERVIEW_REALTIME_WINDOW_STORAGE_KEY = 'cli-proxy-usage-overview-realtime-window-v1';
+const API_KEY_FILTER_STORAGE_KEY = 'cli-proxy-usage-api-key-filter-v1';
 export const REQUEST_EVENTS_PREFERENCES_STORAGE_KEY = 'cli-proxy-usage-request-events-preferences-v1';
 const DEFAULT_TIME_RANGE: UsageTimeRange = 'today';
 const DEFAULT_REALTIME_WINDOW: OverviewRealtimeWindow = '15m';
-const KEEPER_API_KEY_FINGERPRINT_PATTERN = /^akf1_[0-9a-f]{64}$/;
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'white', labelKey: 'usage_stats.theme_light' },
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
@@ -85,7 +84,7 @@ const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
 const USAGE_TAB_STORAGE_KEY = 'cli-proxy-usage-tab-v1';
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 50;
 const REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS = 90;
-// v9 将强关联字段折叠为组合列，并加入 Executor；fork 版在 Source 后保留 CPA Instance 列；旧版本直接重置列设置以避免错误折叠。
+// v9 将强关联字段折叠为组合列，并加入 Executor；旧版本直接重置列设置以避免错误折叠。
 const REQUEST_EVENTS_PREFERENCES_VERSION = 9;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
@@ -140,6 +139,35 @@ export const getCredentialSectionVisibility = (tab: UsageTab) => ({
 export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'ranking' && tab !== 'settings' && !getCredentialSectionVisibility(tab).enabled;
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
+
+// 恢复出来的 API Key 筛选只有在选项成功加载后才能判定失效；加载中或加载失败时保留选择，避免被空列表误清。
+export const shouldResetSelectedApiKeyFilter = (
+  selectedApiKeyId: string,
+  apiKeyOptions: ReadonlyArray<Pick<CpaApiKeyOption, 'id'>>,
+  apiKeyOptionsLoaded: boolean,
+) => (
+  apiKeyOptionsLoaded
+  && selectedApiKeyId !== ''
+  && !apiKeyOptions.some((option) => option.id === selectedApiKeyId)
+);
+
+export const resolveApiKeyFilterRequestState = (
+  selectedApiKeyId: string,
+  apiKeyOptions: ReadonlyArray<Pick<CpaApiKeyOption, 'id'>>,
+  apiKeyOptionsLoaded: boolean,
+  apiKeyOptionsResolved: boolean,
+): { ready: boolean; apiKeyId: string } => {
+  if (selectedApiKeyId === '') {
+    return { ready: true, apiKeyId: '' };
+  }
+  if (!apiKeyOptionsResolved) {
+    return { ready: false, apiKeyId: '' };
+  }
+  if (apiKeyOptionsLoaded && !apiKeyOptions.some((option) => option.id === selectedApiKeyId)) {
+    return { ready: true, apiKeyId: '' };
+  }
+  return { ready: true, apiKeyId: selectedApiKeyId };
+};
 
 export const shouldShowUpdateCheckButton = (versionInfo: Pick<VersionResponse, 'updateCheckEnabled'> | null) => versionInfo?.updateCheckEnabled === true;
 
@@ -653,6 +681,32 @@ const loadRealtimeWindow = (): OverviewRealtimeWindow => {
   }
 };
 
+export const API_KEY_FILTER_MAX_LENGTH = 19;
+const MAX_API_KEY_FILTER_ID = 9223372036854775807n;
+
+export const normalizeStoredApiKeyFilter = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const normalized = value.trim();
+  if (!/^\d{1,19}$/.test(normalized)) {
+    return '';
+  }
+  const id = BigInt(normalized);
+  return id > 0n && id <= MAX_API_KEY_FILTER_ID ? id.toString() : '';
+};
+
+const loadSelectedApiKeyId = (): string => {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return '';
+    }
+    return normalizeStoredApiKeyFilter(localStorage.getItem(API_KEY_FILTER_STORAGE_KEY));
+  } catch {
+    return '';
+  }
+};
+
 export const triggerBrowserFileDownload = (blob: Blob, filename: string) => {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -674,7 +728,7 @@ export const triggerBrowserURLDownload = (url: string) => {
   link.remove();
 };
 
-export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onAuthRequired?: () => void; canFilterByInstance?: boolean }) {
+export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const { t, i18n } = useTranslation();
   const isMobile = useMediaQuery('(max-width: 768px)');
   const isEmbeddedInCPAMC = isCPAMCEmbed();
@@ -707,30 +761,32 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
   const [timeRangeState, setTimeRangeState] = useState<StoredUsageRangeState>(loadedTimeRange.state);
   const { range: timeRange, customRange } = timeRangeState;
   const [realtimeWindow, setRealtimeWindow] = useState<OverviewRealtimeWindow>(loadRealtimeWindow);
-  const [selectedApiKeyId, setSelectedApiKeyId] = useState('');
-  const [excludedApiKeyIds, setExcludedApiKeyIds] = useState<ReadonlyArray<string>>([]);
-  const [isApiKeyExcludeOpen, setIsApiKeyExcludeOpen] = useState(false);
+  const [selectedApiKeyId, setSelectedApiKeyId] = useState(loadSelectedApiKeyId);
   const [apiKeyOptions, setApiKeyOptions] = useState<CpaApiKeyOption[]>([]);
-  const [instances, setInstances] = useState<CPAInstance[]>([]);
-  const [selectedInstanceId, setSelectedInstanceId] = useState('');
+  const [apiKeyOptionsLoaded, setApiKeyOptionsLoaded] = useState(false);
+  const [apiKeyOptionsResolved, setApiKeyOptionsResolved] = useState(false);
+  const apiKeyFilterRequestState = resolveApiKeyFilterRequestState(
+    selectedApiKeyId,
+    apiKeyOptions,
+    apiKeyOptionsLoaded,
+    apiKeyOptionsResolved,
+  );
+  const apiKeyFilterReady = apiKeyFilterRequestState.ready;
+  const requestApiKeyId = apiKeyFilterRequestState.apiKeyId;
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [versionInfo, setVersionInfo] = useState<VersionResponse | null>(null);
   const apiKeyOptionsRequestControllerRef = useRef<AbortController | null>(null);
-  const apiKeyExcludeMenuRef = useRef<HTMLDetailsElement>(null);
   const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
   const activeCustomRange = useMemo(() => getUsageCustomRangeForTab(activeTab, customRange, {
     nowMs: Date.now(),
     timeZone: status?.timezone ?? timeRangeState.timeZone,
   }), [activeTab, customRange, status?.timezone, timeRangeState.timeZone]);
-  const usageRangeQuery = useMemo(() => ({
-    ...buildUsageRangeQuery({
-      range: timeRange,
-      customUnit: activeCustomRange?.unit,
-      customStart: activeCustomRange?.start,
-      customEnd: activeCustomRange?.end,
-    }),
-    instanceId: canFilterByInstance ? selectedInstanceId || undefined : undefined,
-  }), [activeCustomRange?.end, activeCustomRange?.start, activeCustomRange?.unit, canFilterByInstance, selectedInstanceId, timeRange]);
+  const usageRangeQuery = useMemo(() => buildUsageRangeQuery({
+    range: timeRange,
+    customUnit: activeCustomRange?.unit,
+    customStart: activeCustomRange?.start,
+    customEnd: activeCustomRange?.end,
+  }), [activeCustomRange?.end, activeCustomRange?.start, activeCustomRange?.unit, timeRange]);
   const {
     request: activityRangeRequest,
     manualWindow: manualActivityWindow,
@@ -762,10 +818,8 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     customUnit: customRange?.unit,
     customStart: customRange?.start,
     customEnd: customRange?.end,
-    instanceId: usageRangeQuery.instanceId,
-    enabled: activeTab === 'overview',
-    apiKeyId: selectedApiKeyId,
-    excludedApiKeyIds,
+    enabled: activeTab === 'overview' && apiKeyFilterReady,
+    apiKeyId: requestApiKeyId,
     onRangeBoundsConflict: recoverRangeBoundsConflict,
   });
   const {
@@ -778,9 +832,8 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
   } = useUsageActivityData({
     viewer: 'admin',
     request: activityRangeRequest,
-    apiKeyId: selectedApiKeyId,
-    excludedApiKeyIds,
-    enabled: activeTab === 'overview' && usageRangeQuery.valid,
+    apiKeyId: requestApiKeyId,
+    enabled: activeTab === 'overview' && usageRangeQuery.valid && apiKeyFilterReady,
     onAuthRequired,
   });
   const activityWindow = manualActivityWindow ?? activity?.window ?? null;
@@ -806,10 +859,8 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     loadRealtime
   } = useOverviewRealtimeData({
     onAuthRequired,
-    enabled: activeTab === 'overview',
-    apiKeyId: selectedApiKeyId,
-    excludedApiKeyIds,
-    instanceId: usageRangeQuery.instanceId,
+    enabled: activeTab === 'overview' && apiKeyFilterReady,
+    apiKeyId: requestApiKeyId,
     realtimeWindow,
   });
   const {
@@ -947,88 +998,13 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     () => getUsageTabOptions(t, { includeRanking: !isEmbeddedInCPAMC }),
     [isEmbeddedInCPAMC, t],
   );
-  const instanceNameById = useMemo(
-    () => new Map(instances.map((instance) => [instance.instanceId, instance.displayName])),
-    [instances],
-  );
-  const instanceSelectOptions = useMemo(
-    () => [
-      { value: '', label: t('usage_stats.instance_filter_all') },
-      ...instances.map((instance) => ({ value: instance.instanceId, label: instance.displayName })),
-    ],
-    [instances, t],
-  );
-  const selectableApiKeyOptions = useMemo(
-    () => apiKeyOptions.filter((option) => !KEEPER_API_KEY_FINGERPRINT_PATTERN.test(option.displayKey)),
-    [apiKeyOptions],
-  );
-  const scopedApiKeyOptions = useMemo(
-    () => selectedInstanceId
-      ? selectableApiKeyOptions.filter((option) => option.instanceId === selectedInstanceId)
-      : selectableApiKeyOptions,
-    [selectableApiKeyOptions, selectedInstanceId],
-  );
   const apiKeySelectOptions = useMemo(
     () => [
       { value: '', label: t('usage_stats.api_key_filter_all') },
-      ...scopedApiKeyOptions.map((option) => {
-        const keyLabel = option.label === option.displayKey
-          ? option.displayKey
-          : `${option.label} · ${option.displayKey}`;
-        const instanceLabel = instanceNameById.get(option.instanceId) ?? option.instanceId;
-        return {
-          value: option.id,
-          label: canFilterByInstance && !selectedInstanceId
-            ? `${instanceLabel} · ${keyLabel}`
-            : keyLabel,
-        };
-      }),
+      ...apiKeyOptions.map((option) => ({ value: option.id, label: option.label })),
     ],
-    [canFilterByInstance, instanceNameById, scopedApiKeyOptions, selectedInstanceId, t],
+    [apiKeyOptions, t],
   );
-  const handleInstanceSelectionChange = useCallback((instanceId: string) => {
-    setSelectedInstanceId(instanceId);
-    setSelectedApiKeyId('');
-    setExcludedApiKeyIds([]);
-    setIsApiKeyExcludeOpen(false);
-  }, []);
-  const handleAPIKeySelectionChange = useCallback((apiKeyId: string) => {
-    setSelectedApiKeyId(apiKeyId);
-    setIsApiKeyExcludeOpen(false);
-    if (apiKeyId) {
-      setExcludedApiKeyIds([]);
-    }
-  }, []);
-  const toggleExcludedAPIKey = useCallback((apiKeyId: string) => {
-    setSelectedApiKeyId('');
-    setExcludedApiKeyIds((current) => (
-      current.includes(apiKeyId)
-        ? current.filter((id) => id !== apiKeyId)
-        : [...current, apiKeyId]
-    ));
-  }, []);
-  useEffect(() => {
-    if (!isApiKeyExcludeOpen) {
-      return;
-    }
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!apiKeyExcludeMenuRef.current?.contains(event.target as Node)) {
-        setIsApiKeyExcludeOpen(false);
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsApiKeyExcludeOpen(false);
-        apiKeyExcludeMenuRef.current?.querySelector('summary')?.focus();
-      }
-    };
-    document.addEventListener('pointerdown', closeOnOutsidePointer);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [isApiKeyExcludeOpen]);
   const credentialTypeCountsForProviderFilter = useMemo(() => {
     if (credentialSectionVisibility.showAuthFiles) return credentialsData.authFileTypeCounts;
     if (credentialSectionVisibility.showAiProvider) return credentialsData.aiProviderTypeCounts;
@@ -1056,23 +1032,23 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     apiKeyOptionsRequestControllerRef.current?.abort();
     const controller = new AbortController();
     apiKeyOptionsRequestControllerRef.current = controller;
+    setApiKeyOptionsLoaded(false);
+    setApiKeyOptionsResolved(false);
     try {
-      const [response, instanceResponse] = await Promise.all([
-        fetchCpaApiKeyOptions(controller.signal),
-        canFilterByInstance ? fetchCPAInstances() : Promise.resolve([]),
-      ]);
+      const response = await fetchCpaApiKeyOptions(controller.signal);
       if (apiKeyOptionsRequestControllerRef.current !== controller) {
         return;
       }
       setApiKeyOptions(response.options ?? []);
-      setInstances(instanceResponse.filter((instance) => instance.enabled));
+      setApiKeyOptionsLoaded(true);
+      setApiKeyOptionsResolved(true);
     } catch (error) {
       if (controller.signal.aborted) {
         return;
       }
       if (apiKeyOptionsRequestControllerRef.current === controller) {
         setApiKeyOptions([]);
-        setInstances([]);
+        setApiKeyOptionsResolved(true);
       }
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
@@ -1082,7 +1058,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
         apiKeyOptionsRequestControllerRef.current = null;
       }
     }
-  }, [canFilterByInstance, onAuthRequired]);
+  }, [onAuthRequired]);
 
   const loadApiKeySettings = useCallback(async () => {
     apiKeySettingsRequestControllerRef.current?.abort();
@@ -1156,11 +1132,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     try {
       const updated = await updateCpaApiKeyAlias(id, keyAlias);
       setApiKeySettings((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
-      setApiKeyOptions((current) => current.map((item) => (
-        item.id === updated.id
-          ? { ...item, displayKey: updated.displayKey, label: updated.label }
-          : item
-      )));
+      setApiKeyOptions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       patchLocalRankingProfileCache(updated.id, {
         key_alias: updated.keyAlias,
         display_name: updated.label,
@@ -1222,7 +1194,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
   }, [onAuthRequired, showTopNotice, t]);
 
   const loadAnalysis = useCallback(async () => {
-    if (!usageRangeQuery.valid) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     analysisRequestControllerRef.current?.abort();
     const controller = new AbortController();
     analysisRequestControllerRef.current = controller;
@@ -1235,8 +1207,8 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     setAnalysisLatencyData(null);
 
     await loadAnalysisSections({
-      loadCore: () => fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId, excludedApiKeyIds),
-      loadLatency: () => fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId, excludedApiKeyIds),
+      loadCore: () => fetchAnalysis(usageRangeQuery, controller.signal, requestApiKeyId),
+      loadLatency: () => fetchAnalysisLatency(usageRangeQuery, controller.signal, requestApiKeyId),
       onCoreLoaded: (response) => {
         if (analysisRequestControllerRef.current !== controller) return;
         setAnalysisData(response);
@@ -1274,7 +1246,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     if (analysisRequestControllerRef.current === controller) {
       analysisRequestControllerRef.current = null;
     }
-  }, [excludedApiKeyIds, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
 
   useEffect(() => {
     try {
@@ -1324,6 +1296,17 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
       // Ignore storage errors.
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+      localStorage.setItem(API_KEY_FILTER_STORAGE_KEY, selectedApiKeyId);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [selectedApiKeyId]);
 
   useEffect(() => {
     saveRequestEventsPreferences({
@@ -1396,10 +1379,10 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
   }, [loadApiKeyOptions]);
 
   useEffect(() => {
-    if (selectedApiKeyId && !apiKeyOptions.some((option) => option.id === selectedApiKeyId)) {
+    if (shouldResetSelectedApiKeyFilter(selectedApiKeyId, apiKeyOptions, apiKeyOptionsLoaded)) {
       setSelectedApiKeyId('');
     }
-  }, [apiKeyOptions, selectedApiKeyId]);
+  }, [apiKeyOptions, apiKeyOptionsLoaded, selectedApiKeyId]);
 
   useEffect(() => {
     if (!shouldShowUpdateCheckButton(versionInfo)) {
@@ -1422,8 +1405,8 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
 
     try {
       const [modelResponse, sourceResponse] = await Promise.all([
-        fetchUsageEventModelFilterOptions(controller.signal, usageRangeQuery.instanceId),
-        fetchUsageEventSourceFilterOptions(controller.signal, usageRangeQuery.instanceId),
+        fetchUsageEventModelFilterOptions(controller.signal),
+        fetchUsageEventSourceFilterOptions(controller.signal),
       ]);
       if (eventsFilterOptionsRequestControllerRef.current !== controller) {
         return;
@@ -1448,10 +1431,10 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
         eventsFilterOptionsRequestControllerRef.current = null;
       }
     }
-  }, [onAuthRequired, usageRangeQuery.instanceId]);
+  }, [onAuthRequired]);
 
   const loadEvents = useCallback(async () => {
-    if (!usageRangeQuery.valid) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     eventsRequestControllerRef.current?.abort();
     eventsLoadMoreRequestControllerRef.current?.abort();
     eventsLoadMoreRequestControllerRef.current = null;
@@ -1469,8 +1452,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: selectedApiKeyId,
-        excludedApiKeyIds,
+        apiKeyId: requestApiKeyId,
       });
       if (eventsRequestControllerRef.current !== controller) {
         return;
@@ -1500,12 +1482,12 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
         eventsRequestControllerRef.current = null;
       }
     }
-  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, excludedApiKeyIds, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
 
   const loadMoreEvents = useCallback(async () => {
     const cursor = eventsNextCursor?.trim();
     if (!cursor || !eventsHasMore || eventsLoadMoreRequestControllerRef.current) return;
-    if (!usageRangeQuery.valid) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
 
     const controller = new AbortController();
     eventsLoadMoreRequestControllerRef.current = controller;
@@ -1519,8 +1501,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: selectedApiKeyId,
-        excludedApiKeyIds,
+        apiKeyId: requestApiKeyId,
       });
       if (eventsLoadMoreRequestControllerRef.current !== controller) return;
       setEventsAutoLoadMore(true);
@@ -1545,7 +1526,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
         setEventsLoadingMore(false);
       }
     }
-  }, [eventsHasMore, eventsModelFilter, eventsNextCursor, eventsResultFilter, eventsSourceFilter, excludedApiKeyIds, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsHasMore, eventsModelFilter, eventsNextCursor, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
 
   const resetEventsPage = useCallback(() => {
     eventsLoadMoreRequestControllerRef.current?.abort();
@@ -1573,15 +1554,14 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
   }, [resetEventsPage]);
 
   const handleEventsExport = useCallback(async (format: UsageEventsExportFormat) => {
-    if (!usageRangeQuery.valid) return;
+    if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     setEventsExportingFormat(format);
     try {
       const file = await exportUsageEvents(usageRangeQuery, format, {
         model: eventsModelFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsModelFilter,
         source: eventsSourceFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsSourceFilter,
         result: eventsResultFilter === ALL_REQUEST_EVENTS_FILTER ? undefined : eventsResultFilter,
-        apiKeyId: selectedApiKeyId,
-        excludedApiKeyIds,
+        apiKeyId: requestApiKeyId,
       });
       triggerBrowserFileDownload(file.blob, file.filename);
       showTopNotice('success', t('usage_stats.export_success'));
@@ -1599,7 +1579,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
     } finally {
       setEventsExportingFormat(null);
     }
-  }, [eventsModelFilter, eventsResultFilter, eventsSourceFilter, excludedApiKeyIds, onAuthRequired, recoverRangeBoundsConflict, selectedApiKeyId, showTopNotice, t, usageRangeQuery]);
+  }, [apiKeyFilterReady, eventsModelFilter, eventsResultFilter, eventsSourceFilter, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, showTopNotice, t, usageRangeQuery]);
 
   const handleRequestLogOpen = useCallback(async (event: UsageEvent) => {
     if (!requestLogAccessEnabled) return;
@@ -1677,6 +1657,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
   }, [onAuthRequired, requestLogAccessEnabled, showTopNotice, t]);
 
   const refreshActiveTab = useCallback(async () => {
+    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
     if (activeTab === 'events') {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
@@ -1698,9 +1679,10 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
       return;
     }
     await Promise.all([loadUsage(), loadActivity(), loadRealtime()]);
-  }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials, refreshRanking]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadEventFilterOptions, loadEvents, loadPricing, loadRealtime, loadUsage, refreshCredentials, refreshRanking]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
+    if (!apiKeyFilterReady && shouldShowRangeControls(activeTab)) return;
     if (activeTab === 'events') {
       await loadEvents();
       return;
@@ -1710,7 +1692,7 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
       return;
     }
     await Promise.all([loadUsage(), loadActivity({ skipIfInFlight: true }), loadRealtime()]);
-  }, [activeTab, credentialSectionVisibility.enabled, loadActivity, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadEvents, loadRealtime, loadUsage, refreshCredentials]);
 
   const handleAutoRefreshError = useCallback((error: unknown) => {
     if (recoverRangeBoundsConflict(error)) return;
@@ -2071,85 +2053,25 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
                   {(!isEmbeddedInCPAMC || showRangeControls) && (
                   /* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */
                   <div
-                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''} ${isApiKeyExcludeOpen ? styles.usageFilterTransitionPopoverOpen : ''}`.trim()}
+                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''}`.trim()}
                     aria-hidden={!showRangeControls}
                     inert={!showRangeControls}
                   >
                     <div className={styles.usageFilterTransitionInner}>
-                    <div className={styles.usageFilterBar}>
+                      <div className={styles.usageFilterBar}>
                     <div className={styles.apiKeyFilterGroup}>
-                    {canFilterByInstance && (
-                      <label className={`${styles.usageFilterField} ${styles.apiKeyFilterField}`.trim()}>
-                        <span className={styles.usageFilterLabel}>{t('usage_stats.instance_filter')}</span>
-                        <Select
-                          value={selectedInstanceId}
-                          options={instanceSelectOptions}
-                          onChange={handleInstanceSelectionChange}
-                          className={styles.apiKeySelectControl}
-                          ariaLabel={t('usage_stats.instance_filter')}
-                          fullWidth={false}
-                          dropdownMinWidth={220}
-                        />
-                      </label>
-                    )}
                     <label className={`${styles.usageFilterField} ${styles.apiKeyFilterField}`.trim()}>
                       <span className={styles.usageFilterLabel}>{t('usage_stats.api_key_filter')}</span>
                       <Select
                         value={selectedApiKeyId}
                         options={apiKeySelectOptions}
-                        onChange={handleAPIKeySelectionChange}
+                        onChange={setSelectedApiKeyId}
                         className={styles.apiKeySelectControl}
                         ariaLabel={t('usage_stats.api_key_filter')}
                         fullWidth={false}
-                        dropdownMinWidth={420}
+                        dropdownMinWidth={180}
                       />
                     </label>
-                    <details
-                      ref={apiKeyExcludeMenuRef}
-                      className={styles.apiKeyExcludeMenu}
-                      open={isApiKeyExcludeOpen}
-                      onToggle={(event) => setIsApiKeyExcludeOpen(event.currentTarget.open)}
-                    >
-                      <summary
-                        className={styles.apiKeyExcludeSummary}
-                        aria-expanded={isApiKeyExcludeOpen}
-                        aria-haspopup="menu"
-                      >
-                        {excludedApiKeyIds.length > 0
-                          ? t('usage_stats.api_key_exclude_count', { count: excludedApiKeyIds.length })
-                          : t('usage_stats.api_key_exclude')}
-                      </summary>
-                      <div className={styles.apiKeyExcludePopover}>
-                        <div className={styles.apiKeyExcludeHeader}>
-                          <span>{t('usage_stats.api_key_exclude')}</span>
-                          {excludedApiKeyIds.length > 0 && (
-                            <button type="button" onClick={() => setExcludedApiKeyIds([])}>
-                              {t('usage_stats.api_key_exclude_clear')}
-                            </button>
-                          )}
-                        </div>
-                        {apiKeyOptions.length === 0 ? (
-                          <span className={styles.apiKeyExcludeEmpty}>{t('usage_stats.api_key_exclude_none')}</span>
-                        ) : (
-                          <div className={styles.apiKeyExcludeOptions}>
-                            {scopedApiKeyOptions.map((option) => (
-                              <label key={option.id} className={styles.apiKeyExcludeOption}>
-                                <input
-                                  type="checkbox"
-                                  checked={excludedApiKeyIds.includes(option.id)}
-                                  onChange={() => toggleExcludedAPIKey(option.id)}
-                                />
-                                <span>
-                                  {option.label === option.displayKey
-                                    ? option.displayKey
-                                    : `${option.label} · ${option.displayKey}`}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </details>
                   </div>
                     <TimeRangeControl
                       value={timeRange}
@@ -2323,7 +2245,6 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
                   onRequestLogClose={handleRequestLogClose}
                   onRequestLogDownload={handleRequestLogDownload}
                   requestLogDownloading={requestLogDownloading}
-                  instanceNameById={instanceNameById}
                 />
               </>
             )}
@@ -2402,7 +2323,6 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
                   onLogout={handleRevokeAuthSession}
                   onSaveAlias={handleSaveAuthSessionAlias}
                 />
-                <CPAInstancesPanel />
                 <ApiKeySettingsCard
                   apiKeys={apiKeySettings}
                   loading={apiKeySettingsLoading}
@@ -2421,7 +2341,6 @@ export function UsagePage({ onAuthRequired, canFilterByInstance = false }: { onA
                   onSyncPreview={previewPricingSync}
                   onNotice={showTopNotice}
                   loading={pricingLoading}
-                  onRefreshPricing={loadPricing}
                 />
               </div>
             )}

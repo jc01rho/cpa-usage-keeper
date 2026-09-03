@@ -264,12 +264,12 @@ describe('UsagePage toolbar styles', () => {
   it('threads the tab-effective custom range through Usage and Key Overview queries', () => {
     expect(usagePageSource).toContain('const [timeRangeState, setTimeRangeState]')
     expect(usagePageSource).toContain('const activeCustomRange = useMemo(() => getUsageCustomRangeForTab(')
-    expect(usagePageSource).toContain('...buildUsageRangeQuery({')
+    expect(usagePageSource).toContain('const usageRangeQuery = useMemo(() => buildUsageRangeQuery({')
     expect(usagePageSource).toContain('customRange={activeCustomRange}')
     expect(usagePageSource).toContain("maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined}")
     expect(usagePageSource).toContain('onChange={handleTimeRangeChange}')
-    expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, selectedApiKeyId, excludedApiKeyIds)')
-    expect(usagePageSource).toContain('fetchAnalysisLatency(usageRangeQuery, controller.signal, selectedApiKeyId, excludedApiKeyIds)')
+    expect(usagePageSource).toContain('fetchAnalysis(usageRangeQuery, controller.signal, requestApiKeyId)')
+    expect(usagePageSource).toContain('fetchAnalysisLatency(usageRangeQuery, controller.signal, requestApiKeyId)')
     expect(usagePageSource).toContain('fetchUsageEvents(usageRangeQuery, controller.signal, {')
     expect(usagePageSource).toContain('exportUsageEvents(usageRangeQuery, format, {')
 
@@ -278,20 +278,6 @@ describe('UsagePage toolbar styles', () => {
     expect(keyOverviewPageSource).toContain('customRange={customRange}')
     expect(keyOverviewPageSource).toContain('onChange={handleTimeRangeChange}')
     expect(keyOverviewPageSource).toContain('fetchKeyOverview(usageRangeQuery, controller.signal)')
-  })
-
-  it('keeps instance filtering admin-only and threads the selected instance through usage queries', () => {
-    expect(usagePageSource).toContain('canFilterByInstance = false')
-    expect(usagePageSource).toContain("const [selectedInstanceId, setSelectedInstanceId] = useState('')")
-    expect(usagePageSource).toContain('instanceId: canFilterByInstance ? selectedInstanceId || undefined : undefined')
-    expect(usagePageSource).toContain('{canFilterByInstance && (')
-    expect(keyOverviewPageSource).not.toContain('selectedInstanceId')
-  })
-
-  it('keeps keeper fingerprints out of selectable API key controls', () => {
-    expect(usagePageSource).toContain('const KEEPER_API_KEY_FINGERPRINT_PATTERN = /^akf1_[0-9a-f]{64}$/')
-    expect(usagePageSource).toContain('apiKeyOptions.filter((option) => !KEEPER_API_KEY_FINGERPRINT_PATTERN.test(option.displayKey))')
-    expect(usagePageSource).toContain('? selectableApiKeyOptions.filter((option) => option.instanceId === selectedInstanceId)')
   })
 
   it('persists one time range across API Key viewer pages', () => {
@@ -1365,7 +1351,7 @@ describe('UsagePage toolbar styles', () => {
   it('widens only the API key dropdown menu without changing the trigger width', () => {
     expect(selectSource).toContain('dropdownMinWidth?: number')
     expect(selectSource).toContain('rect.left - (width - rect.width) / 2')
-    expect(usagePageSource).toContain('dropdownMinWidth={420}')
+    expect(usagePageSource).toContain('dropdownMinWidth={180}')
   })
 
   it('preserves the API Key sizing while removing the legacy range select and Custom UI', () => {
@@ -1384,18 +1370,6 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).not.toContain('.rangeSelectControl')
     expect(usagePageStyles).not.toContain('.customRange')
     expect(keyOverviewPageStyles).not.toContain('.rangeSelectControl')
-  })
-
-  it('offers a checkbox menu that excludes multiple API keys from every statistics view', () => {
-    expect(usagePageSource).toContain('const [excludedApiKeyIds, setExcludedApiKeyIds]')
-    expect(usagePageSource).toContain('type="checkbox"')
-    expect(usagePageSource).toContain('checked={excludedApiKeyIds.includes(option.id)}')
-    expect(usagePageSource).toContain('excludedApiKeyIds,')
-    expect(usagePageSource).toContain('aria-expanded={isApiKeyExcludeOpen}')
-    expect(usagePageSource).toContain("document.addEventListener('pointerdown', closeOnOutsidePointer)")
-    expect(usagePageSource).toContain("document.addEventListener('keydown', closeOnEscape)")
-    expect(usagePageStyles).toContain('.apiKeyExcludePopover')
-    expect(usagePageStyles).toContain('.usageFilterTransitionPopoverOpen')
   })
 
   it('passes realtime error state and current data guard to the realtime panel', () => {
@@ -1560,7 +1534,7 @@ describe('UsagePage toolbar styles', () => {
       expect(block).toContain('renderClientMetadataCell(')
     })
 
-    ;['api_key', 'source', 'cpa_instance', 'model'].forEach((columnId) => {
+    ;['api_key', 'source', 'model'].forEach((columnId) => {
       expect(requestEventColumnDefinitionBlock(columnId)).not.toContain('styles.requestEventsNoWrapCell')
     })
   })
