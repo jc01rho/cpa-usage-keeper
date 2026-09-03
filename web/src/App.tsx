@@ -179,7 +179,7 @@ function App() {
         ? <KeyRankingPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />
         : <KeyOverviewPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />;
   } else {
-    page = <UsagePage canFilterByInstance={authRole === 'admin'} onAuthRequired={clearSession} />;
+    page = <UsagePage onAuthRequired={clearSession} />;
   }
 
   return (
