@@ -1132,7 +1132,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     try {
       const updated = await updateCpaApiKeyAlias(id, keyAlias);
       setApiKeySettings((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
-      setApiKeyOptions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setApiKeyOptions((current) => current.map((item) => (item.id === updated.id ? { ...item, label: updated.label, displayKey: updated.displayKey } : item)));
       patchLocalRankingProfileCache(updated.id, {
         key_alias: updated.keyAlias,
         display_name: updated.label,
