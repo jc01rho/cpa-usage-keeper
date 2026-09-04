@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/repository"
 	repositorydto "cpa-usage-keeper/internal/repository/dto"
 
 	"gorm.io/gorm"
@@ -28,6 +29,14 @@ func quotaRowUsageWindow(row quota.QuotaRow, now time.Time) (time.Time, time.Tim
 
 //go:linkname attachWindowUsageStats cpa-usage-keeper/internal/quota.(*Service).attachWindowUsageStats
 func attachWindowUsageStats(service *quota.Service, ctx context.Context, authIndex string, response quota.CheckResponse, now time.Time) quota.CheckResponse
+
+type usageWindowStatsProvider interface {
+	SumByAuthIndex(context.Context, string, time.Time, *time.Time) (repository.UsageWindowStats, error)
+	SumGroupsByAuthIndex(context.Context, string, time.Time, *time.Time, repository.UsageWindowStatsGrouper) (repository.UsageWindowGroupedStats, error)
+}
+
+//go:linkname attachWindowUsageStatsWithProvider cpa-usage-keeper/internal/quota.(*Service).attachWindowUsageStatsWithProvider
+func attachWindowUsageStatsWithProvider(service *quota.Service, ctx context.Context, authIndex string, response quota.CheckResponse, now time.Time, statsProvider usageWindowStatsProvider) quota.CheckResponse
 
 //go:linkname applyUsageHeaderSnapshot cpa-usage-keeper/internal/quota.(*Service).applyUsageHeaderSnapshot
 func applyUsageHeaderSnapshot(service *quota.Service, ctx context.Context, snapshot quota.UsageHeaderSnapshot) bool

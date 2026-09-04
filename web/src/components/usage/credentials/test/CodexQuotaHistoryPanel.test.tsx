@@ -246,7 +246,7 @@ describe('CodexQuotaHistoryPanel', () => {
     expect(accessibleSummary?.textContent).toContain('90% → 89%')
     expect(accessibleSummary?.textContent).toContain('1.00K Token/1%')
     expect(accessibleSummary?.textContent).toContain('$1.00/1%')
-    expect(accessibleSummary?.textContent).toContain('usage_stats.credentials_quota_history_interval: Aug 20, 11:00 AM → Aug 20, 11:30 AM')
+    expect(accessibleSummary?.textContent).toContain('usage_stats.credentials_quota_history_interval: Aug 20, 11:00 → Aug 20, 11:30')
     expect(document.body.querySelector('[data-codex-quota-efficiency-chart]')?.getAttribute('aria-hidden')).toBe('true')
 
     const tooltipCallbacks = latestChartOptions?.plugins?.tooltip?.callbacks
@@ -274,12 +274,12 @@ describe('CodexQuotaHistoryPanel', () => {
     ])
     expect(afterBody?.([{ dataIndex: 0 }])).toEqual([
       'usage_stats.credentials_quota_history_remaining_percentage: 89%',
-      'usage_stats.credentials_quota_history_interval: Aug 20, 10:00 AM → Aug 20, 10:10 AM',
+      'usage_stats.credentials_quota_history_interval: Aug 20, 10:00 → Aug 20, 10:10',
     ])
     expect(afterBody?.([{ dataIndex: 1 }])).toEqual([
       'usage_stats.credentials_quota_history_remaining_percentage: 88%',
       'usage_stats.credentials_quota_history_change: 89% → 86%',
-      'usage_stats.credentials_quota_history_interval: Aug 20, 11:00 AM → Aug 20, 11:30 AM',
+      'usage_stats.credentials_quota_history_interval: Aug 20, 11:00 → Aug 20, 11:30',
       'usage_stats.total_tokens: 3.00K Token',
       'usage_stats.total_cost: $3.00',
     ])
@@ -534,7 +534,7 @@ describe('CodexQuotaHistoryPanel', () => {
     expect([0, 1, 2, 3].map((dataIndex) => pointRadius({ dataIndex }))).toEqual([3, 0, 0, 0])
   })
 
-  it('preserves the project-timezone wall clock from API timestamps', async () => {
+  it('uses a 24-hour clock while preserving the project-timezone wall clock from API timestamps', async () => {
     const offsetResponse = cloneResponse()
     offsetResponse.cycles[0].first_observed_at = '2026-08-21T13:01:00+08:00'
     offsetResponse.cycles[0].last_observed_at = '2026-08-21T14:02:00+08:00'
@@ -544,7 +544,8 @@ describe('CodexQuotaHistoryPanel', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(document.body.textContent).toContain('"start":"Aug 21, 01:01 PM"')
-    expect(document.body.textContent).toContain('"end":"Aug 21, 02:02 PM"')
+    expect(document.body.textContent).toContain('"start":"Aug 21, 13:01"')
+    expect(document.body.textContent).toContain('"end":"Aug 21, 14:02"')
+    expect(document.body.textContent).toContain('"start":"Aug 17, 00:00"')
   })
 })

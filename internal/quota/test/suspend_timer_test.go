@@ -38,10 +38,16 @@ func TestSuspendAwareTimerFiresAfterDelay(t *testing.T) {
 	}
 }
 
-func TestSuspendAwareTimerStopPreventsLeak(t *testing.T) {
-	_, stop, err := newSuspendAwareTimer(10 * time.Second)
+func TestSuspendAwareTimerStopCancelsDelivery(t *testing.T) {
+	ch, stop, err := newSuspendAwareTimer(time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	stop()
+
+	select {
+	case <-ch:
+		t.Fatal("expected stopped timer not to deliver an event")
+	case <-time.After(1250 * time.Millisecond):
+	}
 }
