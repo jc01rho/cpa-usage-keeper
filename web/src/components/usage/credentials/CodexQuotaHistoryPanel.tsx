@@ -847,6 +847,7 @@ function formatDateTime(value: string, locale?: string): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    hourCycle: 'h23',
     ...(offsetTime ? { timeZone: 'UTC' } : {}),
   }).format(displayDate)
 }
