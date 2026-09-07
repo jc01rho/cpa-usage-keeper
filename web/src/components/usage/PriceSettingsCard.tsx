@@ -10,6 +10,7 @@ import { useNotificationStore } from '@/stores';
 import { fetchPricingFromOpenRouter } from '@/lib/api';
 import { useScrollBoundaryContainment } from '@/hooks/useScrollBoundaryContainment';
 import { ApiError } from '@/lib/api';
+import { compareModelNames } from '@/utils/modelSort';
 import type { ModelPrice, PricingRule, PricingSaveResult, PricingStyle, PricingSyncMatch, PricingSyncPreviewResponse, ReplacePricingRuleInput } from '@/lib/types';
 import { PriceRulesModal } from './pricing/PriceRulesModal';
 import styles from '@/pages/UsagePage.module.scss';
@@ -18,25 +19,6 @@ const formatDisplayName = (value: string): string => {
   const normalized = value.trim();
   if (!normalized) return '-';
   return normalized;
-};
-
-const modelNameCollator = new Intl.Collator('en', {
-  numeric: true,
-  sensitivity: 'base',
-});
-
-const compareModelNamesDescending = (left: string, right: string): number => {
-  const leftDisplayName = formatDisplayName(left);
-  const rightDisplayName = formatDisplayName(right);
-  const naturalOrder = modelNameCollator.compare(rightDisplayName, leftDisplayName);
-  if (naturalOrder !== 0) return naturalOrder;
-
-  // 自然排序等值时按精确字符串兜底，避免保存与刷新后的顺序随输入来源变化。
-  if (leftDisplayName !== rightDisplayName) {
-    return leftDisplayName > rightDisplayName ? -1 : 1;
-  }
-  if (left === right) return 0;
-  return left > right ? -1 : 1;
 };
 
 export interface PriceSettingsCardProps {
@@ -279,7 +261,7 @@ export const buildPricingModelOptions = (
   const sortedModelNames = [...modelNames]
     .sort((left, right) => {
       const configuredOrder = Number(configuredModels.has(left)) - Number(configuredModels.has(right));
-      return configuredOrder || compareModelNamesDescending(left, right);
+      return configuredOrder || compareModelNames(left, right);
     });
 
   return [
@@ -558,7 +540,7 @@ export function PriceSettingsCard({
   const styleOptions = useMemo(() => pricingStyleOptions(t), [t]);
   const sortedModelPrices = useMemo(
     () => Object.entries(modelPrices)
-      .sort(([left], [right]) => compareModelNamesDescending(left, right)),
+      .sort(([left], [right]) => compareModelNames(left, right)),
     [modelPrices]
   );
   useScrollBoundaryContainment(pricesGridRef, sortedModelPrices.length > 0);

@@ -42,9 +42,9 @@ const event: UsageEvent = {
 
 const textFromMarkup = (value: string) => value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
 
-const renderCard = () => renderToStaticMarkup(
+const renderCard = (row: UsageEvent = event) => renderToStaticMarkup(
   <RequestEventsDetailsCard
-    events={[event]}
+    events={[row]}
     loading={false}
     totalCount={1}
     modelOptions={['gpt-5.6']}
@@ -73,6 +73,15 @@ const extractFirstTableRowCellMarkup = (html: string) => {
 }
 
 describe('RequestEventsDetailsCard compact columns', () => {
+  // Upstream regression test: speed must not depend on TTFT.
+  // Index 10 here (upstream uses 9) because the fork inserts the
+  // 'CPA Instance' column at index 3.
+  it.each([undefined, 0, 3000])('shows the API speed independently of TTFT %s', (ttft) => {
+    const cells = extractFirstTableRowCells(renderCard({ ...event, ttft_ms: ttft }))
+
+    expect(cells[10]).toBe('30.0 t/s')
+  })
+
   it('renders the agreed 18 display columns in order (fork adds CPA Instance)', () => {
     const html = renderCard()
 
