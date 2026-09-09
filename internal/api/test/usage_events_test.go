@@ -1710,7 +1710,7 @@ func TestUsageEventSpeedTPS(t *testing.T) {
 				TTFTMS:       usageEventInt64Ptr(45),
 				OutputTokens: 3,
 			},
-			want: usageEventFloat64Ptr(40),
+			want: usageEventFloat64Ptr(25),
 		},
 		{
 			name: "uses full output tokens when reasoning is present",

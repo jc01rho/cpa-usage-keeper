@@ -39,11 +39,14 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
       loading={false}
       totalCount={1}
       modelOptions={['claude-sonnet']}
+      apiKeyOptions={[]}
       sourceOptions={[{ value: 'source-a', label: 'Provider A' }]}
       modelFilter="__all__"
+      apiKeyFilter=""
       sourceFilter="__all__"
       resultFilter="__all__"
       onModelFilterChange={() => undefined}
+      onApiKeyFilterChange={() => undefined}
       onSourceFilterChange={() => undefined}
       onResultFilterChange={() => undefined}
       {...props}
