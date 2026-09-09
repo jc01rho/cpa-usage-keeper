@@ -14,6 +14,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/openrouter"
 	"cpa-usage-keeper/internal/pricing"
+	"cpa-usage-keeper/internal/pricingmetadata"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -26,7 +27,7 @@ var ErrInvalidPricingInput = errors.New("invalid pricing input")
 type PricingProvider interface {
 	ListUsedModels(context.Context) ([]string, error)
 	ListPricing(context.Context) ([]entities.ModelPriceSetting, error)
-	PreviewPricingSync(context.Context) (servicedto.PricingSyncPreview, error)
+	PreviewPricingSync(context.Context, string) (servicedto.PricingSyncPreview, error)
 	UpdatePricing(context.Context, servicedto.UpdatePricingInput) (*entities.ModelPriceSetting, error)
 	UpdatePricingBatch(context.Context, []servicedto.UpdatePricingInput) ([]entities.ModelPriceSetting, error)
 	DeletePricing(context.Context, string) error
@@ -40,15 +41,16 @@ type ModelsFetcher interface {
 }
 
 type pricingService struct {
-	db            *gorm.DB
-	modelsFetcher ModelsFetcher
-	openRouter    *openrouter.Client
-	catalog       *pricing.Catalog
-	mutationMu    sync.Mutex
+	db             *gorm.DB
+	modelsFetcher  ModelsFetcher
+	catalog        *pricing.Catalog
+	mutationMu     sync.Mutex
+	metadataClient *pricingmetadata.Client
+	openRouter     *openrouter.Client
 }
 
 func NewPricingService(db *gorm.DB, catalog *pricing.Catalog, modelsFetcher ...ModelsFetcher) PricingProvider {
-	service := &pricingService{db: db, catalog: requirePricingCatalog(catalog)}
+	service := &pricingService{db: db, catalog: requirePricingCatalog(catalog), metadataClient: pricingmetadata.NewClient(nil)}
 	if len(modelsFetcher) > 0 {
 		service.modelsFetcher = modelsFetcher[0]
 	}
@@ -58,10 +60,11 @@ func NewPricingService(db *gorm.DB, catalog *pricing.Catalog, modelsFetcher ...M
 // NewPricingServiceWithOpenRouter builds a catalog-backed pricing service with optional OpenRouter fetch support.
 func NewPricingServiceWithOpenRouter(db *gorm.DB, catalog *pricing.Catalog, modelsFetcher ModelsFetcher, orClient *openrouter.Client) PricingProvider {
 	return &pricingService{
-		db:            db,
-		catalog:       requirePricingCatalog(catalog),
-		modelsFetcher: modelsFetcher,
-		openRouter:    orClient,
+		db:             db,
+		catalog:        requirePricingCatalog(catalog),
+		modelsFetcher:  modelsFetcher,
+		metadataClient: pricingmetadata.NewClient(nil),
+		openRouter:     orClient,
 	}
 }
 
