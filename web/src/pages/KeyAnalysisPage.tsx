@@ -208,7 +208,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         latencyError={displayLatencyError}
         isDark={isDark}
         isMobile={isMobile}
-        compositionDimensions={['api_key', 'model']}
+        compositionDimensions={['model']}
       />
     </KeyViewerShell>
   );
