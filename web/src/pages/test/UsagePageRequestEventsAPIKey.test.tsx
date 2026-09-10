@@ -71,7 +71,7 @@ describe('UsagePage independent request event API Key filter', () => {
   const render = async () => { await act(async () => root.render(<UsagePage />)); };
   const button = (text: string) => Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find((node) => node.textContent?.trim() === text)!;
   const eventKey = () => container.querySelector<HTMLInputElement>('input[aria-label="API Key"]')!;
-  const topKey = () => container.querySelector<HTMLButtonElement>('button[aria-label="API Key"]')!;
+  const topKey = () => container.querySelector<HTMLButtonElement>('[data-dashboard-toolbar] button[aria-label^="API Key: "]')!;
   const storedFilters = () => JSON.parse(localStorage.getItem(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY)!).filters;
   const choose = async (control: HTMLElement, label: string) => {
     await act(async () => control.click());

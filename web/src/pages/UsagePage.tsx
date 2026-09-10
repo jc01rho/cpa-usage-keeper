@@ -47,6 +47,8 @@ import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import { getDailyAverageCardUsage, isDailyAverageRange } from '@/utils/usage/overview';
 import type { Theme } from '@/types';
 import { BrandLink } from '@/components/BrandLink';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
+import { DashboardToolbar } from '@/components/dashboard/DashboardToolbar';
 import { cpamcEmbedSearch, isCPAMCEmbed } from '@/embed/cpamcEmbed';
 import { RankingPage } from '@/features/ranking/RankingPage';
 import { RankingScopeSwitch } from '@/features/ranking/components/RankingScopeSwitch';
@@ -1932,9 +1934,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const dailyAverageCardUsage = getDailyAverageCardUsage(currentOverviewUsage, usage, reserveDailyAverageCard, loading);
 
   return (
-    <div className={styles.pageShell} data-keeper-page="usage">
+    <div className={`${styles.pageShell} ${!isEmbeddedInCPAMC ? styles.standalone : ''}`.trim()} data-keeper-page="usage">
       <div className={styles.pageFrame}>
-        <header className={styles.topBar}>
+        {isEmbeddedInCPAMC ? <header className={styles.topBar}>
           <div className={styles.brandBlock}>
             <BrandLink className={styles.eyebrow} />
           </div>
@@ -1991,7 +1993,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               {loggingOut ? t('common.loading') : t('common.logout')}
             </MainActionButton>
           </div>
-        </header>
+        </header> : <DashboardHeader
+          backToCPA={cpaManagementURL || undefined}
+          onLogout={handleRequestLogout}
+          loggingOut={loggingOut}
+          onCheckUpdates={shouldShowUpdateCheckButton(versionInfo) ? () => void handleUpdateCheck() : undefined}
+          checkingUpdates={updateCheckLoading}
+          updateAvailable={hasNewVersion}
+        />}
 
         <main className={styles.contentColumn}>
           <div className={styles.container}>
@@ -2000,28 +2009,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <div className={styles.loadingOverlayContent}>
                   <LoadingSpinner size={28} className={styles.loadingOverlaySpinner} />
                   <span className={styles.loadingOverlayText}>{t('common.loading')}</span>
-                </div>
-              </div>
-            )}
-
-            {(!isEmbeddedInCPAMC && cpaManagementURL) && (
-              <div className={styles.toolbarMetaRow}>
-                <div className={styles.toolbarMetaRight}>
-                  <a
-                    className={styles.backToCpaLink}
-                    href={cpaManagementURL}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={t('usage_stats.back_to_cpa_aria')}
-                  >
-                    <span>{t('usage_stats.back_to_cpa')}</span>
-                    <span className={styles.backToCpaIcon} aria-hidden="true">
-                      <svg viewBox="0 0 16 16" focusable="false">
-                        <path d="M6 4h6v6" />
-                        <path d="M12 4 5 11" />
-                      </svg>
-                    </span>
-                  </a>
                 </div>
               </div>
             )}
@@ -2049,7 +2036,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            <div className={styles.toolbarRow}>
+            {isEmbeddedInCPAMC ? <div className={styles.toolbarRow}>
               <div
                 className={`${styles.tabBar} ${!isEmbeddedInCPAMC ? styles.tabBarConnected : ''}`.trim()}
                 role="tablist"
@@ -2141,6 +2128,27 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 </div>
               </div>
             </div>
+
+            : <DashboardToolbar
+              activeId={activeTab}
+              items={tabOptions.map((option) => ({ id: option.value, label: option.label, href: appPath(getUsageTabPath(option.value)) }))}
+              onNavigate={activateUsageTab}
+              filters={showRangeControls ? [
+                <Select
+                  key="api-key"
+                  value={selectedApiKeyId}
+                  options={apiKeySelectOptions}
+                  onChange={setSelectedApiKeyId}
+                  ariaLabel={`${t('usage_stats.api_key_filter')}: ${apiKeySelectOptions.find((option) => option.value === selectedApiKeyId)?.label ?? ''}`}
+                  fullWidth={false}
+                  dropdownMinWidth={180}
+                  renderValue={(option) => <><span data-dashboard-filter-caption>{t('usage_stats.api_key_filter')}</span><span data-dashboard-filter-value>{option?.label}</span></>}
+                />,
+                <TimeRangeControl key="range" value={timeRange} customRange={activeCustomRange} timeZone={rangeTimeZone} maxCustomDayRangeDays={activeTab === 'events' ? REQUEST_EVENTS_CUSTOM_DAY_RANGE_MAX_DAYS : undefined} onChange={handleTimeRangeChange} ariaLabel={t('usage_stats.range_filter')} labelInsideTrigger />,
+              ] : showRankingScopeControl ? [<RankingScopeSwitch key="ranking-scope" value={rankingScope} onChange={handleRankingScopeChange} />] : []}
+              onRefresh={() => void handleManualRefresh().catch(() => {})}
+              refreshing={manualRefreshLoading}
+            />}
 
             {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
             {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
