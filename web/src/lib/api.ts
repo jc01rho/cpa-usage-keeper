@@ -784,6 +784,15 @@ export async function fetchCodexQuotaHistory(
   return response.json()
 }
 
+export async function deleteCodexQuotaHistoryCycle(authIndex: string, cycleId: number, signal?: AbortSignal): Promise<void> {
+  const response = await apiFetch(apiPath(`/quota/history/${encodeURIComponent(authIndex)}/cycles/${cycleId}`), {
+    method: 'DELETE', signal,
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to delete Codex quota cycle: ${response.status}`)
+  }
+}
+
 export async function refreshUsageQuotas(authIndexes: string[], signal?: AbortSignal): Promise<UsageQuotaRefreshResponse> {
   // refresh 会创建后台任务，前端提交当前页所有 auth_index。
   const response = await apiFetch(apiPath('/quota/refresh'), {
