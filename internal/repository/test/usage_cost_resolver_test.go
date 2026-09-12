@@ -314,6 +314,89 @@ func TestBuildUsageOverviewWithFilterFallsBackToDailyAliasPricingWhenModelPriceM
 	}
 }
 
+func TestBuildAnalysisWithFilterMergesProviderPrefixedModelIntoRegisteredName(t *testing.T) {
+	db := openUsageCostResolverDatabase(t, "usage-analysis-prefix-merge.db")
+	upsertUsageCostResolverPrice(t, db, "deepseek-v4.1-flash", 4)
+	bucket := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.CPAAPIKey{APIKey: "api-key", DisplayKey: "sk-*********merge"}).Error; err != nil {
+		t.Fatalf("seed CPA API key: %v", err)
+	}
+	// 同一个上游模型的两种写法 + 两个不同客户端 alias，应归并为一行。
+	for _, row := range []struct {
+		model string
+		alias string
+	}{
+		{model: "deepseek/deepseek-v4.1-flash", alias: "my-deepseek"},
+		{model: "deepseek/deepseek-v4.1-flash", alias: "your-deepseek"},
+		{model: "deepseek-v4.1-flash", alias: ""},
+	} {
+		if err := db.Create(&entities.UsageOverviewHourlyStat{
+			BucketStart:  bucket,
+			APIGroupKey:  "api-key",
+			Model:        row.model,
+			ModelAlias:   row.alias,
+			RequestCount: 1,
+			InputTokens:  1_000_000,
+			TotalTokens:  1_000_000,
+			CreatedAt:    bucket,
+			UpdatedAt:    bucket,
+		}).Error; err != nil {
+			t.Fatalf("seed hourly stat %+v: %v", row, err)
+		}
+	}
+
+	start := bucket
+	end := bucket.Add(time.Hour)
+	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+	if len(analysis.ModelComposition) != 1 {
+		t.Fatalf("expected the three naming variants to merge into one model row, got %+v", analysis.ModelComposition)
+	}
+	if analysis.ModelComposition[0].Key != "deepseek-v4.1-flash" {
+		t.Fatalf("expected merged row to use the registered model name, got %+v", analysis.ModelComposition[0])
+	}
+	if analysis.ModelComposition[0].Requests != 3 {
+		t.Fatalf("expected merged row to sum all three requests, got %+v", analysis.ModelComposition[0])
+	}
+	if len(analysis.ModelEfficiency) != 1 || analysis.ModelEfficiency[0].Model != "deepseek-v4.1-flash" {
+		t.Fatalf("expected model efficiency to merge too, got %+v", analysis.ModelEfficiency)
+	}
+	assertUsageCostClose(t, analysis.CostBreakdown.TotalCostUSD, 12)
+}
+
+func TestBuildAnalysisWithFilterKeepsUnregisteredSlashedModelIntact(t *testing.T) {
+	db := openUsageCostResolverDatabase(t, "usage-analysis-slash-intact.db")
+	upsertUsageCostResolverPrice(t, db, "meta-llama/llama-3-70b", 5)
+	bucket := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.CPAAPIKey{APIKey: "api-key", DisplayKey: "sk-*********slash"}).Error; err != nil {
+		t.Fatalf("seed CPA API key: %v", err)
+	}
+	if err := db.Create(&entities.UsageOverviewHourlyStat{
+		BucketStart:  bucket,
+		APIGroupKey:  "api-key",
+		Model:        "meta-llama/llama-3-70b",
+		RequestCount: 1,
+		InputTokens:  1_000_000,
+		TotalTokens:  1_000_000,
+		CreatedAt:    bucket,
+		UpdatedAt:    bucket,
+	}).Error; err != nil {
+		t.Fatalf("seed hourly stat: %v", err)
+	}
+
+	start := bucket
+	end := bucket.Add(time.Hour)
+	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{StartTime: &start, EndTime: &end}, newUsageCostResolverForTest(t, db))
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+	if len(analysis.ModelComposition) != 1 || analysis.ModelComposition[0].Key != "meta-llama/llama-3-70b" {
+		t.Fatalf("expected model name containing '/' to stay intact, got %+v", analysis.ModelComposition)
+	}
+}
+
 func TestBuildAnalysisWithFilterUsesModelPricingWhenAliasDiffers(t *testing.T) {
 	db := openUsageCostResolverDatabase(t, "usage-analysis-model-cost.db")
 	upsertUsageCostResolverPrice(t, db, "base-model", 10)

@@ -30,6 +30,60 @@ func TestResolverPrefersModelThenFallsBackToAlias(t *testing.T) {
 	}
 }
 
+func TestResolverStripsProviderPrefixOnlyWhenSuffixIsPriced(t *testing.T) {
+	t.Parallel()
+
+	resolver := compileResolver(t, pricing.ModelConfig{Pricing: testPricingWithPrompt("deepseek-v4.1-flash", 4)})
+
+	// "deepseek/deepseek-v4.1-flash" 前缀去掉后命中已注册的 "deepseek-v4.1-flash"，应当合并计价。
+	result := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: "deepseek/deepseek-v4.1-flash"}, helper.UsageTokenCostInput{InputTokens: 1_000_000}))
+	assertResultCost(t, result, 4)
+	if result.MatchedModel != "deepseek-v4.1-flash" || result.MatchedBy != "model_prefix_stripped" {
+		t.Fatalf("expected prefix-stripped match, got %+v", result)
+	}
+
+	// 无注册匹配时，即使包含 "/" 也不能猜测地剥离前缀（可能是模型名自身包含 "/"）。
+	unmatched := resolver.Calculate(pricing.NewCostSubject(pricing.UsageDimensions{Model: "meta-llama/llama-3-70b"}, helper.UsageTokenCostInput{InputTokens: 1}))
+	if unmatched.Available {
+		t.Fatalf("expected no match without a registered suffix or full name, got %+v", unmatched)
+	}
+}
+
+func TestResolveModelNameMergesOnlyByModelDimensionNeverByAlias(t *testing.T) {
+	t.Parallel()
+
+	resolver := compileResolver(t,
+		pricing.ModelConfig{Pricing: testPricingWithPrompt("deepseek-v4.1-flash", 4)},
+		pricing.ModelConfig{Pricing: testPricingWithPrompt("my-deepseek", 4)},
+	)
+
+	// 已注册的原名直接保留。
+	if got := resolver.ResolveModelName(pricing.UsageDimensions{Model: "deepseek-v4.1-flash"}); got != "deepseek-v4.1-flash" {
+		t.Fatalf("expected registered model name to be kept, got %q", got)
+	}
+	// 带 provider 前缀且去前缀后命中注册名 → 合并到该注册名。
+	if got := resolver.ResolveModelName(pricing.UsageDimensions{Model: "deepseek/deepseek-v4.1-flash"}); got != "deepseek-v4.1-flash" {
+		t.Fatalf("expected prefix-stripped canonical name, got %q", got)
+	}
+	// 同一个 upstream 模型被多个不同 alias 调用，仍归到同一个 model 规范名。
+	for _, alias := range []string{"my-deepseek", "your-deepseek", ""} {
+		if got := resolver.ResolveModelName(pricing.UsageDimensions{Model: "deepseek/deepseek-v4.1-flash", ModelAlias: alias}); got != "deepseek-v4.1-flash" {
+			t.Fatalf("alias %q must not change the merged model name, got %q", alias, got)
+		}
+	}
+	// alias 已注册也不能改写展示维度：alias 兜底只用于计价，不用于归并。
+	if got := resolver.ResolveModelName(pricing.UsageDimensions{Model: "unregistered-upstream-name", ModelAlias: "my-deepseek"}); got != "unregistered-upstream-name" {
+		t.Fatalf("expected real model name to survive alias pricing fallback, got %q", got)
+	}
+	// "/" 可能是模型名自身的一部分；去前缀后没有注册名时不能猜测地剥离。
+	if got := resolver.ResolveModelName(pricing.UsageDimensions{Model: "meta-llama/llama-3-70b"}); got != "meta-llama/llama-3-70b" {
+		t.Fatalf("expected unregistered slashed name to stay intact, got %q", got)
+	}
+	if got := resolver.ResolveModelName(pricing.UsageDimensions{Model: ""}); got != "unknown" {
+		t.Fatalf("expected empty model to canonicalize to unknown, got %q", got)
+	}
+}
+
 func TestResolverPreservesMissingPriceAvailabilityContract(t *testing.T) {
 	t.Parallel()
 
