@@ -42,6 +42,7 @@ type UsageAggregator interface {
 
 type LocalStatus struct {
 	Status                    Status     `json:"status"`
+	Banned                    bool       `json:"banned,omitempty"`
 	DisplayName               string     `json:"display_name,omitempty"`
 	AvatarID                  uint8      `json:"avatar_id,omitempty"`
 	ParticipantID             string     `json:"participant_id,omitempty"`
@@ -342,7 +343,7 @@ func (s *Service) deleteParticipantLocked(ctx context.Context, state State, retr
 	if err != nil {
 		return localStatus(state), err
 	}
-	_, err = s.center.Delete(ctx, DeleteCommand{
+	receipt, err := s.center.Delete(ctx, DeleteCommand{
 		Credentials: credentialsFromState(allocated), Sequence: allocated.LastAllocatedSequence,
 		IdempotencyKey: idempotencyKey, RequestedAt: now,
 	})
@@ -361,7 +362,7 @@ func (s *Service) deleteParticipantLocked(ctx context.Context, state State, retr
 		_ = s.recordError(ctx, err)
 		return s.currentStatus(ctx), err
 	}
-	deleted, markErr := s.markDeleted(ctx)
+	deleted, markErr := s.markDeleted(ctx, receipt.Banned || errors.Is(err, ErrParticipantBanned))
 	if markErr != nil {
 		return LocalStatus{}, markErr
 	}
@@ -429,7 +430,7 @@ func (s *Service) finishJoiningLocked(ctx context.Context, state State, syncAfte
 	})
 	if err != nil {
 		if errors.Is(err, ErrParticipantDeleted) {
-			deleted, markErr := s.markDeleted(ctx)
+			deleted, markErr := s.markDeleted(ctx, errors.Is(err, ErrParticipantBanned))
 			if markErr != nil {
 				return LocalStatus{}, markErr
 			}
@@ -481,13 +482,13 @@ func (s *Service) reconcileLocked(ctx context.Context, state State) (State, erro
 	remote, err := s.center.Self(ctx, credentialsFromState(state), now)
 	if err != nil {
 		if errors.Is(err, ErrParticipantDeleted) {
-			return s.markDeleted(ctx)
+			return s.markDeleted(ctx, errors.Is(err, ErrParticipantBanned))
 		}
 		_ = s.recordError(ctx, err)
 		return State{}, err
 	}
 	if remote.Status == "deleted" {
-		return s.markDeleted(ctx)
+		return s.markDeleted(ctx, remote.Banned)
 	}
 	if remote.Status != "active" && remote.Status != "revoked" {
 		err := fmt.Errorf("ranking center returned an invalid participant status")
@@ -614,7 +615,7 @@ func (s *Service) submitRangeLocked(ctx context.Context, start, end time.Time, p
 	})
 	if err != nil {
 		if errors.Is(err, ErrParticipantDeleted) {
-			if _, markErr := s.markDeleted(ctx); markErr != nil {
+			if _, markErr := s.markDeleted(ctx, errors.Is(err, ErrParticipantBanned)); markErr != nil {
 				return ReportReceipt{}, markErr
 			}
 			return ReportReceipt{}, ErrParticipantDeleted
@@ -644,12 +645,13 @@ func (s *Service) submitRangeLocked(ctx context.Context, start, end time.Time, p
 	return receipt, nil
 }
 
-func (s *Service) markDeleted(context.Context) (State, error) {
+func (s *Service) markDeleted(_ context.Context, banned bool) (State, error) {
 	// 中心已经确认删除后，本地墓碑不能被浏览器断开取消；独立上限防止持久化无限等待。
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	return s.store.Update(ctx, func(next *State) error {
 		next.Status = StatusDeleted
+		next.Banned = next.Banned || banned
 		next.LastError = ""
 		return nil
 	})
@@ -680,7 +682,7 @@ func (s *Service) currentStatus(ctx context.Context) LocalStatus {
 
 func localStatus(state State) LocalStatus {
 	return LocalStatus{
-		Status: state.Status, DisplayName: state.DisplayName, AvatarID: state.AvatarID,
+		Status: state.Status, Banned: state.Banned, DisplayName: state.DisplayName, AvatarID: state.AvatarID,
 		ParticipantID:             state.ParticipantID,
 		LastSuccessfulCompleteDay: state.LastSuccessfulCompleteDay,
 		LastSuccessfulSyncAt:      state.LastSuccessfulSyncAt, LastAttemptAt: state.LastAttemptAt, LastError: state.LastError,
