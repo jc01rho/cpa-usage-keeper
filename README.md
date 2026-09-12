@@ -6,28 +6,26 @@
   </picture>
 </p>
 
-> **This is a fork** of [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper) maintained by [jc01rho](https://github.com/jc01rho), intended for use with the [CLIProxyAPIPlus](https://github.com/jc01rho/CLIProxyAPIPlus) fork.
-> 
-> This fork tracks upstream closely and primarily differs in its integration target (CLIProxyAPIPlus instead of upstream CLIProxyAPI).
+<h1 align="center">CPA Usage Keeper</h1>
+
+<p align="center"><em>Every flow leaves a trace.</em></p>
 
 <p align="center">
   <a href="./README.md"><strong>English</strong></a> ｜ <a href="./README.zh.md">简体中文</a>
 </p>
 
-<h1 align="center">CPA Usage Keeper</h1>
-
-<p align="center">Every flow leaves a trace.</p>
-
 <p align="center">
-  <a href="https://github.com/Willxup/cpa-usage-keeper/releases/latest"><img src="https://img.shields.io/github/v/release/Willxup/cpa-usage-keeper?style=flat-square" alt="Latest release" /></a>
-  <a href="https://github.com/Willxup/cpa-usage-keeper/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Willxup/cpa-usage-keeper/ci.yml?branch=main&amp;style=flat-square&amp;label=CI" alt="CI status" /></a>
-  <a href="https://github.com/Willxup/cpa-usage-keeper/pkgs/container/cpa-usage-keeper"><img src="https://img.shields.io/badge/Docker-GHCR-2496ED?style=flat-square&amp;logo=docker&amp;logoColor=white" alt="Docker image on GHCR" /></a>
-  <a href="https://github.com/Willxup/homebrew-cpa-usage-keeper"><img src="https://img.shields.io/badge/Homebrew-supported-FBB040?style=flat-square&amp;logo=homebrew&amp;logoColor=black" alt="Homebrew supported" /></a>
-  <a href="https://github.com/Willxup/cpa-usage-keeper/releases/latest"><img src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&amp;logo=linux&amp;logoColor=black" alt="Linux supported" /></a>
-  <a href="https://github.com/Willxup/cpa-usage-keeper/releases/latest"><img src="https://img.shields.io/badge/macOS-A2AAAD?style=flat-square&amp;logo=apple&amp;logoColor=black" alt="macOS supported" /></a>
-  <a href="https://github.com/Willxup/cpa-usage-keeper/releases/latest"><img src="https://img.shields.io/badge/Windows-0078D4?style=flat-square&amp;logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTIgMy41IDExIDJ2OUgyem0xMC0xLjdMMjIgLjNWMTFIMTJ6TTIgMTJoOXY5TDIgMTkuNXptMTAgMGgxMHYxMC43bC0xMC0xLjV6Ii8+PC9zdmc%2B" alt="Windows supported" /></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/github/license/Willxup/cpa-usage-keeper?style=flat-square" alt="MIT License" /></a>
+  <a href="https://github.com/jc01rho/cpa-usage-keeper/releases/latest"><img src="https://img.shields.io/github/v/release/jc01rho/cpa-usage-keeper?style=flat-square" alt="Latest release" /></a>
+  <a href="https://github.com/jc01rho/cpa-usage-keeper/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jc01rho/cpa-usage-keeper/ci.yml?branch=main&amp;style=flat-square&amp;label=CI" alt="CI status" /></a>
+  <a href="https://github.com/jc01rho/cpa-usage-keeper/releases/latest"><img src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&amp;logo=linux&amp;logoColor=black" alt="Linux supported" /></a>
+  <a href="https://github.com/jc01rho/cpa-usage-keeper/releases/latest"><img src="https://img.shields.io/badge/macOS-A2AAAD?style=flat-square&amp;logo=apple&amp;logoColor=black" alt="macOS supported" /></a>
+  <a href="https://github.com/jc01rho/cpa-usage-keeper/releases/latest"><img src="https://img.shields.io/badge/Windows-0078D4?style=flat-square&amp;logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTIgMy41IDExIDJ2OUgyem0xMC0xLjdMMjIgLjNWMTFIMTJ6TTIgMTJoOXY5TDIgMTkuNXptMTAgMGgxMHYxMC43bC0xMC0xLjV6Ii8+PC9zdmc%2B" alt="Windows supported" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/jc01rho/cpa-usage-keeper?style=flat-square" alt="MIT License" /></a>
 </p>
+
+> **This is a fork** of [CPA Usage Keeper](https://github.com/Willxup/cpa-usage-keeper) maintained by [jc01rho](https://github.com/jc01rho), intended for use with the [CLIProxyAPIPlus](https://github.com/jc01rho/CLIProxyAPIPlus) fork.
+>
+> This fork tracks upstream closely and primarily differs in its integration target (CLIProxyAPIPlus instead of upstream CLIProxyAPI).
 
 CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI). It stores CPA usage in SQLite, pulls CPA configuration and credential data, and provides views for usage, cost, request health, quotas, and model/API statistics.
 
@@ -70,6 +68,18 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
   </picture>
 </p>
 
+## Why This Fork
+
+Everything upstream ships, plus the pieces needed to run against [CLIProxyAPIPlus](https://github.com/jc01rho/CLIProxyAPIPlus):
+
+| Addition | What it does |
+| --- | --- |
+| **Multi-instance support** | Register several CPA instances in one Keeper. Filter usage, ranking, and request events per instance; a deterministic `Legacy` instance keeps pre-migration data intact. |
+| **Keeper export protocol (`/api/v1/export/*`)** | Bearer-credential push API for usage batches and metadata (auth files, API keys, provider identities). Strict JSON validation, replay-safe ingestion, Argon2id-hashed credentials. See the [operator runbook](docs/keeper-export.md). |
+| **tokscale bridge** | `scripts/tokscale_bridge.py` exports keeper-priced usage to gjc JSONL for [tokscale](https://github.com/junhoyeo/tokscale) analytics and leaderboard submission, with optional systemd timer. See [docs/tokscale-bridge.md](docs/tokscale-bridge.md). |
+| **OpenRouter pricing sync** | Optional `OPENROUTER_API_KEY` auto-fetches model pricing for cost estimates. |
+| **Raw event cleanup toggle** | `CLEANUP_USAGE_EVENTS_ENABLED` controls whether daily maintenance deletes `usage_events` older than 90 local days. |
+
 ## Features
 
 - [Keeper export operator runbook](docs/keeper-export.md) — migration, credentials, ingestion, recovery, and release operations.
@@ -81,7 +91,7 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 - Opt into community rankings by overall score, tokens, requests, cache rate, average TTFT/latency, or peak TPM/RPM
 - Open a read-only usage view scoped to an individual CPA API Key
 - Sync CPA Auth Files, API Keys, and AI Providers automatically, and maintain model pricing for cost estimates
-- Deploy with Docker/Docker Compose, Homebrew, binaries, or systemd, with optional password protection
+- Deploy with Docker/Docker Compose, binaries, or systemd, with optional password protection
 - Embed the Keeper dashboard in CPAMC through the CPA plugin
 
 ## Sponsors and Special Thanks
@@ -100,12 +110,14 @@ Docker Compose is the recommended deployment method. Use the full stack when dep
 
 | Setup | Recommended path | Architectures |
 | --- | --- | --- |
-| New CPA + Keeper deployment | [Docker Compose: CPA + Keeper](#docker-compose-recommended) | `linux/amd64`, `linux/arm64` |
-| Existing CPA deployment | [Docker Compose: Keeper only](#docker-compose-recommended) | `linux/amd64`, `linux/arm64` |
-| Existing CPA, Docker CLI preferred | [Docker](#docker-cpa-already-runs-on-the-host) | `linux/amd64`, `linux/arm64` |
-| macOS | [Homebrew](#macos-homebrew) | `amd64`, `arm64` |
+| New CPA + Keeper deployment | [Docker Compose: CPA + Keeper](#docker-compose-recommended) (builds the image locally) | `linux/amd64`, `linux/arm64` |
+| Existing CPA deployment | [Docker Compose: Keeper only](#docker-compose-recommended) (builds the image locally) | `linux/amd64`, `linux/arm64` |
+| Existing CPA, Docker CLI preferred | [Docker](#docker-cpa-already-runs-on-the-host) (builds the image locally) | `linux/amd64`, `linux/arm64` |
+| macOS | [macOS binary](#macos-binary) | `amd64`, `arm64` |
 | Linux without containers | [Linux binary](#linux-binary) | `amd64`, `arm64` |
 | Windows | [Windows binary](#windows-binary) | `amd64`, `arm64` |
+
+> This fork does not publish a Docker image or a Homebrew tap. Container deployments build the image from the included `Dockerfile`; macOS uses the release binaries.
 
 Login protection is enabled by default. Configure `LOGIN_PASSWORD` before starting Keeper, or explicitly set `AUTH_ENABLED=false` only when access is reliably isolated by the deployment environment.
 
@@ -183,10 +195,6 @@ npm --prefix ./web run build
 
 ## Deployment
 
-### Docker Compose（推荐）
-
-仓库提供了一个最简 `docker-compose.example.yml` 示例，用于同时部署 CPA 和 CPA Usage Keeper：
-
 ### Docker Compose (Recommended)
 
 Docker Compose is recommended for both a complete CPA + Keeper stack and a Keeper-only deployment.
@@ -212,7 +220,8 @@ services:
       - cpa-network
 
   cpa-usage-keeper:
-    image: ghcr.io/willxup/cpa-usage-keeper:latest
+    build:
+      context: https://github.com/jc01rho/cpa-usage-keeper.git
     container_name: cpa-usage-keeper
     restart: unless-stopped
     depends_on:
@@ -238,18 +247,22 @@ networks:
 
 Set `KEEPER_LOGIN_PASSWORD` in the shell or the Compose `.env` file before starting.
 
+This fork does not publish a Docker image, so the `build` above compiles Keeper from this repository. To use a local checkout instead, replace the `build` block with `build: .` inside a clone.
+
 Run `docker compose up -d` to start the stack and `docker compose down` to stop it.
 
 CPA data is stored under `./cpa`, and Keeper data is stored under `./keeper`.
 
 #### Keeper Only
 
-When CPA is already deployed, use the repository's Keeper-only Compose template:
+When CPA is already deployed, use the repository's Keeper-only Compose template. The template references the upstream image; this fork does not publish one, so point `build` at a local clone (or a remote `context`) instead of `image`:
 
 ```bash
 cp deploy/docker-compose.example.yml docker-compose.yml
 cp .env.example .env
 vim .env
+# in docker-compose.yml, replace `image: ghcr.io/willxup/cpa-usage-keeper:latest` with:
+#   build: .
 ```
 
 For CPA running on the Docker host, start with:
@@ -271,48 +284,37 @@ Keeper data is stored under `./data` by the provided template.
 
 ### Docker (CPA Already Runs On The Host)
 
-Use the same `.env` values as the Keeper-only Compose setup when you prefer `docker run`:
+Build the image from a local clone, then use the same `.env` values as the Keeper-only Compose setup:
 
 ```bash
+docker build -t cpa-usage-keeper .
 docker run -d \
   --name cpa-usage-keeper \
   --add-host=host.docker.internal:host-gateway \
   -p 8080:8080 \
   -v "$(pwd)/keeper:/data" \
   --env-file .env \
-  ghcr.io/willxup/cpa-usage-keeper:latest
+  cpa-usage-keeper
 ```
 
-### macOS Homebrew
+### macOS Binary
 
-Homebrew is the recommended macOS installation method:
+Download the `darwin_amd64` or `darwin_arm64` archive from [Releases](https://github.com/jc01rho/cpa-usage-keeper/releases/latest), then extract and run it:
 
 ```bash
-brew tap Willxup/cpa-usage-keeper
-brew install cpa-usage-keeper
+mkdir -p cpa-usage-keeper
+tar -xzf ./cpa-usage-keeper_*_darwin_*.tar.gz -C cpa-usage-keeper --strip-components=1
+cd cpa-usage-keeper
+cp .env.example .env
+vim .env
+./cpa-usage-keeper
 ```
 
-Set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD`, then start the service:
-
-```bash
-vim "$(brew --prefix)/etc/cpa-usage-keeper.env"
-brew services start cpa-usage-keeper
-```
-
-Upgrade and service commands:
-
-```bash
-brew services list
-brew services restart cpa-usage-keeper
-brew update
-brew upgrade cpa-usage-keeper
-```
-
-Data is stored under `$(brew --prefix)/var/cpa-usage-keeper`; logs are written under `$(brew --prefix)/var/log/`.
+Set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD` before starting. To run Keeper as a background service on macOS, create a `launchd` plist or use a process manager of your choice.
 
 ### Linux Binary
 
-Download the `linux_amd64` or `linux_arm64` archive from [Releases](https://github.com/Willxup/cpa-usage-keeper/releases/latest), then extract and run it:
+Download the `linux_amd64` or `linux_arm64` archive from [Releases](https://github.com/jc01rho/cpa-usage-keeper/releases/latest), then extract and run it:
 
 ```bash
 mkdir -p cpa-usage-keeper
@@ -351,7 +353,7 @@ cpa-usage-keeper -v               # Print the build version and exit; --version 
 
 ### Windows Binary
 
-Download the `windows_amd64` or `windows_arm64` ZIP package from [Releases](https://github.com/Willxup/cpa-usage-keeper/releases/latest) and extract it. In PowerShell, open the extracted package directory and run:
+Download the `windows_amd64` or `windows_arm64` ZIP package from [Releases](https://github.com/jc01rho/cpa-usage-keeper/releases/latest) and extract it. In PowerShell, open the extracted package directory and run:
 
 ```powershell
 Copy-Item .env.example .env
