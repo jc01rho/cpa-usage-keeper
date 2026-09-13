@@ -11,7 +11,7 @@
 <p align="center"><em>Every flow leaves a trace.</em></p>
 
 <p align="center">
-  <a href="./README.md"><strong>English</strong></a> ｜ <a href="./README.zh.md">简体中文</a>
+  <a href="./README.md"><strong>English</strong></a> ｜ <a href="./README.zh.md">简体中文</a> ｜ <a href="./README.ko.md">한국어</a>
 </p>
 
 <p align="center">
