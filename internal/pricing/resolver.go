@@ -98,8 +98,13 @@ func stripProviderPrefix(model string) (string, bool) {
 
 // ResolveModelName 返回该 usage 行应归并展示的规范模型名。
 //
-// 只在 model 维度自身可以被判定为同一个上游模型时才归并：
-// model 原名已注册则用原名；带 provider 前缀且去掉前缀后的名字已注册，则归到该注册名。
+// 只在 model 维度自身可以被判定为同一个上游模型时才归并：带 provider 前缀且
+// 去掉前缀后的名字已注册，则归到该注册名。
+//
+// 带前缀的名字自己也可能已注册（如 "deepseek/deepseek-v4.1-flash" 和
+// "deepseek-v4.1-flash" 同时存在于价格表）。这种情况下仅当两边的价格与规则
+// 完全一致时才归并：价格不同意味着它们是不同的计费实体，合并会扭曲成本。
+//
 // 刻意不使用 model_alias 兜底：alias 兜底是"未定价模型借用 alias 价格"的计价规则，
 // 而 alias 是客户端任意取的名字，用它改写展示维度会让真实模型名被别名覆盖
 // （见 TestBuildAnalysisWithFilterFallsBackToAliasPricingWhenModelPriceMissing）。
@@ -108,15 +113,59 @@ func (r Resolver) ResolveModelName(dimensions UsageDimensions) string {
 	if r.snapshot == nil {
 		return canonical.Model
 	}
-	if _, ok := r.snapshot.modelsByName[canonical.Model]; ok {
+	suffix, hasPrefix := stripProviderPrefix(canonical.Model)
+	if !hasPrefix {
 		return canonical.Model
 	}
-	if suffix, ok := stripProviderPrefix(canonical.Model); ok {
-		if _, ok := r.snapshot.modelsByName[suffix]; ok {
-			return suffix
+	bare, bareRegistered := r.snapshot.modelsByName[suffix]
+	if !bareRegistered {
+		// 去前缀后没有注册名，无法区分前缀是 provider 命名空间还是模型名自身
+		// 包含的 "/"（如 "meta-llama/llama-3-70b"），保持原样。
+		return canonical.Model
+	}
+	prefixed, prefixedRegistered := r.snapshot.modelsByName[canonical.Model]
+	if prefixedRegistered && !sameBilling(prefixed, bare) {
+		// 两边都注册但计费不同，视为不同实体，不合并。
+		return canonical.Model
+	}
+	return suffix
+}
+
+// sameBilling 判断两个已编译模型是否在计费上完全等价。
+// 单价相同但规则不同时，实际扣费仍会不同，所以规则也必须逐条比较。
+func sameBilling(a, b compiledModel) bool {
+	if a.pricing.PricingStyle != b.pricing.PricingStyle ||
+		a.pricing.PromptPricePer1M != b.pricing.PromptPricePer1M ||
+		a.pricing.CompletionPricePer1M != b.pricing.CompletionPricePer1M ||
+		a.pricing.CacheReadPricePer1M != b.pricing.CacheReadPricePer1M ||
+		a.pricing.CacheWritePricePer1M != b.pricing.CacheWritePricePer1M {
+		return false
+	}
+	if priceMultiplierValue(a.pricing.PriceMultiplier) != priceMultiplierValue(b.pricing.PriceMultiplier) {
+		return false
+	}
+	if len(a.rules) != len(b.rules) {
+		return false
+	}
+	// rules 按输入顺序编译，未排序，所以按多重集合比较，避免仅顺序不同被误判为不等。
+	counts := make(map[compiledRule]int, len(a.rules))
+	for _, rule := range a.rules {
+		counts[rule]++
+	}
+	for _, rule := range b.rules {
+		counts[rule]--
+		if counts[rule] < 0 {
+			return false
 		}
 	}
-	return canonical.Model
+	return true
+}
+
+func priceMultiplierValue(multiplier *float64) float64 {
+	if multiplier == nil {
+		return 1
+	}
+	return *multiplier
 }
 
 func matchingRuleMultiplier(rules []compiledRule, dimensions UsageDimensions) float64 {

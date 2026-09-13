@@ -84,6 +84,73 @@ func TestResolveModelNameMergesOnlyByModelDimensionNeverByAlias(t *testing.T) {
 	}
 }
 
+// 带前缀名和无前缀名可能同时存在于价格表（生产环境实际情况）。
+// 价格一致时应归并到无前缀名；价格不同时是不同计费实体，必须分开。
+func TestResolveModelNameMergesRegisteredPrefixedNameOnlyWhenBillingMatches(t *testing.T) {
+	t.Parallel()
+
+	resolver := compileResolver(t,
+		pricing.ModelConfig{Pricing: testPricingWithPrompt("deepseek-v4.1-flash", 0.15)},
+		pricing.ModelConfig{Pricing: testPricingWithPrompt("deepseek/deepseek-v4.1-flash", 0.15)},
+		pricing.ModelConfig{Pricing: testPricingWithPrompt("claude-opus-5", 15)},
+		pricing.ModelConfig{Pricing: testPricingWithPrompt("aion/claude-opus-5", 3)},
+	)
+
+	// 两边都注册且价格完全相同 → 归并到无前缀名。
+	if got := resolver.ResolveModelName(pricing.UsageDimensions{Model: "deepseek/deepseek-v4.1-flash"}); got != "deepseek-v4.1-flash" {
+		t.Fatalf("expected identically priced prefixed name to merge, got %q", got)
+	}
+	// 两边都注册但价格不同 → 保持分开，否则成本会被单一单价抹平。
+	if got := resolver.ResolveModelName(pricing.UsageDimensions{Model: "aion/claude-opus-5"}); got != "aion/claude-opus-5" {
+		t.Fatalf("expected differently priced prefixed name to stay separate, got %q", got)
+	}
+}
+
+// 乘数或规则不同时，即使单价相同实际扣费也不同，不能归并。
+func TestResolveModelNameKeepsPrefixedNameWhenMultiplierOrRulesDiffer(t *testing.T) {
+	t.Parallel()
+
+	multiplierResolver := compileResolver(t,
+		pricing.ModelConfig{Pricing: testPricingWithPromptAndMultiplier("glm-5.1", 1, 1)},
+		pricing.ModelConfig{Pricing: testPricingWithPromptAndMultiplier("glm/glm-5.1", 1, 0.5)},
+	)
+	if got := multiplierResolver.ResolveModelName(pricing.UsageDimensions{Model: "glm/glm-5.1"}); got != "glm/glm-5.1" {
+		t.Fatalf("expected differing price multiplier to block the merge, got %q", got)
+	}
+
+	rulesResolver := compileResolver(t,
+		pricing.ModelConfig{Pricing: testPricingWithPrompt("kimi-k3", 1)},
+		pricing.ModelConfig{
+			Pricing: testPricingWithPrompt("aion/kimi-k3", 1),
+			Rules:   []pricing.RuleConfig{{Key: "service_tier", Value: "batch", Multiplier: 0.5}},
+		},
+	)
+	if got := rulesResolver.ResolveModelName(pricing.UsageDimensions{Model: "aion/kimi-k3"}); got != "aion/kimi-k3" {
+		t.Fatalf("expected differing rules to block the merge, got %q", got)
+	}
+
+	// 规则集合相同但顺序不同，仍应视为等价而归并。
+	orderResolver := compileResolver(t,
+		pricing.ModelConfig{
+			Pricing: testPricingWithPrompt("mimo-v2.5-pro", 1),
+			Rules: []pricing.RuleConfig{
+				{Key: "service_tier", Value: "batch", Multiplier: 0.5},
+				{Key: "reasoning_effort", Value: "high", Multiplier: 2},
+			},
+		},
+		pricing.ModelConfig{
+			Pricing: testPricingWithPrompt("mim/mimo-v2.5-pro", 1),
+			Rules: []pricing.RuleConfig{
+				{Key: "reasoning_effort", Value: "high", Multiplier: 2},
+				{Key: "service_tier", Value: "batch", Multiplier: 0.5},
+			},
+		},
+	)
+	if got := orderResolver.ResolveModelName(pricing.UsageDimensions{Model: "mim/mimo-v2.5-pro"}); got != "mimo-v2.5-pro" {
+		t.Fatalf("expected rule order to be irrelevant for the merge, got %q", got)
+	}
+}
+
 func TestResolverPreservesMissingPriceAvailabilityContract(t *testing.T) {
 	t.Parallel()
 
