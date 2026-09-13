@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="./README.md">English</a> ｜ <a href="./README.zh.md"><strong>简体中文</strong></a>
+  <a href="./README.md">English</a> ｜ <a href="./README.zh.md"><strong>简体中文</strong></a> ｜ <a href="./README.ko.md">한국어</a>
 </p>
 
 <h1 align="center">CPA Usage Keeper</h1>
