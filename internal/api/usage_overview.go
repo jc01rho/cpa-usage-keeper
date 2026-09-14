@@ -4,8 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -54,6 +57,7 @@ type usageOverviewSeries struct {
 }
 
 type usageOverviewRealtime struct {
+	Insights             *usageRealtimeInsights            `json:"insights,omitempty"`
 	Window               string                            `json:"window"`
 	Timezone             string                            `json:"timezone"`
 	BucketSeconds        int64                             `json:"bucket_seconds"`
@@ -68,6 +72,7 @@ type usageOverviewRealtime struct {
 }
 
 type keyUsageOverviewRealtime struct {
+	Insights             *usageRealtimeInsights               `json:"insights,omitempty"`
 	Window               string                               `json:"window"`
 	Timezone             string                               `json:"timezone"`
 	BucketSeconds        int64                                `json:"bucket_seconds"`
@@ -185,6 +190,20 @@ func registerKeyOverviewRoute(router gin.IRoutes, usageProvider service.UsagePro
 		filter.InstanceID = apiKey.InstanceID
 		writeUsageOverviewResponse(c, usageProvider, filter)
 	})
+	router.GET("/key-overview/comparisons", func(c *gin.Context) {
+		session, viewerKey, ok := activeAPIKeyViewerContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+		filter, err := parseKeyUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		filter.APIKeyID = fmt.Sprintf("%d", session.CPAAPIKeyID)
+		writeUsageOverviewComparisonsResponse(c, usageProvider, filter, nil, true, &viewerKey)
+	})
 	router.GET("/key-overview/realtime", func(c *gin.Context) {
 		session, apiKey, ok := activeAPIKeyViewerContext(c)
 		if !ok {
@@ -215,6 +234,14 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 		}
 		writeUsageOverviewResponse(c, usageProvider, filter)
 	})
+	router.GET("/usage/overview/comparisons", func(c *gin.Context) {
+		filter, err := parseUsageOverviewTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+		if err != nil {
+			writeUsageFilterParseError(c, err)
+			return
+		}
+		writeUsageOverviewComparisonsResponse(c, usageProvider, filter, cpaAPIKeyProvider, false, nil)
+	})
 	router.GET("/usage/overview/realtime", func(c *gin.Context) {
 		filter, err := parseUsageRealtimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
 		if err != nil {
@@ -223,6 +250,32 @@ func registerUsageOverviewRoute(router gin.IRoutes, usageProvider service.UsageP
 		}
 		writeUsageOverviewRealtimeResponse(c, usageProvider, cpaAPIKeyProvider, filter)
 	})
+}
+
+func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter, cpaAPIKeyProvider service.CPAAPIKeyProvider, keyViewer bool, viewerKey *entities.CPAAPIKey) {
+	comparisonProvider, ok := usageProvider.(service.UsageComparisonProvider)
+	if !ok {
+		c.JSON(http.StatusOK, usageOverviewComparisons{Models: []usageOverviewComparisonItem{}})
+		return
+	}
+	overview, err := comparisonProvider.GetUsageOverviewComparisons(c.Request.Context(), filter)
+	if err != nil {
+		writeUsageProviderError(c, "get usage overview comparisons failed", err)
+		return
+	}
+	apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
+	if err != nil {
+		return
+	}
+	if keyViewer && viewerKey != nil && viewerKey.ID > 0 && viewerKey.APIKey != "" {
+		apiKeyInfos[viewerKey.APIKey] = analysisAPIKeyInfo{ID: strconv.FormatInt(viewerKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(*viewerKey)}
+	}
+	comparisons := buildUsageOverviewComparisons(overview, apiKeyInfos)
+	if keyViewer {
+		comparisons.AuthFiles = nil
+		comparisons.AIProviders = nil
+	}
+	c.JSON(http.StatusOK, comparisons)
 }
 
 func writeUsageOverviewResponse(c *gin.Context, usageProvider service.UsageProvider, filter servicedto.UsageFilter) {
@@ -452,6 +505,7 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		return emptyUsageOverviewRealtime(window)
 	}
 	result := usageOverviewRealtime{
+		Insights:             mapUsageRealtimeInsights(realtime.Insights),
 		Window:               realtime.Window,
 		Timezone:             time.Local.String(),
 		BucketSeconds:        realtime.BucketSeconds,
@@ -516,6 +570,7 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 		return emptyKeyUsageOverviewRealtime(window)
 	}
 	result := keyUsageOverviewRealtime{
+		Insights:             mapUsageRealtimeInsights(realtime.Insights),
 		Window:               realtime.Window,
 		Timezone:             time.Local.String(),
 		BucketSeconds:        realtime.BucketSeconds,
@@ -640,10 +695,6 @@ func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopI
 			InstanceID: item.InstanceID,
 			Key:        analysisAPIKeyResponseKeyForInstance(item.InstanceID, item.Key, apiKeyInfos),
 			Label:      analysisAPIKeyLabelForInstance(item.InstanceID, item.Key, apiKeyInfos),
-			Tokens:     item.Tokens,
-			Requests:   item.Requests,
-			Cost:       item.CostUSD,
-			Share:      item.Share,
 		})
 	}
 	return result

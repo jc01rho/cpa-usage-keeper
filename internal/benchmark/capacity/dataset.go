@@ -515,6 +515,7 @@ func eventInsertArgs(event generatedEvent) []any {
 	timestamp := timeutil.FormatStorageTime(event.Timestamp)
 	return []any{
 		event.ID, entities.LegacyCPAInstanceID, event.EventKey, event.APIGroupKey, event.Provider, event.Endpoint, event.AuthType, event.RequestID,
+		"", "",
 		nil, nil, nil, event.Model, event.ModelAlias, event.ReasoningEffort, event.ServiceTier, event.ResponseServiceTier,
 		event.ExecutorType, timestamp, event.Source, event.AuthIndex, event.Failed, true, event.LatencyMS, event.TTFTMS,
 		event.InputTokens, event.OutputTokens, event.ReasoningTokens, event.CachedTokens, event.CacheReadTokens,
