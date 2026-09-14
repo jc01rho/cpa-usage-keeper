@@ -243,6 +243,28 @@ describe('UsagePage top API Key request event filter', () => {
     expect(api.exportUsageEvents).toHaveBeenLastCalledWith(expect.objectContaining({ range: 'yesterday' }), 'json', expect.objectContaining({ apiKeyId: '11' }));
   });
 
+  it('excludes the selected API keys from overview, analysis and request events queries', async () => {
+    window.history.replaceState(null, '', '/overview');
+    await render();
+    const excludeCheckbox = (label: string) => Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))
+      .find((node) => node.parentElement?.textContent?.trim() === label)!;
+    await act(async () => excludeCheckbox('Overview key').click());
+    expect(api.fetchUsageOverview.mock.lastCall![2]).toBe('');
+    expect(api.fetchUsageOverview.mock.lastCall![3]).toEqual(['11']);
+    await act(async () => excludeCheckbox('Events key').click());
+    expect(api.fetchUsageOverview.mock.lastCall![3]).toEqual(['11', '22']);
+    const navigate = async (path: string) => {
+      await act(async () => container.querySelector<HTMLAnchorElement>(`[data-dashboard-toolbar] a[href="${path}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })));
+    };
+    await navigate('/analysis');
+    expect(api.fetchAnalysis.mock.lastCall![3]).toEqual(['11', '22']);
+    await navigate('/request-events');
+    expect(api.fetchUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '', excludedApiKeyIds: ['11', '22'] });
+    await act(async () => button('Export').click());
+    await act(async () => button('Export JSON').click());
+    expect(api.exportUsageEvents.mock.lastCall![2]).toMatchObject({ apiKeyId: '', excludedApiKeyIds: ['11', '22'] });
+  });
+
   it('keeps the top selection effective on overview and analysis after leaving Request Events', async () => {
     await render();
     await choose(topKey(), 'Other key');
