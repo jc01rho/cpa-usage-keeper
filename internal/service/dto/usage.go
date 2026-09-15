@@ -25,23 +25,23 @@ type UsageFilter struct {
 	// ActivityWindow 承载 Activity 的显式 window 请求；普通范围仍使用上面的统一时间字段。
 	ActivityWindow UsageActivityWindow
 	// RealtimeWindow 控制 Overview 实时图表短窗口，独立于页面主查询范围。
-	RealtimeWindow  string
-	RealtimeEndTime *time.Time
-	Limit           int
-	Page            int
-	PageSize        int
-	Offset          int
-	CursorMode      bool
-	CursorTimestamp *time.Time
-	CursorID        int64
-	SkipTotalCount  bool
-	Model           string
-	Source          string
-	AuthIndex       string
-	AuthType        string
-	APIKeyID        string
+	RealtimeWindow    string
+	RealtimeEndTime   *time.Time
+	Limit             int
+	Page              int
+	PageSize          int
+	Offset            int
+	CursorMode        bool
+	CursorTimestamp   *time.Time
+	CursorID          int64
+	SkipTotalCount    bool
+	Model             string
+	Source            string
+	AuthIndex         string
+	AuthType          string
+	APIKeyID          string
 	ExcludedAPIKeyIDs []string
-	Result          string
+	Result            string
 }
 
 // UsageEventsPage 是 usage events 列表的服务层结果。

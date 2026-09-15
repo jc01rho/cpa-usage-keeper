@@ -404,8 +404,8 @@ func TestUsageOverviewRealtimeAcceptsWindowAndReturnsRealtimeBlock(t *testing.T)
 			t.Fatalf("expected realtime response to contain %s, got %s", expected, body)
 		}
 	}
-	if contains(body, "sk-*********123456") {
-		t.Fatalf("expected obsolete masked API key identity to be absent, got %s", body)
+	if contains(body, "sk-alpha123456") {
+		t.Fatalf("expected raw API key identity to be masked, got %s", body)
 	}
 }
 

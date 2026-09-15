@@ -961,7 +961,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, costR
 				}
 			}
 		}
-				boundaryIdentityLookup, err = loadAnalysisIdentityLookup(db, effectiveFilter.InstanceID, authIndexes)
+		boundaryIdentityLookup, err = loadAnalysisIdentityLookup(db, effectiveFilter.InstanceID, authIndexes)
 		if err != nil {
 			return nil, err
 		}
@@ -2111,7 +2111,8 @@ func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, even
 }
 
 // applyUsageEventToOverview 把边界 raw event 合并进 Overview，语义必须和 stats row 合并保持一致。
-func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, costResolver pricing.Resolver, identityLookups ...analysisIdentityLookup) {	overview.Summary.InputTokens += event.InputTokens
+func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, costResolver pricing.Resolver, identityLookups ...analysisIdentityLookup) {
+	overview.Summary.InputTokens += event.InputTokens
 	overview.Summary.CacheReadTokens += event.CacheReadTokens
 	overview.Summary.CacheCreationTokens += event.CacheCreationTokens
 	overview.Summary.ReasoningTokens += event.ReasoningTokens

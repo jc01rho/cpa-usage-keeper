@@ -81,7 +81,7 @@ func loadAndApplyUsageOverviewStats(overview *dto.UsageOverviewRecord, db *gorm.
 				}
 			}
 		}
-				identityLookup, err = loadAnalysisIdentityLookup(db, filter.InstanceID, authIndexes)
+		identityLookup, err = loadAnalysisIdentityLookup(db, filter.InstanceID, authIndexes)
 		if err != nil {
 			return err
 		}

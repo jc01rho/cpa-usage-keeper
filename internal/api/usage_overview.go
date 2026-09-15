@@ -1,10 +1,12 @@
 package api
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
@@ -691,11 +693,38 @@ func mapUsageOverviewRealtimeTopItems(items []servicedto.RealtimeUsageTopItem) [
 func mapUsageOverviewRealtimeAPIKeyTopItems(items []servicedto.RealtimeUsageTopItem, apiKeyInfos map[string]analysisAPIKeyInfo) []usageOverviewRealtimeUsageTopItem {
 	result := make([]usageOverviewRealtimeUsageTopItem, 0, len(items))
 	for _, item := range items {
+		instanceID := item.InstanceID
+		rawKey := item.Key
+		key := analysisAPIKeyResponseKeyForInstance(instanceID, rawKey, apiKeyInfos)
+		label := analysisAPIKeyLabelForInstance(instanceID, rawKey, apiKeyInfos)
+		if _, ok := apiKeyInfos[apiKeyInfoLookupKey(instanceID, rawKey)]; !ok && !apiKeyInfoExists(apiKeyInfos, instanceID, rawKey) {
+			key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(rawKey)))
+			if trimmed := strings.TrimSpace(rawKey); len(trimmed) > 6 {
+				label = "sk-*********" + trimmed[len(trimmed)-6:]
+			} else {
+				label = analysisAPIKeyLabelForInstance(instanceID, rawKey, apiKeyInfos)
+			}
+		}
 		result = append(result, usageOverviewRealtimeUsageTopItem{
-			InstanceID: item.InstanceID,
-			Key:        analysisAPIKeyResponseKeyForInstance(item.InstanceID, item.Key, apiKeyInfos),
-			Label:      analysisAPIKeyLabelForInstance(item.InstanceID, item.Key, apiKeyInfos),
+			InstanceID: instanceID,
+			Key:        key,
+			Label:      label,
+			Tokens:     item.Tokens,
+			Requests:   item.Requests,
+			Cost:       item.CostUSD,
+			Share:      item.Share,
 		})
 	}
 	return result
+}
+
+func apiKeyInfoExists(infos map[string]analysisAPIKeyInfo, instanceID, apiKey string) bool {
+	if _, ok := infos[apiKeyInfoLookupKey(instanceID, apiKey)]; ok {
+		return true
+	}
+	if instanceID == "" {
+		_, ok := infos[apiKey]
+		return ok
+	}
+	return false
 }
