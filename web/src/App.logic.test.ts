@@ -19,7 +19,7 @@ describe('App role route normalization', () => {
   });
 
   it('routes API Key viewers to their page and renders the admin usage page without the removed filter prop', () => {
-    expect(appSource).toContain("<KeyOverviewPage apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />");
+    expect(appSource).toContain("<KeyOverviewPage page={keyViewerPath === '/key-realtime' ? 'realtime' : 'overview'} apiKey={sessionAPIKey} onNavigate={handleKeyViewerNavigate} onAuthRequired={clearSession} />");
     expect(appSource).toContain("<UsagePage onAuthRequired={clearSession} />");
     expect(appSource).not.toContain('canFilterByInstance=');
   });

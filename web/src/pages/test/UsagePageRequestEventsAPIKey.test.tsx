@@ -272,7 +272,7 @@ describe('UsagePage top API Key request event filter', () => {
       await act(async () => container.querySelector<HTMLAnchorElement>(`[data-dashboard-toolbar] a[href="${path}"]`)!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })));
     };
     await navigate('/overview');
-    expect(api.fetchUsageOverview).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), '33');
+    expect(api.fetchUsageOverview).toHaveBeenLastCalledWith(expect.anything(), expect.any(AbortSignal), '33', undefined);
     expect(api.fetchUsageOverviewRealtime).not.toHaveBeenCalled();
     expect(api.fetchUsageActivity).toHaveBeenLastCalledWith(expect.objectContaining({ apiKeyId: '33' }));
     const overviewCalls = api.fetchUsageOverview.mock.calls.length;

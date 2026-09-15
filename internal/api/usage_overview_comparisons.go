@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sort"
+	"strings"
 
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -50,12 +51,17 @@ func mapUsageOverviewComparison(items map[string]*repodto.UsageComparisonItemRec
 			label = item.Key
 		}
 		if apiKeys {
-			label = analysisAPIKeyLabel(item.Key, infos)
 			if info, ok := infos[item.Key]; ok && info.ID != "" {
+				label = analysisAPIKeyLabel(item.Key, infos)
 				key = info.ID
 			} else {
 				// 已删除的 Key 仍需独立标识；不能以可能相同的脱敏文本合并不同历史 Key。
 				key = fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(item.Key)))
+				if trimmed := strings.TrimSpace(item.Key); len(trimmed) > 6 {
+					label = "sk-*********" + trimmed[len(trimmed)-6:]
+				} else {
+					label = analysisAPIKeyLabel(item.Key, infos)
+				}
 			}
 		}
 		var cost *float64
