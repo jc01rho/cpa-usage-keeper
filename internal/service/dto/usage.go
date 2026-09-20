@@ -67,6 +67,7 @@ type UsageEventRecord struct {
 	APIGroupKey         string
 	Model               string
 	ModelAlias          string
+	ResponseModel       string
 	ReasoningEffort     string
 	ServiceTier         string
 	ResponseServiceTier string
