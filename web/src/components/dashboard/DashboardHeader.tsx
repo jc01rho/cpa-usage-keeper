@@ -1,10 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BrandLink } from '@/components/BrandLink';
+import { IconExternalLink, IconMonitor, IconMoon, IconMoreHorizontal, IconSun } from '@/components/ui/icons';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { IconExternalLink, IconMoreHorizontal, IconSun, IconMoon, IconMonitor } from '@/components/ui/icons';
-import { Select } from '@/components/ui/Select';
-import { isSupportedLanguage, persistLanguage } from '@/i18n';
 import { useThemeStore } from '@/stores';
 import styles from './DashboardHeader.module.scss';
 
@@ -19,15 +17,13 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ backToCPA, identity, onLogout, loggingOut = false, onCheckUpdates, checkingUpdates = false, updateAvailable = false }: DashboardHeaderProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const language = isSupportedLanguage(i18n.language) ? i18n.language : 'en';
-  const languages = [{ value: 'en', label: 'English' }, { value: 'zh', label: '简体中文' }, { value: 'zh-TW', label: '繁體中文' }];
   const themes = [{ value: 'white', label: t('usage_stats.theme_light') }, { value: 'dark', label: t('usage_stats.theme_dark') }, { value: 'auto', label: t('usage_stats.theme_auto') }];
   const selectedTheme = theme === 'light' ? 'white' : theme;
   const nextTheme = selectedTheme === 'white' ? 'dark' : selectedTheme === 'dark' ? 'auto' : 'white';
@@ -51,19 +47,6 @@ export function DashboardHeader({ backToCPA, identity, onLogout, loggingOut = fa
     <div className={styles.actions}>
       {backToCPA && <a className={styles.back} href={backToCPA} target="_blank" rel="noreferrer" aria-label={t('usage_stats.back_to_cpa_aria')}><span className={styles.backFull}>{t('usage_stats.back_to_cpa')}</span><span className={styles.backShort}>CPA</span><IconExternalLink size={14} aria-hidden="true" /></a>}
       {identity && <span className={styles.identity} title={identity}>{identity}</span>}
-      <Select
-        value={language}
-        options={languages}
-        onChange={(next) => {
-          if (isSupportedLanguage(next)) void i18n.changeLanguage(next).then(() => persistLanguage(next));
-        }}
-        ariaLabel={`${t('usage_stats.language_switch')}: ${languages.find((option) => option.value === language)?.label}`}
-        className={styles.iconSelect}
-        dropdownMinWidth={160}
-        fullWidth={false}
-        showChevron={false}
-        renderValue={() => <span data-dashboard-language={language}>{language === 'zh' ? '中' : language === 'zh-TW' ? '繁' : 'EN'}</span>}
-      />
       <button
         type="button"
         className={styles.themeToggle}

@@ -114,15 +114,10 @@ describe('DashboardHeader actions', () => {
     expect(document.querySelector('[role="listbox"]')).toBeNull();
   });
 
-  it('keeps the shared language listbox and restores focus after selection', async () => {
+  it('hides the language selector when English is the only supported language', async () => {
     await act(async () => root.render(<DashboardHeader onLogout={vi.fn()} />));
-    const language = container.querySelector<HTMLButtonElement>('[aria-label="usage_stats.language_switch: English"]')!;
-    await act(async () => language.click());
-    const chinese = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(option => option.textContent === '简体中文')!;
-    await act(async () => chinese.click());
-    expect(changeLanguage).toHaveBeenCalledWith('zh');
-    expect(document.activeElement).toBe(language);
-    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(container.querySelector('[aria-label^="usage_stats.language_switch"]')).toBeNull();
+    expect(changeLanguage).not.toHaveBeenCalled();
   });
 
 });
