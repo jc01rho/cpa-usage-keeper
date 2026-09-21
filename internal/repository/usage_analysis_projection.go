@@ -71,13 +71,13 @@ func analysisOverviewProjectionColumns(activeFields pricing.ActiveFields) string
 
 func loadAnalysisOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
 	query := db.Model(&entities.UsageOverviewHourlyStat{}).
-		Joins("LEFT JOIN cpa_api_keys ON cpa_api_keys.instance_id = usage_overview_hourly_stats.instance_id AND cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key")
+		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.instance_id = usage_overview_hourly_stats.instance_id AND cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
 	return loadAnalysisOverviewStatProjection(query, filter, start, end, "hourly", "usage_overview_hourly_stats", activeFields)
 }
 
 func loadAnalysisOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, activeFields pricing.ActiveFields) ([]analysisOverviewStatProjection, error) {
 	query := db.Model(&entities.UsageOverviewDailyStat{}).
-		Joins("LEFT JOIN cpa_api_keys ON cpa_api_keys.instance_id = usage_overview_daily_stats.instance_id AND cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key")
+		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.instance_id = usage_overview_daily_stats.instance_id AND cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
 	return loadAnalysisOverviewStatProjection(query, filter, start, end, "daily", "usage_overview_daily_stats", activeFields)
 }
 

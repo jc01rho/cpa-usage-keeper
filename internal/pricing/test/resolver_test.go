@@ -187,7 +187,6 @@ func TestResolverWithoutRulesMatchesLegacyHelperForEveryTokenSegmentAndModelMult
 		{name: "nil multiplier alias fallback", dimensions: pricing.UsageDimensions{Model: "missing-model", ModelAlias: "priced-model"}, matchedBy: "model_alias"},
 		{name: "zero multiplier", multiplier: &zero, dimensions: pricing.UsageDimensions{Model: "priced-model"}, matchedBy: "model"},
 	} {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 			setting := entities.ModelPriceSetting{
@@ -342,13 +341,18 @@ func TestResolverCalculateHasNoHeapAllocations(t *testing.T) {
 	}
 }
 
-func compileResolver(t *testing.T, configs ...pricing.ModelConfig) pricing.Resolver {
+func compileSnapshot(t testing.TB, configs ...pricing.ModelConfig) *pricing.Snapshot {
 	t.Helper()
 	snapshot, err := pricing.CompileSnapshot(configs)
 	if err != nil {
 		t.Fatalf("CompileSnapshot returned error: %v", err)
 	}
-	return pricing.NewCatalog(snapshot).NewResolver()
+	return snapshot
+}
+
+func compileResolver(t *testing.T, configs ...pricing.ModelConfig) pricing.Resolver {
+	t.Helper()
+	return pricing.NewCatalog(compileSnapshot(t, configs...)).NewResolver()
 }
 
 func testPricingWithPrompt(model string, prompt float64) entities.ModelPriceSetting {
@@ -356,12 +360,12 @@ func testPricingWithPrompt(model string, prompt float64) entities.ModelPriceSett
 }
 
 func testPricingWithPromptAndMultiplier(model string, prompt, multiplier float64) entities.ModelPriceSetting {
-	pricingSetting := testPricing(model, multiplier)
-	pricingSetting.PromptPricePer1M = prompt
-	pricingSetting.CompletionPricePer1M = 0
-	pricingSetting.CacheReadPricePer1M = 0
-	pricingSetting.CacheWritePricePer1M = 0
-	return pricingSetting
+	return entities.ModelPriceSetting{
+		Model:            model,
+		PricingStyle:     entities.ModelPricingStyleOpenAI,
+		PromptPricePer1M: prompt,
+		PriceMultiplier:  &multiplier,
+	}
 }
 
 func assertResultCost(t *testing.T, result pricing.CostResult, want float64) {

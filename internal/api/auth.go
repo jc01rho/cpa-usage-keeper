@@ -263,7 +263,7 @@ func (h *authHandler) getSession(c *gin.Context) {
 			return
 		}
 		response.APIKey = &sessionAPIKeyResponse{
-			DisplayKey:          helper.CPAAPIKeyDisplayKey(row),
+			DisplayKey:          helper.CPAAPIKeyMaskedDisplayKey(row),
 			Alias:               row.KeyAlias,
 			LocalRankingEnabled: h.config.APIKeyViewerLocalRankingEnabled,
 		}

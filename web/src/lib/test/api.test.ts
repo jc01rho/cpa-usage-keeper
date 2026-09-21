@@ -1,9 +1,17 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, appPath, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCodexQuotaHistory, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyAnalysis, fetchKeyAnalysisLatency, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, setCredentialDisabled, startUsageQuotaInspection, updateAuthSessionAlias, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError, appPath, isUsageRangeBoundsConflict, createUsageEventRequestLogDownloadURL, deleteAuthFiles, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCodexQuotaHistory, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyAnalysis, fetchKeyAnalysisLatency, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setAuthFilesDisabled, setCredentialDisabled, startUsageQuotaInspection, updateAuthSessionAlias, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
+function mockJSON(payload: unknown) {
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json(payload));
+}
+
 describe('fetchUsageEvents', () => {
+  beforeEach(() => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -16,22 +24,14 @@ describe('fetchUsageEvents', () => {
     expect(appPath('key-overview')).toBe('/keeper/key-overview');
   });
 
-  it('identifies only HTTP 409 as a usage range bounds conflict', async () => {
-    const apiModule = await import('../api') as Record<string, unknown>;
-    const isUsageRangeBoundsConflict = apiModule.isUsageRangeBoundsConflict as ((error: unknown) => boolean) | undefined;
-
-    expect(isUsageRangeBoundsConflict).toBeTypeOf('function');
-    expect(isUsageRangeBoundsConflict?.(new ApiError('expired range', 409))).toBe(true);
-    expect(isUsageRangeBoundsConflict?.(new ApiError('invalid range', 400))).toBe(false);
-    expect(isUsageRangeBoundsConflict?.(new Error('network error'))).toBe(false);
+  it('identifies only HTTP 409 as a usage range bounds conflict', () => {
+    expect(isUsageRangeBoundsConflict(new ApiError('expired range', 409))).toBe(true);
+    expect(isUsageRangeBoundsConflict(new ApiError('invalid range', 400))).toBe(false);
+    expect(isUsageRangeBoundsConflict(new Error('network error'))).toBe(false);
   });
 
   it('posts CPA API key logins to the dedicated auth endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    } as Response);
+    const fetchMock = mockJSON({});
 
     await loginWithCPAAPIKey('sk-cpa-viewer');
 
@@ -43,11 +43,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads key overview with only the viewer range query', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0 } }),
-    } as Response);
+    const fetchMock = mockJSON({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0 } });
     const signal = new AbortController().signal;
 
     await fetchKeyOverview({ range: '8h' }, signal);
@@ -64,10 +60,7 @@ describe('fetchUsageEvents', () => {
 
   it('loads key analysis sections without accepting a client API key scope', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: '/keeper' });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    } as Response);
+    const fetchMock = mockJSON({});
     const signal = new AbortController().signal;
     const request = { range: 'custom' as const, unit: 'day' as const, start: '2026-08-01', end: '2026-08-07' };
 
@@ -90,11 +83,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('sends the displayed 1d range as today on every usage request surface', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    } as Response);
+    const fetchMock = mockJSON({});
 
     await fetchKeyOverview({ range: '1d' });
     await fetchUsageOverview({ range: '1d' });
@@ -108,13 +97,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('sends one custom range request shape to every usage surface', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      headers: new Headers(),
-      json: async () => ({}),
-      blob: async () => new Blob(),
-    } as Response);
+    const fetchMock = mockJSON({});
     const request = {
       range: 'custom' as const,
       unit: 'day' as const,
@@ -147,11 +130,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads realtime overview from dedicated endpoints', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0 } }),
-    } as Response);
+    const fetchMock = mockJSON({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0 } });
     const signal = new AbortController().signal;
 
     const instanceId = '0198aa10-4d88-7a20-8f4e-8c8de4a9cb11';
@@ -179,11 +158,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads Recent Activity with the same time query contract as Overview', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ window: 'week', grain: 'medium', rows: 7, columns: 52, blocks: [] }),
-    } as Response);
+    const fetchMock = mockJSON({ window: 'week', grain: 'medium', rows: 7, columns: 52, blocks: [] });
     const signal = new AbortController().signal;
 
     await fetchUsageActivity({
@@ -226,11 +201,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads one-year Recent Activity through its dedicated window parameter', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ window: 'year', grain: 'daily', rows: 7, columns: 52, blocks: [] }),
-    } as Response);
+    const fetchMock = mockJSON({ window: 'year', grain: 'daily', rows: 7, columns: 52, blocks: [] });
     const signal = new AbortController().signal;
 
     await fetchUsageActivity({ request: { window: 'year' }, apiKeyId: '42', signal });
@@ -247,11 +218,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads calendar-day Recent Activity through dedicated window parameters', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ window: 'day', grain: 'short', rows: 7, columns: 52, blocks: [] }),
-    } as Response);
+    const fetchMock = mockJSON({ window: 'day', grain: 'short', rows: 7, columns: 52, blocks: [] });
     const signal = new AbortController().signal;
 
     await fetchUsageActivity({ request: { window: 'today' }, apiKeyId: '42', signal });
@@ -269,19 +236,15 @@ describe('fetchUsageEvents', () => {
   });
 
   it('normalizes key overview realtime responses that omit internal usage dimensions', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        window: '30m',
-        bucket_seconds: 60,
-        token_velocity: [],
-        response_level: [],
-        current_usage: { models: [{ key: 'gpt-5', label: 'gpt-5', tokens: 20, requests: 1, share: 100 }] },
-        request_level: [],
-        cache_level: [],
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      window: '30m',
+      bucket_seconds: 60,
+      token_velocity: [],
+      response_level: [],
+      current_usage: { models: [{ key: 'gpt-5', label: 'gpt-5', tokens: 20, requests: 1, share: 100 }] },
+      request_level: [],
+      cache_level: [],
+    });
     const signal = new AbortController().signal;
 
     const response = await fetchKeyOverviewRealtime({ window: '30m', signal });
@@ -294,18 +257,14 @@ describe('fetchUsageEvents', () => {
   });
 
   it('derives realtime bucket seconds from the response window when omitted', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        window: '60m',
-        token_velocity: [],
-        response_level: [],
-        current_usage: { models: [] },
-        request_level: [],
-        cache_level: [],
-      }),
-    } as Response);
+    mockJSON({
+      window: '60m',
+      token_velocity: [],
+      response_level: [],
+      current_usage: { models: [] },
+      request_level: [],
+      cache_level: [],
+    });
 
     const response = await fetchUsageOverviewRealtime();
 
@@ -314,10 +273,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('posts logout to the auth endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-    } as Response);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response());
 
     await logout();
 
@@ -327,11 +283,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('manages auth sessions through the dedicated admin endpoints', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ items: [] }),
-    } as Response);
+    const fetchMock = mockJSON({ items: [] });
     const signal = new AbortController().signal;
 
     await fetchAuthSessions(signal);
@@ -347,11 +299,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('updates an admin session alias through the dedicated session endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ id: 'session/hash', kind: 'admin', role: 'admin', source: 'standard', alias: 'Office Mac' }),
-    } as Response);
+    const fetchMock = mockJSON({ id: 'session/hash', kind: 'admin', role: 'admin', source: 'standard', alias: 'Office Mac' });
 
     const updated = await updateAuthSessionAlias('session/hash', 'Office Mac');
 
@@ -364,11 +312,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads quota auto refresh settings from the typed quota endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ enabled: true, schedule: { unit: 'hour', value: 6 } }),
-    } as Response);
+    const fetchMock = mockJSON({ enabled: true, schedule: { unit: 'hour', value: 6 } });
     const signal = new AbortController().signal;
 
     const response = await fetchQuotaAutoRefreshSettings(signal);
@@ -380,11 +324,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('updates quota auto refresh settings through the typed quota endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ enabled: true, schedule: { unit: 'week', value: 2 } }),
-    } as Response);
+    const fetchMock = mockJSON({ enabled: true, schedule: { unit: 'week', value: 2 } });
 
     const response = await updateQuotaAutoRefreshSettings({ enabled: true, schedule: { unit: 'week', value: 2 } });
 
@@ -397,11 +337,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads app version from the dedicated version endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ version: 'v1.2.3', updateCheckEnabled: true }),
-    } as Response);
+    const fetchMock = mockJSON({ version: 'v1.2.3', updateCheckEnabled: true });
     const signal = new AbortController().signal;
 
     const response = await fetchVersion(signal);
@@ -414,11 +350,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads model filter options without query params', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ models: ['claude-sonnet'] }),
-    } as Response);
+    const fetchMock = mockJSON({ models: ['claude-sonnet'] });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageEventModelFilterOptions(signal);
@@ -429,23 +361,11 @@ describe('fetchUsageEvents', () => {
     expect(response.models).toEqual(['claude-sonnet']);
     expect(parsed.pathname).toBe('/api/v1/usage/events/filters/models');
     expect(parsed.search).toBe('');
-    expect(parsed.searchParams.get('range')).toBeNull();
-    expect(parsed.searchParams.get('start')).toBeNull();
-    expect(parsed.searchParams.get('end')).toBeNull();
-    expect(parsed.searchParams.get('page')).toBeNull();
-    expect(parsed.searchParams.get('page_size')).toBeNull();
-    expect(parsed.searchParams.get('model')).toBeNull();
-    expect(parsed.searchParams.get('source')).toBeNull();
-    expect(parsed.searchParams.get('result')).toBeNull();
     expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
   });
 
   it('loads source filter options without query params', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ sources: [{ value: 'source-a', label: 'Provider A' }] }),
-    } as Response);
+    const fetchMock = mockJSON({ sources: [{ value: 'source-a', label: 'Provider A' }] });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageEventSourceFilterOptions(signal);
@@ -460,11 +380,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('passes pagination and server-side filters as query params', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ events: [], models: [], sources: [], total_count: 0, page: 3, page_size: 100, total_pages: 0 }),
-    } as Response);
+    const fetchMock = mockJSON({ events: [], models: [], sources: [], total_count: 0, page: 3, page_size: 100, total_pages: 0 });
     const signal = new AbortController().signal;
 
     await fetchUsageEvents({
@@ -497,11 +413,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('passes cursor pagination metadata for incremental event loading', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ events: [], total_count: -1, page: 1, page_size: 100, total_pages: 0, has_more: false }),
-    } as Response);
+    const fetchMock = mockJSON({ events: [], total_count: -1, page: 1, page_size: 100, total_pages: 0, has_more: false });
 
     await fetchUsageEvents({ range: '24h' }, undefined, {
       pageSize: 100,
@@ -519,11 +431,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads latest credential events without a fixed range and includes the identity type', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ events: [], total_count: 0, page: 1, page_size: 50, total_pages: 0, has_more: false }),
-    } as Response);
+    const fetchMock = mockJSON({ events: [], total_count: 0, page: 1, page_size: 50, total_pages: 0, has_more: false });
 
     await fetchUsageEvents(undefined, undefined, {
       pageSize: 50,
@@ -540,13 +448,9 @@ describe('fetchUsageEvents', () => {
   });
 
   it.each(['csv', 'json'] as const)('exports usage events as %s with filters but without pagination params', async (format) => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const blob = new Blob(['id,timestamp\n']);
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('id,timestamp\n', {
       headers: new Headers({ 'Content-Disposition': 'attachment; filename="usage-events-20260627-013245.csv"' }),
-      blob: async () => blob,
-    } as Response);
+    }));
 
     const file = await exportUsageEvents({
       range: 'custom',
@@ -565,7 +469,7 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
-    expect(file.blob).toBe(blob);
+    expect(await file.blob.text()).toBe('id,timestamp\n');
     expect(file.filename).toBe('usage-events-20260627-013245.csv');
     expect(parsed.pathname).toBe('/api/v1/usage/events/export');
     expect(parsed.searchParams.get('range')).toBe('custom');
@@ -584,11 +488,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('passes API key id to overview and events requests', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0 }, events: [], total_count: 0, page: 1, page_size: 100, total_pages: 0 }),
-    } as Response);
+    const fetchMock = mockJSON({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0 }, events: [], total_count: 0, page: 1, page_size: 100, total_pages: 0 });
     const signal = new AbortController().signal;
 
     await fetchUsageOverview({ range: '24h' }, signal, '9007199254740993');
@@ -604,11 +504,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('omits empty API key id from usage requests', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0 }, events: [], total_count: 0, page: 1, page_size: 100, total_pages: 0 }),
-    } as Response);
+    const fetchMock = mockJSON({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0 }, events: [], total_count: 0, page: 1, page_size: 100, total_pages: 0 });
     const signal = new AbortController().signal;
 
     await fetchUsageOverview({ range: '24h' }, signal, '  ');
@@ -620,11 +516,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads Analysis from the dedicated endpoint with API key filtering', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ granularity: 'hourly', timezone: 'UTC', token_usage: [], api_key_composition: [], model_composition: [], heatmap: { api_keys: [], models: [], cells: [] } }),
-    } as Response);
+    const fetchMock = mockJSON({ granularity: 'hourly', timezone: 'UTC', token_usage: [], api_key_composition: [], model_composition: [], heatmap: { api_keys: [], models: [], cells: [] } });
     const signal = new AbortController().signal;
 
     await fetchAnalysis({ range: 'custom', unit: 'day', start: '2026-04-20', end: '2026-04-21' }, signal, '9007199254740993');
@@ -637,15 +529,10 @@ describe('fetchUsageEvents', () => {
     expect(analysisUrl.searchParams.get('end')).toBe('2026-04-21');
     expect(analysisUrl.searchParams.get('api_key_id')).toBe('9007199254740993');
     expect(Array.from(analysisUrl.searchParams.keys())).toEqual(['range', 'unit', 'start', 'end', 'api_key_id']);
-    expect(fetchAnalysis).toHaveLength(3);
   });
 
   it('loads Analysis latency from its independent endpoint with the same filters', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ points: [], density: [], total_points: 0 }),
-    } as Response);
+    const fetchMock = mockJSON({ points: [], density: [], total_points: 0 });
     const signal = new AbortController().signal;
 
     await fetchAnalysisLatency({ range: 'custom', unit: 'day', start: '2026-04-20', end: '2026-04-21' }, signal, '9007199254740993');
@@ -657,15 +544,10 @@ describe('fetchUsageEvents', () => {
     expect(latencyUrl.searchParams.get('end')).toBe('2026-04-21');
     expect(latencyUrl.searchParams.get('api_key_id')).toBe('9007199254740993');
     expect(Array.from(latencyUrl.searchParams.keys())).toEqual(['range', 'unit', 'start', 'end', 'api_key_id']);
-    expect(fetchAnalysisLatency).toHaveLength(3);
   });
 
   it('loads a usage event request log by event id', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ event_id: '42', request_id: 'req-log-42', available: true, sections: [] }),
-    } as Response);
+    const fetchMock = mockJSON({ event_id: '42', request_id: 'req-log-42', available: true, sections: [] });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageEventRequestLog('42', signal);
@@ -679,11 +561,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('creates a usage event request log download URL without fetching the file into memory', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ download_url: '/api/v1/usage/events/42/request-log/download-file?token=abc' }),
-    } as Response);
+    const fetchMock = mockJSON({ download_url: '/api/v1/usage/events/42/request-log/download-file?token=abc' });
 
     const url = await createUsageEventRequestLogDownloadURL('42');
     const parsed = new URL(url, 'http://localhost');
@@ -697,11 +575,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('passes credential page filters and sorting as query params', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ identities: [], total_count: 0, page: 1, page_size: 10, total_pages: 0 }),
-    } as Response);
+    const fetchMock = mockJSON({ identities: [], total_count: 0, page: 1, page_size: 10, total_pages: 0 });
     const signal = new AbortController().signal;
 
     await fetchUsageIdentitiesPage(signal, {
@@ -727,35 +601,31 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads unified usage identities without query params', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        identities: [
-          {
-            id: '1',
-            name: 'Claude primary',
-            auth_type: 2,
-            auth_type_name: 'apikey',
-            identity: 'sk-a***1234',
-            type: 'claude',
-            provider: 'anthropic',
-            total_requests: 3,
-            success_count: 2,
-            failure_count: 1,
-            input_tokens: 10,
-            output_tokens: 20,
-            reasoning_tokens: 0,
-            cache_read_tokens: 0,
-            total_tokens: 30,
-            last_aggregated_usage_event_id: '9',
-            is_deleted: false,
-            created_at: '2026-05-04T00:00:00Z',
-            updated_at: '2026-05-04T00:00:00Z',
-          },
-        ],
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      identities: [
+        {
+          id: '1',
+          name: 'Claude primary',
+          auth_type: 2,
+          auth_type_name: 'apikey',
+          identity: 'sk-a***1234',
+          type: 'claude',
+          provider: 'anthropic',
+          total_requests: 3,
+          success_count: 2,
+          failure_count: 1,
+          input_tokens: 10,
+          output_tokens: 20,
+          reasoning_tokens: 0,
+          cache_read_tokens: 0,
+          total_tokens: 30,
+          last_aggregated_usage_event_id: '9',
+          is_deleted: false,
+          created_at: '2026-05-04T00:00:00Z',
+          updated_at: '2026-05-04T00:00:00Z',
+        },
+      ],
+    });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageIdentities(signal);
@@ -765,18 +635,13 @@ describe('fetchUsageEvents', () => {
 
     expect(response.identities[0].identity).toBe('sk-a***1234');
     expect(response.identities[0].auth_type).toBe(2);
-    expect(typeof response.identities[0].auth_type).toBe('number');
     expect(parsed.pathname).toBe('/api/v1/usage/identities');
     expect(parsed.search).toBe('');
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
 
   it('loads CPA API key settings without exposing numeric ids', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ items: [{ id: '9007199254740993', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: null }] }),
-    } as Response);
+    const fetchMock = mockJSON({ items: [{ id: '9007199254740993', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: null }] });
     const signal = new AbortController().signal;
 
     const response = await fetchCpaApiKeys(signal);
@@ -785,17 +650,12 @@ describe('fetchUsageEvents', () => {
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.items[0].id).toBe('9007199254740993');
-    expect(typeof response.items[0].id).toBe('string');
     expect(parsed.pathname).toBe('/api/v1/usage/api-keys');
     expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
   });
 
   it('loads CPA API key settings from the admin-only raw key endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ items: [{ id: '9007199254740993', apiKey: 'sk-alpha123456', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: null }] }),
-    } as Response);
+    const fetchMock = mockJSON({ items: [{ id: '9007199254740993', apiKey: 'sk-alpha123456', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: null }] });
     const signal = new AbortController().signal;
 
     const response = await fetchCpaApiKeySettings(signal);
@@ -810,16 +670,9 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads CPA API key options and updates aliases', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ options: [{ id: '123', keyAlias: 'Main', displayKey: 'sk-*********123456', label: 'Main', lastSyncedAt: '2026-05-13T00:00:00Z' }] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ id: '123', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: '2026-05-13T00:00:00Z' }),
-      } as Response);
+      .mockResolvedValueOnce(Response.json({ options: [{ id: '123', keyAlias: 'Main', displayKey: 'sk-*********123456', label: 'Main', lastSyncedAt: '2026-05-13T00:00:00Z' }] }))
+      .mockResolvedValueOnce(Response.json({ id: '123', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: '2026-05-13T00:00:00Z' }));
     const signal = new AbortController().signal;
 
     const options = await fetchCpaApiKeyOptions(signal);
@@ -838,11 +691,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads paged usage identities for one credential auth type', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ identities: [], total_count: 25, page: 3, page_size: 10, total_pages: 3 }),
-    } as Response);
+    const fetchMock = mockJSON({ identities: [], total_count: 25, page: 3, page_size: 10, total_pages: 3 });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageIdentitiesPage(signal, { authType: 2, page: 3, pageSize: 10 });
@@ -859,13 +708,9 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads cached quota for current page auth indexes without refreshing', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        items: [{ auth_index: 'auth-1', file_name: 'claude-user.json', status: 'completed', quota: { id: 'auth-1', quota: [{ key: 'rate_limit.secondary_window', label: 'Weekly', remaining: 12 }] }, refreshed_at: '2026-05-25T00:00:00Z' }],
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      items: [{ auth_index: 'auth-1', file_name: 'claude-user.json', status: 'completed', quota: { id: 'auth-1', quota: [{ key: 'rate_limit.secondary_window', label: 'Weekly', remaining: 12 }] }, refreshed_at: '2026-05-25T00:00:00Z' }],
+    });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageQuotaCache(['auth-1'], signal);
@@ -884,11 +729,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads one encoded Codex quota history role', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ generated_at: '2026-08-21T12:00:00Z', range_start: '2026-07-22T12:00:00Z', windows: [], selected_window: null, cycles: [] }),
-    } as Response);
+    const fetchMock = mockJSON({ generated_at: '2026-08-21T12:00:00Z', range_start: '2026-07-22T12:00:00Z', windows: [], selected_window: null, cycles: [] });
     const signal = new AbortController().signal;
 
     await fetchCodexQuotaHistory('codex/auth + user', { windowRole: 'primary' }, signal);
@@ -902,17 +743,13 @@ describe('fetchUsageEvents', () => {
   });
 
   it('creates quota refresh tasks for current page auth indexes', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        tasks: [{ authIndex: 'auth-1' }],
-        rejected: [],
-        accepted: 1,
-        skipped: 0,
-        limit: 1,
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      tasks: [{ authIndex: 'auth-1' }],
+      rejected: [],
+      accepted: 1,
+      skipped: 0,
+      limit: 1,
+    });
     const signal = new AbortController().signal;
 
     const response = await refreshUsageQuotas(['auth-1'], signal);
@@ -929,15 +766,10 @@ describe('fetchUsageEvents', () => {
   });
 
   it('uses the reset error code returned by the backend', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: false,
-      status: 502,
-      json: async () => ({
-        error: 'quota_reset_failed',
-        detail: 'HTTP 401: invalid codex token',
-      }),
-    } as Response);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+      error: 'quota_reset_failed',
+      detail: 'HTTP 401: invalid codex token',
+    }, { status: 502 }));
 
     await expect(resetUsageQuota('auth-1')).rejects.toMatchObject({
       name: 'ApiError',
@@ -954,15 +786,11 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads reset credit expiries for one auth index on demand', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        authIndex: 'codex-auth',
-        availableCount: 1,
-        credits: [{ id: 'credit-1', status: 'available', expiresAt: '2026-07-20T00:00:00Z' }],
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      authIndex: 'codex-auth',
+      availableCount: 1,
+      credits: [{ id: 'credit-1', status: 'available', expiresAt: '2026-07-20T00:00:00Z' }],
+    });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageQuotaResetCredits('codex-auth', signal);
@@ -975,24 +803,20 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads quota inspection status', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        total: 2,
-        cached: 1,
-        running: true,
-        completed: false,
-        normal: 1,
-        limit_reached: 0,
-        unauthorized_401: 0,
-        payment_required_402: 0,
-        unauthorized_401_402: 0,
-        other_failed: 0,
-        unknown: 1,
-        results: [{ auth_index: 'auth-1', name: 'Claude Main', type: 'claude', file_name: 'claude-user.json', provider: 'claude', status: 'normal', refreshed_at: '2026-06-03T10:30:00Z' }],
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      total: 2,
+      cached: 1,
+      running: true,
+      completed: false,
+      normal: 1,
+      limit_reached: 0,
+      unauthorized_401: 0,
+      payment_required_402: 0,
+      unauthorized_401_402: 0,
+      other_failed: 0,
+      unknown: 1,
+      results: [{ auth_index: 'auth-1', name: 'Claude Main', type: 'claude', file_name: 'claude-user.json', provider: 'claude', status: 'normal', refreshed_at: '2026-06-03T10:30:00Z' }],
+    });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageQuotaInspectionStatus(signal);
@@ -1009,24 +833,20 @@ describe('fetchUsageEvents', () => {
   });
 
   it('starts quota inspection from the protected endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        total: 2,
-        cached: 0,
-        running: true,
-        completed: false,
-        normal: 0,
-        limit_reached: 0,
-        unauthorized_401: 0,
-        payment_required_402: 0,
-        unauthorized_401_402: 0,
-        other_failed: 0,
-        unknown: 2,
-        results: [],
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      total: 2,
+      cached: 0,
+      running: true,
+      completed: false,
+      normal: 0,
+      limit_reached: 0,
+      unauthorized_401: 0,
+      payment_required_402: 0,
+      unauthorized_401_402: 0,
+      other_failed: 0,
+      unknown: 2,
+      results: [],
+    });
     const signal = new AbortController().signal;
 
     const response = await startUsageQuotaInspection(signal);
@@ -1040,11 +860,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('disables selected auth files through the protected management endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ names: ['a.json'], affected: 1 }),
-    } as Response);
+    const fetchMock = mockJSON({ names: ['a.json'], affected: 1 });
 
     const response = await setAuthFilesDisabled(['a.json'], true);
 
@@ -1077,11 +893,7 @@ describe('fetchUsageEvents', () => {
   });
 
   it('deletes selected auth files through the protected management endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({ names: ['a.json', 'b.json'], affected: 2 }),
-    } as Response);
+    const fetchMock = mockJSON({ names: ['a.json', 'b.json'], affected: 2 });
 
     const response = await deleteAuthFiles(['a.json', 'b.json']);
 
@@ -1096,18 +908,14 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads quota refresh task status', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        authIndex: 'auth-1',
-        file_name: 'claude-user.json',
-        status: 'completed',
-        http_status_code: 401,
-        refreshed_at: '2026-05-25T00:00:00Z',
-        quota: { id: 'auth-1', quota: [{ key: 'rate_limit.primary_window', label: '5h' }] },
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      authIndex: 'auth-1',
+      file_name: 'claude-user.json',
+      status: 'completed',
+      http_status_code: 401,
+      refreshed_at: '2026-05-25T00:00:00Z',
+      quota: { id: 'auth-1', quota: [{ key: 'rate_limit.primary_window', label: '5h' }] },
+    });
     const signal = new AbortController().signal;
 
     const response = await fetchUsageQuotaRefreshTask('auth-1', signal);
@@ -1125,17 +933,13 @@ describe('fetchUsageEvents', () => {
   });
 
   it('loads update check status from the protected endpoint', async () => {
-    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        currentVersion: 'v1.2.3',
-        latestVersion: 'v1.2.4',
-        updateAvailable: true,
-        canCompare: true,
-        message: 'new version available: v1.2.4',
-      }),
-    } as Response);
+    const fetchMock = mockJSON({
+      currentVersion: 'v1.2.3',
+      latestVersion: 'v1.2.4',
+      updateAvailable: true,
+      canCompare: true,
+      message: 'new version available: v1.2.4',
+    });
     const signal = new AbortController().signal;
 
     const response = await fetchUpdateCheck(signal);

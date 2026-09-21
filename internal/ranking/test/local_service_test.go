@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,27 +19,12 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-type localRankingQueryCounter struct {
-	usageEventReads int
-}
-
 type localProfileUpdateNameContextKey struct{}
-
-func (l *localRankingQueryCounter) LogMode(logger.LogLevel) logger.Interface { return l }
-func (l *localRankingQueryCounter) Info(context.Context, string, ...any)     {}
-func (l *localRankingQueryCounter) Warn(context.Context, string, ...any)     {}
-func (l *localRankingQueryCounter) Error(context.Context, string, ...any)    {}
-func (l *localRankingQueryCounter) Trace(_ context.Context, _ time.Time, sql func() (string, int64), _ error) {
-	statement, _ := sql()
-	if strings.Contains(statement, "FROM usage_events") {
-		l.usageEventReads++
-	}
-}
 
 func TestLocalRankingServiceBuildsTodayWithoutBackfillingOlderPeriods(t *testing.T) {
 	location := localRankingLocation(t)
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, location)
-	db := openLocalRankingDatabase(t, "today-only.db")
+	db := openRankingDatabase(t)
 	keys := seedLocalRankingAPIKeys(t, db)
 	ttftA := int64(100)
 	ttftB := int64(600)
@@ -60,8 +46,8 @@ func TestLocalRankingServiceBuildsTodayWithoutBackfillingOlderPeriods(t *testing
 	if today.Stale || len(today.Entries) != 2 || today.Entries[0].ParticipantID != "1" || today.Entries[0].DisplayName != "Alpha" || today.Entries[0].Value != 800 {
 		t.Fatalf("unexpected today total tokens board: %+v", today)
 	}
-	if today.Entries[1].DisplayName != keys[1].APIKey {
-		t.Fatalf("local leaderboard did not expose the full API Key: %+v", today.Entries[1])
+	if strings.Contains(today.Entries[1].DisplayName, keys[1].APIKey) {
+		t.Fatalf("local leaderboard exposed a full API Key: %+v", today.Entries[1])
 	}
 	cacheRate := loadLocalBoard(t, service, ranking.LeaderboardToday, ranking.MetricCacheReadRate)
 	if len(cacheRate.Entries) != 2 || cacheRate.Entries[1].Value != 83_333 {
@@ -100,7 +86,7 @@ func TestLocalRankingServiceBuildsTodayWithoutBackfillingOlderPeriods(t *testing
 func TestLocalRankingProfileKeepsDefaultAvatarUntilAnOverrideIsSaved(t *testing.T) {
 	location := localRankingLocation(t)
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, location)
-	db := openLocalRankingDatabase(t, "local-profile.db")
+	db := openRankingDatabase(t)
 	keys := seedLocalRankingAPIKeys(t, db)
 	if err := db.Create(&entities.LocalRankingPeriodStat{
 		PeriodKind: entities.LocalRankingPeriodDay, PeriodKey: "2026-08-03", APIKeyID: keys[0].ID,
@@ -153,7 +139,7 @@ func TestLocalRankingProfileKeepsDefaultAvatarUntilAnOverrideIsSaved(t *testing.
 }
 
 func TestLocalRankingProfileConcurrentUpdatesReturnCoherentRows(t *testing.T) {
-	db := openLocalRankingDatabase(t, "local-profile-concurrent.db")
+	db := openRankingDatabase(t)
 	keys := seedLocalRankingAPIKeys(t, db)
 	firstQueryReached := make(chan struct{})
 	secondUpdateDone := make(chan struct{})
@@ -209,10 +195,11 @@ func TestLocalRankingProfileConcurrentUpdatesReturnCoherentRows(t *testing.T) {
 func TestLocalRankingServiceReplacesCompleteTodaySnapshotWithoutDoubleCounting(t *testing.T) {
 	location := localRankingLocation(t)
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, location)
-	db := openLocalRankingDatabase(t, "replace-today.db")
+	db := openRankingDatabase(t)
 	keys := seedLocalRankingAPIKeys(t, db)
-	queryCounter := &localRankingQueryCounter{}
-	serviceDB := db.Session(&gorm.Session{Logger: queryCounter})
+	var queries strings.Builder
+	serviceDB := db.Session(&gorm.Session{Logger: logger.New(log.New(&queries, "", 0), logger.Config{LogLevel: logger.Info})})
+	usageEventReads := func() int { return strings.Count(queries.String(), "FROM usage_events") }
 	ttft := int64(120)
 	insertLocalRankingEvents(t, db, []entities.UsageEvent{
 		{EventKey: "base-1", APIGroupKey: keys[0].APIKey, Model: "gpt-5", Timestamp: now.Add(-4 * time.Minute), LatencyMS: 900, TTFTMS: &ttft, InputTokens: 100, CacheReadTokens: 50, TotalTokens: 100},
@@ -222,8 +209,8 @@ func TestLocalRankingServiceReplacesCompleteTodaySnapshotWithoutDoubleCounting(t
 	if err := service.AggregateOnce(context.Background()); err != nil {
 		t.Fatalf("aggregate initial today snapshot: %v", err)
 	}
-	if queryCounter.usageEventReads != 1 {
-		t.Fatalf("initial local ranking aggregation read usage_events %d times, want 1", queryCounter.usageEventReads)
+	if usageEventReads() != 1 {
+		t.Fatalf("initial local ranking aggregation read usage_events %d times, want 1", usageEventReads())
 	}
 
 	now = now.Add(5 * time.Minute)
@@ -234,8 +221,8 @@ func TestLocalRankingServiceReplacesCompleteTodaySnapshotWithoutDoubleCounting(t
 	if err := service.AggregateOnce(context.Background()); err != nil {
 		t.Fatalf("replace today snapshot: %v", err)
 	}
-	if queryCounter.usageEventReads != 2 {
-		t.Fatalf("changed local ranking aggregation read usage_events %d total times, want 2", queryCounter.usageEventReads)
+	if usageEventReads() != 2 {
+		t.Fatalf("changed local ranking aggregation read usage_events %d total times, want 2", usageEventReads())
 	}
 	for _, period := range []ranking.LeaderboardPeriod{ranking.LeaderboardToday, ranking.LeaderboardCurrentMonth} {
 		board := loadLocalBoard(t, service, period, ranking.MetricTotalTokens)
@@ -256,8 +243,8 @@ func TestLocalRankingServiceReplacesCompleteTodaySnapshotWithoutDoubleCounting(t
 	if err := service.AggregateOnce(context.Background()); err != nil {
 		t.Fatalf("repeat unchanged aggregation: %v", err)
 	}
-	if queryCounter.usageEventReads != 3 {
-		t.Fatalf("unchanged local ranking aggregation read usage_events %d total times, want 3", queryCounter.usageEventReads)
+	if usageEventReads() != 3 {
+		t.Fatalf("unchanged local ranking aggregation read usage_events %d total times, want 3", usageEventReads())
 	}
 	var after entities.LocalRankingPeriodStat
 	if err := db.First(&after, "period_kind = ? AND period_key = ? AND api_key_id = ?", entities.LocalRankingPeriodDay, "2026-07-31", keys[0].ID).Error; err != nil {
@@ -271,7 +258,7 @@ func TestLocalRankingServiceReplacesCompleteTodaySnapshotWithoutDoubleCounting(t
 func TestLocalRankingServiceSettlesYesterdayAndRollsItIntoCurrentMonth(t *testing.T) {
 	location := localRankingLocation(t)
 	now := time.Date(2026, 7, 14, 12, 0, 0, 0, location)
-	db := openLocalRankingDatabase(t, "day-settlement.db")
+	db := openRankingDatabase(t)
 	keys := seedLocalRankingAPIKeys(t, db)
 	insertLocalRankingEvents(t, db, []entities.UsageEvent{{EventKey: "day-base", APIGroupKey: keys[0].APIKey, Model: "gpt-5", Timestamp: now.Add(-time.Minute), TotalTokens: 100}})
 	service := newLocalRankingService(t, db, func() time.Time { return now })
@@ -315,7 +302,7 @@ func TestLocalRankingServiceSettlesYesterdayAndRollsItIntoCurrentMonth(t *testin
 func TestLocalRankingServiceMonthSettlementNaturallyCreatesPreviousMonth(t *testing.T) {
 	location := localRankingLocation(t)
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, location)
-	db := openLocalRankingDatabase(t, "month-settlement.db")
+	db := openRankingDatabase(t)
 	keys := seedLocalRankingAPIKeys(t, db)
 	insertLocalRankingEvents(t, db, []entities.UsageEvent{{EventKey: "july-base", APIGroupKey: keys[0].APIKey, Model: "gpt-5", Timestamp: now.Add(-time.Minute), TotalTokens: 100}})
 	service := newLocalRankingService(t, db, func() time.Time { return now })
@@ -347,7 +334,7 @@ func TestLocalRankingServiceMonthSettlementNaturallyCreatesPreviousMonth(t *test
 func TestLocalRankingServiceReaggregatesAllKeysWhenMetadataArrives(t *testing.T) {
 	location := localRankingLocation(t)
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, location)
-	db := openLocalRankingDatabase(t, "metadata-delay.db")
+	db := openRankingDatabase(t)
 	known := entities.CPAAPIKey{APIKey: "sk-known", DisplayKey: "sk-***known", KeyAlias: "Known"}
 	if err := db.Create(&known).Error; err != nil {
 		t.Fatalf("seed known API key: %v", err)
@@ -378,7 +365,7 @@ func TestLocalRankingServiceReaggregatesAllKeysWhenMetadataArrives(t *testing.T)
 func TestLocalRankingServiceFutureEventNeverBlocksAnotherKey(t *testing.T) {
 	location := localRankingLocation(t)
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, location)
-	db := openLocalRankingDatabase(t, "future-event.db")
+	db := openRankingDatabase(t)
 	keys := seedLocalRankingAPIKeys(t, db)
 	// 先插入未来事件，再插入可用事件，确保未来事件 ID 会被更大的正常 ID 覆盖。
 	insertLocalRankingEvents(t, db, []entities.UsageEvent{
@@ -407,7 +394,7 @@ func TestLocalRankingServiceFutureEventNeverBlocksAnotherKey(t *testing.T) {
 func TestLocalRankingOverallUsesCommunityDimensionQuantization(t *testing.T) {
 	location := localRankingLocation(t)
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, location)
-	db := openLocalRankingDatabase(t, "overall-quantization.db")
+	db := openRankingDatabase(t)
 	keys := seedLocalRankingAPIKeys(t, db)
 	statsUpdatedAt := now.Add(-time.Minute)
 	rows := []entities.LocalRankingPeriodStat{

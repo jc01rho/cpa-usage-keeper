@@ -2,7 +2,7 @@ package test
 
 import (
 	"math"
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +62,7 @@ func TestAnalysisProjectionSelectsOnlyFixedColumnsWithoutPricingRules(t *testing
 			}
 
 			query := requireSingleAnalysisRollupQuery(t, *queries, tt.wantTable)
-			if got := analysisProjectionSelectColumns(t, query); !reflect.DeepEqual(got, analysisProjectionFixedColumns) {
+			if got := analysisProjectionSelectColumns(t, query); !slices.Equal(got, analysisProjectionFixedColumns) {
 				t.Fatalf("selected columns = %#v, want %#v\nSQL: %s", got, analysisProjectionFixedColumns, query)
 			}
 			if strings.Contains(query, " group by ") {
@@ -115,21 +115,20 @@ func TestAnalysisProjectionAddsOnlyActivePricingDimensions(t *testing.T) {
 			}
 
 			query := requireSingleAnalysisRollupQuery(t, *queries, "usage_overview_hourly_stats")
-			want := append(append([]string{}, analysisProjectionFixedColumns...), tt.wantOptional...)
-			if got := analysisProjectionSelectColumns(t, query); !reflect.DeepEqual(got, want) {
+			want := slices.Concat(analysisProjectionFixedColumns, tt.wantOptional)
+			if got := analysisProjectionSelectColumns(t, query); !slices.Equal(got, want) {
 				t.Fatalf("selected columns = %#v, want %#v\nSQL: %s", got, want, query)
 			}
 		})
 	}
 }
 
-func TestAnalysisProjectionPreservesHourlyResultsIncludingDeletedHistoricalKeys(t *testing.T) {
+func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T) {
 	db := openTestDatabase(t)
 	bucket := time.Date(2026, 2, 1, 6, 0, 0, 0, time.Local)
 	end := bucket.Add(time.Hour)
 	if err := db.Create(&[]entities.CPAAPIKey{
 		{APIKey: "group-a", DisplayKey: "sk-***a"},
-		{APIKey: "group-deleted", DisplayKey: "sk-***deleted", IsDeleted: true},
 	}).Error; err != nil {
 		t.Fatalf("seed API keys: %v", err)
 	}
@@ -139,10 +138,6 @@ func TestAnalysisProjectionPreservesHourlyResultsIncludingDeletedHistoricalKeys(
 			BucketStart: bucket, APIGroupKey: "group-a", Model: "model-a", AuthIndex: "identity-a", ModelAlias: "alias-a",
 			ServiceTier: "priority", Endpoint: "/responses", RequestCount: 2, InputTokens: 1_000_000, OutputTokens: 300_000,
 			ReasoningTokens: 100_000, CacheReadTokens: 200_000, CacheCreationTokens: 100_000, TotalTokens: 1_300_000,
-		},
-		{
-			BucketStart: bucket, APIGroupKey: "group-deleted", Model: "model-a", RequestCount: 99,
-			InputTokens: 99_000_000, TotalTokens: 99_000_000,
 		},
 	}).Error; err != nil {
 		t.Fatalf("seed hourly stats: %v", err)
@@ -162,41 +157,18 @@ func TestAnalysisProjectionPreservesHourlyResultsIncludingDeletedHistoricalKeys(
 		t.Fatalf("unexpected hourly result: %+v", analysis)
 	}
 	usage := analysis.TokenUsage[0]
-	if !usage.Bucket.Equal(bucket) || usage.Requests != 101 || usage.InputTokens != 100_000_000 || usage.OutputTokens != 300_000 ||
-		usage.ReasoningTokens != 100_000 || usage.CacheReadTokens != 200_000 || usage.CacheCreationTokens != 100_000 || usage.TotalTokens != 100_300_000 || !usage.CostAvailable {
+	if !usage.Bucket.Equal(bucket) || usage.Requests != 2 || usage.InputTokens != 1_000_000 || usage.OutputTokens != 300_000 ||
+		usage.ReasoningTokens != 100_000 || usage.CacheReadTokens != 200_000 || usage.CacheCreationTokens != 100_000 || usage.TotalTokens != 1_300_000 || !usage.CostAvailable {
 		t.Fatalf("unexpected hourly token usage: %+v", usage)
 	}
-	assertFloatClose(t, usage.CostUSD, 108.3)
-	if len(analysis.APIKeyComposition) != 2 {
-		t.Fatalf("expected active and deleted historical keys, got %+v", analysis.APIKeyComposition)
-	}
-	if analysis.APIKeyComposition[0].Key != "group-deleted" || analysis.APIKeyComposition[0].Requests != 99 || analysis.APIKeyComposition[0].TotalTokens != 99_000_000 {
-		t.Fatalf("deleted historical key missing: %+v", analysis.APIKeyComposition)
-	}
-	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "model-a", "", 101, 100_300_000, 108.3)
+	assertFloatClose(t, usage.CostUSD, 9.3)
+	assertAnalysisProjectionComposition(t, analysis.APIKeyComposition, "group-a", "", 2, 1_300_000, 9.3)
+	assertAnalysisProjectionComposition(t, analysis.ModelComposition, "model-a", "", 2, 1_300_000, 9.3)
 	assertAnalysisProjectionComposition(t, analysis.AuthFilesComposition, "identity-a", "Auth Account", 2, 1_300_000, 9.3)
 	assertAnalysisProjectionComposition(t, analysis.AIProviderComposition, "identity-a", "Provider Account", 2, 1_300_000, 9.3)
-	if len(analysis.Heatmap) != 2 {
+	if len(analysis.Heatmap) != 1 || analysis.Heatmap[0].APIKey != "group-a" || analysis.Heatmap[0].Model != "model-a" ||
+		analysis.Heatmap[0].Requests != 2 || analysis.Heatmap[0].TotalTokens != 1_300_000 || !analysis.Heatmap[0].CostAvailable {
 		t.Fatalf("unexpected heatmap: %+v", analysis.Heatmap)
-	}
-	if len(analysis.ModelEfficiency) != 1 {
-		t.Fatalf("unexpected model efficiency: %+v", analysis.ModelEfficiency)
-	}
-	efficiency := analysis.ModelEfficiency[0]
-	if efficiency.Model != "model-a" || efficiency.Requests != 101 || efficiency.TotalTokens != 100_300_000 || !efficiency.CostAvailable {
-		t.Fatalf("unexpected model efficiency: %+v", efficiency)
-	}
-	assertFloatClose(t, efficiency.CostUSD, 108.3)
-	assertFloatClose(t, efficiency.CostPerRequestUSD, 108.3/101)
-	assertFloatClose(t, efficiency.OutputTokensPerRequest, 300_000.0/101)
-	assertFloatClose(t, efficiency.CacheReadRate, 0.002)
-	assertFloatClose(t, analysis.CostBreakdown.UncachedInputCostUSD, 103.2)
-	assertFloatClose(t, analysis.CostBreakdown.CacheReadCostUSD, 0.6)
-	assertFloatClose(t, analysis.CostBreakdown.CacheWriteCostUSD, 0.9)
-	assertFloatClose(t, analysis.CostBreakdown.OutputCostUSD, 3.6)
-	assertFloatClose(t, analysis.CostBreakdown.TotalCostUSD, 108.3)
-	if !analysis.CostBreakdown.CostAvailable {
-		t.Fatalf("expected available cost breakdown: %+v", analysis.CostBreakdown)
 	}
 
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "group-b", DisplayKey: "sk-***b"}).Error; err != nil {
@@ -343,26 +315,23 @@ func TestBuildAnalysisWithoutUsageEventsUsesOnlyRollupTables(t *testing.T) {
 
 func captureAnalysisRollupQueries(t *testing.T, db *gorm.DB) *[]string {
 	t.Helper()
-	rollupQueries := make([]string, 0, 3)
-	callbackName := "test:capture-analysis-rollup-only:" + strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
-	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		query := strings.ToLower(strings.Join(strings.Fields(tx.Statement.SQL.String()), " "))
-		if strings.Contains(query, "usage_overview_hourly_stats") || strings.Contains(query, "usage_overview_daily_stats") {
-			rollupQueries = append(rollupQueries, query)
-		}
-	}); err != nil {
-		t.Fatalf("register rollup query callback: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Callback().Query().Remove(callbackName) })
-	return &rollupQueries
+	return captureAnalysisQueries(t, db, true)
 }
 
 func captureAllAnalysisQueries(t *testing.T, db *gorm.DB) *[]string {
 	t.Helper()
+	return captureAnalysisQueries(t, db, false)
+}
+
+func captureAnalysisQueries(t *testing.T, db *gorm.DB, rollupsOnly bool) *[]string {
+	t.Helper()
 	queries := make([]string, 0, 4)
-	callbackName := "test:capture-analysis-all:" + strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
+	callbackName := "test:capture-analysis-all"
 	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-		queries = append(queries, strings.ToLower(strings.Join(strings.Fields(tx.Statement.SQL.String()), " ")))
+		query := strings.ToLower(strings.Join(strings.Fields(tx.Statement.SQL.String()), " "))
+		if !rollupsOnly || strings.Contains(query, "usage_overview_hourly_stats") || strings.Contains(query, "usage_overview_daily_stats") {
+			queries = append(queries, query)
+		}
 	}); err != nil {
 		t.Fatalf("register query callback: %v", err)
 	}

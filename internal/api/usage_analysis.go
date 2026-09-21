@@ -513,11 +513,11 @@ func analysisAPIKeyResponseKeyForInstance(instanceID, apiKey string, apiKeyInfos
 
 func analysisAPIKeyResponseKey(apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
 	// Analysis uses the CPA API Key id when metadata is available and otherwise
-	// keeps the full stored key identity so distinct fingerprints cannot collide.
+	// falls back to the unified masked identity so raw keys never reach the client.
 	if info, ok := apiKeyInfos[apiKey]; ok && info.ID != "" {
 		return info.ID
 	}
-	return strings.TrimSpace(apiKey)
+	return helper.RedactSensitiveValue(apiKey)
 }
 
 func analysisAPIKeyLabelForInstance(instanceID, apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
@@ -534,7 +534,7 @@ func analysisAPIKeyLabel(apiKey string, apiKeyInfos map[string]analysisAPIKeyInf
 	if info, ok := apiKeyInfos[apiKey]; ok && info.Label != "" {
 		return info.Label
 	}
-	return strings.TrimSpace(apiKey)
+	return helper.RedactSensitiveValue(apiKey)
 }
 
 func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyInfos map[string]analysisAPIKeyInfo) analysisHeatmap {

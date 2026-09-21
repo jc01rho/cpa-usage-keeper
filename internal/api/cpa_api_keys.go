@@ -200,7 +200,7 @@ func toCPAAPIKeyResponse(row entities.CPAAPIKey) cpaAPIKeyResponse {
 		ID:           strconv.FormatInt(row.ID, 10),
 		InstanceID:   row.InstanceID,
 		KeyAlias:     row.KeyAlias,
-		DisplayKey:   helper.CPAAPIKeyDisplayKey(row),
+		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
 		Label:        label,
 		LastSyncedAt: lastSyncedAt,
 	}
@@ -218,7 +218,7 @@ func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsRespon
 		InstanceID:   row.InstanceID,
 		APIKey:       row.APIKey,
 		KeyAlias:     row.KeyAlias,
-		DisplayKey:   helper.CPAAPIKeyDisplayKey(row),
+		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
 		Label:        label,
 		LastSyncedAt: lastSyncedAt,
 	}
@@ -229,7 +229,7 @@ func toCPAAPIKeyOption(row entities.CPAAPIKey) cpaAPIKeyOption {
 	return cpaAPIKeyOption{
 		ID:         strconv.FormatInt(row.ID, 10),
 		InstanceID: row.InstanceID,
-		DisplayKey: helper.CPAAPIKeyDisplayKey(row),
+		DisplayKey: helper.CPAAPIKeyMaskedDisplayKey(row),
 		Label:      label,
 	}
 }

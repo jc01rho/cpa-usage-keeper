@@ -249,7 +249,7 @@ func formatAuthSessionTime(value time.Time) string {
 
 func apiKeySessionDisplay(apiKeyID int64, apiKeysByID map[int64]entities.CPAAPIKey) (string, string) {
 	if row, ok := apiKeysByID[apiKeyID]; ok {
-		return helper.CPAAPIKeyDisplayName(row), helper.CPAAPIKeyDisplayKey(row)
+		return helper.CPAAPIKeyDisplayName(row), helper.CPAAPIKeyMaskedDisplayKey(row)
 	}
 	fallback := fmt.Sprintf("Unknown API Key #%d", apiKeyID)
 	return fallback, fallback

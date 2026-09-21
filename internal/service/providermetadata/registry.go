@@ -18,8 +18,10 @@ func providerSources() []source {
 		claudeSource(),
 		// Vertex 使用 CPA 正确拼写并排在 CommandCode 前。
 		vertexSource(),
-		// CommandCode 排在 Vertex 后、OpenAI 前。
+		// CommandCode 排在 Vertex 后、Meta 前。
 		commandcodeSource(),
+		// Meta API Key 使用独立 provider type 并排在 OpenAI 前。
+		metaSource(),
 		// OpenAI Compatibility 最后归并 provider 层与多 key entry。
 		openAICompatibilitySource(),
 	}

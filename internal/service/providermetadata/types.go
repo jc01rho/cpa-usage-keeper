@@ -22,6 +22,8 @@ type Fetcher interface {
 	FetchVertexAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error)
 	// FetchCommandCodeAPIKeys 读取 CommandCode API Key metadata。
 	FetchCommandCodeAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error)
+	// FetchMetaAPIKeys 读取 Meta API Key metadata。
+	FetchMetaAPIKeys(context.Context) (*response.ProviderKeyConfigResult, error)
 	// FetchOpenAICompatibility 读取 OpenAI Compatibility provider 与多 key metadata。
 	FetchOpenAICompatibility(context.Context) (*response.OpenAICompatibilityResult, error)
 }

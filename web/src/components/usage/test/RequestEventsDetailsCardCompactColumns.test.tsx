@@ -1,8 +1,8 @@
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { RequestEventsTestCard, extractTableHeaders, extractFirstTableRowCells, extractFirstTableRowCellMarkup } from './requestEventsFixtures'
 import type { UsageEvent } from '@/lib/types'
-import { RequestEventsDetailsCard } from '../RequestEventsDetailsCard'
 
 const event: UsageEvent = {
   id: 'compact-columns',
@@ -40,37 +40,13 @@ const event: UsageEvent = {
   pricing_style: 'claude',
 }
 
-const textFromMarkup = (value: string) => value.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-
 const renderCard = (row: UsageEvent = event) => renderToStaticMarkup(
-  <RequestEventsDetailsCard
+  <RequestEventsTestCard
     events={[row]}
-    loading={false}
-    totalCount={1}
     modelOptions={['gpt-5.6']}
     sourceOptions={[{ value: 'openai-team', label: 'OpenAI Team' }]}
-    modelFilter="__all__"
-    sourceFilter="__all__"
-    resultFilter="__all__"
-    onModelFilterChange={() => undefined}
-    onSourceFilterChange={() => undefined}
-    onResultFilterChange={() => undefined}
   />,
 )
-
-const extractTableHeaders = (html: string) => (
-  Array.from(html.matchAll(/<th\b[^>]*>(.*?)<\/th>/gs), (match) => textFromMarkup(match[1]))
-)
-
-const extractFirstTableRowCells = (html: string) => {
-  const row = html.match(/<tbody><tr>(.*?)<\/tr><\/tbody>/s)?.[1] ?? ''
-  return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]))
-}
-
-const extractFirstTableRowCellMarkup = (html: string) => {
-  const row = html.match(/<tbody><tr>(.*?)<\/tr><\/tbody>/s)?.[1] ?? ''
-  return Array.from(row.matchAll(/(<td\b[^>]*>.*?<\/td>)/gs), (match) => match[1])
-}
 
 describe('RequestEventsDetailsCard compact columns', () => {
   // Upstream regression test: speed must not depend on TTFT.

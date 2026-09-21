@@ -6,10 +6,37 @@ import (
 	"testing"
 	"time"
 
+	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
+	"path/filepath"
+
+	"gorm.io/gorm"
 )
+
+// redisUsageInboxBaselineSource is the baseline-test inbox source label.
+const redisUsageInboxBaselineSource = "redis_pull:usage"
+
+// openBaselineTestDatabase opens an isolated database for the baseline tests.
+func openBaselineTestDatabase(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "baseline.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql database: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Fatalf("close sql database: %v", err)
+		}
+	})
+	return db
+}
 
 // Baseline characterization tests for the keeper-export/v1 protocol work
 // (contract section 12.2). They freeze the current Redis decode and inbox
@@ -90,16 +117,16 @@ func TestBaselineRedisUsageLegacyPayloadCarriesRawSecrets(t *testing.T) {
 // persist as two usage_events rows and both inbox rows flip to processed in
 // the same commit.
 func TestBaselineProcessRedisUsageInboxAtomicDuplicateRequestID(t *testing.T) {
-	db := openSyncTestDatabase(t)
+	db := openBaselineTestDatabase(t)
 	poppedAt := time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC)
 	rows, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
 		{
-			Source:     redisUsageInboxTestSource,
+			Source:     redisUsageInboxBaselineSource,
 			RawMessage: `{"timestamp":"2026-04-27T07:59:00Z","provider":"claude","model":"claude-sonnet","request_id":"req-atomic-dup","tokens":{"input_tokens":1,"output_tokens":2}}`,
 			PoppedAt:   poppedAt,
 		},
 		{
-			Source:     redisUsageInboxTestSource,
+			Source:     redisUsageInboxBaselineSource,
 			RawMessage: `{"timestamp":"2026-04-27T07:59:05Z","provider":"claude","model":"claude-opus","request_id":"req-atomic-dup","tokens":{"input_tokens":3,"output_tokens":4}}`,
 			PoppedAt:   poppedAt,
 		},

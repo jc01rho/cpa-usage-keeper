@@ -21,20 +21,18 @@ func RedactSensitiveValue(value string) string {
 	return string(runes[:3]) + sensitiveValueMask + string(runes[len(runes)-6:])
 }
 
-// CPAAPIKeyDisplayKey returns the full stored API key identity.
-// Remote keeper-export rows contain a non-reversible akf1_ fingerprint here,
-// while directly synced rows can contain the original downstream API key.
-func CPAAPIKeyDisplayKey(row entities.CPAAPIKey) string {
+// CPAAPIKeyMaskedDisplayKey 返回 CPA API Key 的安全展示 key；优先基于原始 key 重新脱敏，避免历史 DisplayKey 格式不一致。
+func CPAAPIKeyMaskedDisplayKey(row entities.CPAAPIKey) string {
 	if strings.TrimSpace(row.APIKey) != "" {
-		return strings.TrimSpace(row.APIKey)
+		return RedactSensitiveValue(row.APIKey)
 	}
 	return strings.TrimSpace(row.DisplayKey)
 }
 
-// CPAAPIKeyDisplayName returns the alias first and otherwise the full stored key identity.
+// CPAAPIKeyDisplayName 返回 CPA API Key 的前端展示名：优先别名，其次使用统一脱敏 key。
 func CPAAPIKeyDisplayName(row entities.CPAAPIKey) string {
 	if strings.TrimSpace(row.KeyAlias) != "" {
 		return strings.TrimSpace(row.KeyAlias)
 	}
-	return CPAAPIKeyDisplayKey(row)
+	return CPAAPIKeyMaskedDisplayKey(row)
 }
