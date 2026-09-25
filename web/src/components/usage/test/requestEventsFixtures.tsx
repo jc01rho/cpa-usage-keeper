@@ -27,7 +27,7 @@ export const extractTableHeaders = (html: string) => (
 
 export const extractFirstTableRowCellMarkup = (html: string) => {
   const row = html.match(/<tbody\b[^>]*>\s*<tr\b[^>]*>(.*?)<\/tr>/s)![1];
-  return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => match[1]);
+  return Array.from(row.matchAll(/(<td\b[^>]*>.*?<\/td>)/gs), (match) => match[1]);
 };
 
 export const extractFirstTableRowCells = (html: string) => {
