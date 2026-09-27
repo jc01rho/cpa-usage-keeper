@@ -1,0 +1,14 @@
+[Unit]
+Description=cpa-usage-keeper -> AI Token Monitor leaderboard submit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Refresh the ATM leaderboard rows for the trailing 60 days from the keeper DB,
+# using the GitHub session stored in the bridge session file.
+ExecStart=/usr/bin/python3 /home/ubuntu/usage-dashboard/scripts/atm_bridge.py --db /home/ubuntu/usage-dashboard/data/app.db
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=default.target
