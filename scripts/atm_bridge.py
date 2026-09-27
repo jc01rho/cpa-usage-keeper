@@ -33,11 +33,12 @@ sessions      distinct non-empty session_id among those rows
 
 Provider
 --------
-The server allowlist currently holds claude, codex, opencode, kimi, glm, gjc,
-grok and kiro. `omo` is not registered (the desktop app still sends it and the
-server answers "Invalid provider"), so keeper usage is submitted as `gjc`,
-matching the tokscale bridge's gjc-derived payload. Use --check-provider to
-probe a provider before relying on it.
+The live server accepts both `omo` and the registered `gjc` (probed 2026-09-27;
+the public migration list lags behind production and still omits `omo`). Keeper
+usage is therefore submitted as `omo` by default, matching the desktop app's own
+OmO provider and the tokscale bridge's "Senpi (OmO Native)" identity. Use only
+one provider per dataset: submitting both would double-count the same days.
+Use --check-provider to re-probe before changing this.
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ SUPABASE_ANON_KEY = (
     "Hr_xtU1FGUrlNjWS8g4KeiYQWt0vC3bd16VVlAZdldk"
 )
 RPC_PATH = "/rest/v1/rpc/sync_device_snapshots"
-DEFAULT_PROVIDER = "gjc"
+DEFAULT_PROVIDER = "omo"
 DEFAULT_DAYS = 60
 REFRESH_SKEW_SECONDS = 300
 ID_CHUNK = 500
@@ -388,7 +389,7 @@ def main():
     parser.add_argument("--db", help="keeper SQLite path (default: $KEEPER_DB, ./data/app.db, ~/cpa-usage-keeper/data/app.db)")
     parser.add_argument("--bridge-script", help="path to tokscale_bridge.py (default: next to this script)")
     parser.add_argument("--session", default=str(default_session_path()), help="session file holding the ATM tokens")
-    parser.add_argument("--provider", default=DEFAULT_PROVIDER, help="leaderboard provider id (default: gjc)")
+    parser.add_argument("--provider", default=DEFAULT_PROVIDER, help="leaderboard provider id (default: omo)")
     parser.add_argument("--device-id", default=default_device_id(), help="stable device id for this host")
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS, help="trailing days to submit (default: 60)")
     parser.add_argument("--instance", help="restrict to one CPA instance_id")

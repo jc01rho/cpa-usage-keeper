@@ -48,14 +48,16 @@ refresh the token in place, so no interaction is needed again.
 
 ## Provider
 
-The server allowlist holds `claude, codex, opencode, kimi, glm, gjc, grok,
-kiro`. `omo` is **not** registered — the desktop app still sends it and the
-server answers `Invalid provider` — so keeper usage is submitted as `gjc`
-(default), matching the tokscale bridge's gjc-derived payload. Probe before
-relying on a provider:
+The desktop app submits per provider (`claude`, `codex`, `opencode`, `kimi`,
+`glm`, `gjc`, `grok`, `kiro`, `omo`). The live server accepted both `omo` and
+`gjc` when probed on 2026-09-27 — the public migration list lags production and
+still omits `omo` — so this bridge submits as **`omo`** (default), matching the
+app's own OmO provider and the tokscale bridge's "Senpi (OmO Native)" identity.
+Use exactly one provider per dataset; submitting both would double-count the
+same days. Re-probe with:
 
 ```bash
-python3 scripts/atm_bridge.py --check-provider gjc --check-provider omo
+python3 scripts/atm_bridge.py --check-provider omo --check-provider gjc
 ```
 
 The probe sends empty rows, so it writes nothing.
@@ -95,7 +97,7 @@ and the upsert keeps a single row per (user, provider, date).
 ```bash
 journalctl --user -u cpa-keeper-atm-bridge.service -n 40
 # leaderboard rows are world-readable (RLS select using(true)):
-curl -s "$SUPABASE_URL/rest/v1/daily_snapshots?select=date,total_tokens,cost_usd,messages,sessions&provider=eq.gjc&order=date.desc&limit=5" \
+curl -s "$SUPABASE_URL/rest/v1/daily_snapshots?select=date,total_tokens,cost_usd,messages,sessions&provider=eq.omo&order=date.desc&limit=5" \
   -H "apikey: $ANON_KEY"
 ```
 
