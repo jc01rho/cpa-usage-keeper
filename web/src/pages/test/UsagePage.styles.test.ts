@@ -628,7 +628,6 @@ describe('UsagePage toolbar styles', () => {
 
   it('renders Recent Activity between the stat cards and realtime metrics', () => {
     const realtimeCard = styleRuleBlock(usagePageStyles, '.overviewRealtimeCard')
-    const realtimeCompactCard = styleRuleBlock(usagePageStyles, '.overviewRealtimeCardCompact')
     const lightTokenActivityCard = styleRuleBlock(usagePageStyles, '.tokenActivityCard')
     const darkTokenActivityCard = styleRuleBlock(usagePageStyles, ":global([data-theme='dark']) .tokenActivityCard")
 
@@ -665,7 +664,6 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.overviewRealtimeSection\s*\{[\s\S]*?margin-top:\s*12px;/)
     expect(realtimeCard).toContain('padding: var(--keeper-card-padding);')
     expect(realtimeCard).not.toMatch(/(?:background|border|border-radius|box-shadow):/)
-    expect(realtimeCompactCard).not.toContain('padding:')
     expect(styleRuleBlock(usagePageStyles, '.overviewRealtimeSection')).not.toMatch(/(?:border-top|padding-top):/)
     expect(usagePageSource).toContain("value === '15m' || value === '30m' || value === '60m'")
     expect(keyOverviewPageSource).toContain("value === '15m' || value === '30m' || value === '60m'")
@@ -692,8 +690,8 @@ describe('UsagePage toolbar styles', () => {
 
   it('keeps realtime overview empty and metadata states explicit without stale legend styles', () => {
     expect(overviewRealtimePanelSource).toContain('overview_realtime_rolling_metric_hint')
-    expect(overviewRealtimePanelSource).toContain('overview_realtime_ttft_empty')
-    expect(overviewRealtimePanelSource).toContain('overview_realtime_latency_empty')
+    expect(overviewRealtimePanelSource).toContain('overview_realtime_throughput_empty')
+    expect(overviewRealtimePanelSource).toContain("'usage_stats.no_data'")
     expect(overviewRealtimePanelSource).toContain('overview_realtime_cache_empty')
     expect(usageShareListSource).toContain('overviewRealtimeUsageMetaPill')
     expect(usagePageStyles).toContain('.overviewRealtimeEmptyOverlay')

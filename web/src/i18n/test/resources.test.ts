@@ -44,9 +44,17 @@ describe('i18n resources', () => {
   });
 
   it.each(criticalMessages)('preserves the safety meaning of $key', ({ key, ...expected }) => {
+    // This dashboard ships English only: 05937eb8 made the fork en-only
+    // (dropped the zh/zh-TW bundles and the language selector), so the safety
+    // copy is asserted for the locales we actually serve. Upstream asserts all
+    // three because it still ships the extra bundles.
+    const expectedByLanguage = expected as Record<string, string>;
     expect(Object.fromEntries(SUPPORTED_LANGUAGES.map((language) => [
       language,
       i18n.getResource(language, 'translation', key),
-    ]))).toEqual(expected);
+    ]))).toEqual(Object.fromEntries(SUPPORTED_LANGUAGES.map((language) => [
+      language,
+      expectedByLanguage[language],
+    ])));
   });
 });
