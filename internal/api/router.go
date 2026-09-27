@@ -51,20 +51,21 @@ type StatusRouteConfig struct {
 }
 
 type OptionalProviders struct {
-	UsageExport      service.UsageExportProvider
-	MetadataExport   service.MetadataExportProvider
-	MetadataStatus   service.MetadataStatusProvider
-	UsageIdentity    service.UsageIdentityProvider
-	ErrorEvents      service.ErrorEventProvider
-	CPAInstances     CPAInstanceProvider
-	Quota            QuotaProvider
-	CPAAPIKeys       service.CPAAPIKeyProvider
-	AuthFiles        service.AuthFilesManagementProvider
-	CredentialStatus service.CredentialStatusProvider
-	RequestLogs      service.RequestLogProvider
-	Ranking          rankinghttpapi.Provider
-	LocalRanking     rankinghttpapi.LocalProvider
-	Status           StatusRouteConfig
+	UsageExport        service.UsageExportProvider
+	MetadataExport     service.MetadataExportProvider
+	MetadataStatus     service.MetadataStatusProvider
+	UsageIdentity      service.UsageIdentityProvider
+	ErrorEvents        service.ErrorEventProvider
+	CPAInstances       CPAInstanceProvider
+	Quota              QuotaProvider
+	CPAAPIKeys         service.CPAAPIKeyProvider
+	AuthFiles          service.AuthFilesManagementProvider
+	CredentialStatus   service.CredentialStatusProvider
+	CredentialPriority service.CredentialPriorityProvider
+	RequestLogs        service.RequestLogProvider
+	Ranking            rankinghttpapi.Provider
+	LocalRanking       rankinghttpapi.LocalProvider
+	Status             StatusRouteConfig
 }
 
 func NewRouter(
@@ -116,6 +117,7 @@ func NewRouter(
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
 	var authFilesProvider service.AuthFilesManagementProvider
 	var credentialStatusProvider service.CredentialStatusProvider
+	var credentialPriorityProvider service.CredentialPriorityProvider
 	var requestLogProvider service.RequestLogProvider
 	var rankingProvider rankinghttpapi.Provider
 	var localRankingProvider rankinghttpapi.LocalProvider
@@ -130,6 +132,7 @@ func NewRouter(
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
 		authFilesProvider = optionalProviders[0].AuthFiles
 		credentialStatusProvider = optionalProviders[0].CredentialStatus
+		credentialPriorityProvider = optionalProviders[0].CredentialPriority
 		requestLogProvider = optionalProviders[0].RequestLogs
 		rankingProvider = optionalProviders[0].Ranking
 		localRankingProvider = optionalProviders[0].LocalRanking
@@ -159,6 +162,7 @@ func NewRouter(
 	registerErrorEventRoutes(adminProtected, errorEventProvider)
 	registerAuthFileManagementRoutes(adminProtected, authFilesProvider)
 	registerCredentialStatusRoutes(adminProtected, credentialStatusProvider)
+	registerCredentialPriorityRoutes(adminProtected, credentialPriorityProvider)
 	registerAuthSessionManagementRoutes(adminProtected, authHandler)
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
