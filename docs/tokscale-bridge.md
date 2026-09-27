@@ -114,7 +114,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now cpa-keeper-tokscale-bridge.timer
 ```
 
-The timer runs every 10 minutes and each run does both steps: refresh the
+The timer runs every 6 hours and each run does both steps: refresh the
 JSONL files, then `tokscale submit --week` — the submit window matches the
 bridge refresh window (`--since-days 7`), so late-arriving keeper-export
 batches are re-submitted after their date files update. Each refreshed

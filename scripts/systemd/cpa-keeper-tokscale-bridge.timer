@@ -1,9 +1,9 @@
 [Unit]
-Description=Run cpa-usage-keeper -> tokscale bridge every 10 minutes
+Description=Run cpa-usage-keeper -> tokscale bridge every 6 hours
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=10min
+OnUnitActiveSec=6h
 Persistent=true
 
 [Install]
