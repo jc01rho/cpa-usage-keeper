@@ -201,14 +201,15 @@ type ClaudeExtraUsage struct {
 }
 
 type ClaudeUsagePayload struct {
-	FiveHour          *ClaudeUsageWindow `json:"fiveHour,omitempty"`
-	SevenDay          *ClaudeUsageWindow `json:"sevenDay,omitempty"`
-	SevenDayOAuthApps *ClaudeUsageWindow `json:"sevenDayOauthApps,omitempty"`
-	SevenDayOpus      *ClaudeUsageWindow `json:"sevenDayOpus,omitempty"`
-	SevenDaySonnet    *ClaudeUsageWindow `json:"sevenDaySonnet,omitempty"`
-	SevenDayCowork    *ClaudeUsageWindow `json:"sevenDayCowork,omitempty"`
-	IguanaNecktie     *ClaudeUsageWindow `json:"iguanaNecktie,omitempty"`
-	ExtraUsage        *ClaudeExtraUsage  `json:"extraUsage,omitempty"`
+	ResetGrants       *ClaudeResetGrantStatus `json:"resetGrants,omitempty"`
+	FiveHour          *ClaudeUsageWindow      `json:"fiveHour,omitempty"`
+	SevenDay          *ClaudeUsageWindow      `json:"sevenDay,omitempty"`
+	SevenDayOAuthApps *ClaudeUsageWindow      `json:"sevenDayOauthApps,omitempty"`
+	SevenDayOpus      *ClaudeUsageWindow      `json:"sevenDayOpus,omitempty"`
+	SevenDaySonnet    *ClaudeUsageWindow      `json:"sevenDaySonnet,omitempty"`
+	SevenDayCowork    *ClaudeUsageWindow      `json:"sevenDayCowork,omitempty"`
+	IguanaNecktie     *ClaudeUsageWindow      `json:"iguanaNecktie,omitempty"`
+	ExtraUsage        *ClaudeExtraUsage       `json:"extraUsage,omitempty"`
 }
 
 type ClaudeProfileAccount struct {
