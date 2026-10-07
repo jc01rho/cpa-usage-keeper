@@ -319,6 +319,11 @@ func parseKimiUsagePayload(response *apicall.Response) (*KimiUsagePayload, error
 		return nil, err
 	}
 	payload := &KimiUsagePayload{Usage: parseKimiUsageDetail(objectField(object, "usage"))}
+	// 国内与国际 usage 使用同一合同，月度汇总和传统 limits/usage 一次解析。
+	monthly := objectField(objectField(object, "usages"), "limit_month_total")
+	if ratio := floatPtrField(monthly, "used_ratio"); ratio != nil && !math.IsNaN(*ratio) && !math.IsInf(*ratio, 0) && *ratio >= 0 {
+		payload.Usages = &KimiAggregateUsage{MonthTotal: &KimiUsageRatio{UsedRatio: *ratio, ResetTime: stringField(monthly, "reset_time")}}
+	}
 	for _, raw := range arrayField(object, "limits") {
 		limitObject := rawObject(raw)
 		if limitObject == nil {

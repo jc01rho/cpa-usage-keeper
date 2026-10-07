@@ -9,8 +9,8 @@ import (
 func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 	configs := quota.DefaultProviderConfigs()
 	templates := configs.APICallTemplates()
-	if len(templates) != 13 {
-		t.Fatalf("expected 13 api-call templates, got %d", len(templates))
+	if len(templates) != 14 {
+		t.Fatalf("expected 14 api-call templates, got %d", len(templates))
 	}
 	if len(configs.Antigravity) != 3 {
 		t.Fatalf("expected 3 antigravity api-call templates, got %d", len(configs.Antigravity))
@@ -34,6 +34,7 @@ func TestDefaultProviderConfigsContainsAPICallTemplates(t *testing.T) {
 		{configs.ClaudeUsage, "GET", "https://api.anthropic.com/api/oauth/usage"},
 		{configs.ClaudeProfile, "GET", "https://api.anthropic.com/api/oauth/profile"},
 		{configs.Kimi, "GET", "https://api.kimi.com/coding/v1/usages"},
+		{configs.KimiAI, "GET", "https://api.kimi.ai/coding/v1/usages"},
 		{configs.XAIWeekly, "GET", "https://cli-chat-proxy.grok.com/v1/billing?format=credits"},
 		{configs.XAIMonthly, "GET", "https://cli-chat-proxy.grok.com/v1/billing"},
 	} {

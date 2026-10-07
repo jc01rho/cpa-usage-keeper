@@ -268,8 +268,18 @@ type KimiLimitItem struct {
 }
 
 type KimiUsagePayload struct {
-	Usage  *KimiUsageDetail `json:"usage,omitempty"`
-	Limits []KimiLimitItem  `json:"limits,omitempty"`
+	Usage  *KimiUsageDetail    `json:"usage,omitempty"`
+	Limits []KimiLimitItem     `json:"limits,omitempty"`
+	Usages *KimiAggregateUsage `json:"usages,omitempty"`
+}
+
+type KimiAggregateUsage struct {
+	MonthTotal *KimiUsageRatio `json:"limit_month_total,omitempty"`
+}
+
+type KimiUsageRatio struct {
+	UsedRatio float64 `json:"used_ratio"`
+	ResetTime string  `json:"reset_time,omitempty"`
 }
 
 type XAIMoneyValue struct {
