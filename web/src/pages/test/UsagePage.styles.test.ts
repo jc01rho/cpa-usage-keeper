@@ -889,14 +889,14 @@ describe('UsagePage toolbar styles', () => {
     expect(navigationStart).toBeGreaterThanOrEqual(0)
     expect(navigationEnd).toBeGreaterThan(navigationStart)
     expect(navigationBlock).toContain('<a')
-    expect(navigationBlock).toContain('href={appPath(getUsageTabPath(option.value)) + cpamcEmbedSearch()}')
+    expect(navigationBlock).toContain('href={getUsageTabHref(option.value)}')
     expect(navigationBlock).toContain('onClick={(event) => handleUsageTabNavigation(event, option.value)}')
     expect(navigationBlock).toContain('onKeyDown={(event) => handleUsageTabKeyActivation(event, option.value, activateUsageTab)}')
     expect(navigationBlock).toContain('aria-selected={activeTab === option.value}')
     expect(navigationBlock).not.toContain('<button')
     expect(usagePageSource).toContain('const activateUsageTab = useCallback((tab: UsageTab) => {')
     expect(usagePageSource).toContain('setActiveTab(tab);')
-    expect(usagePageSource).toContain("window.history.replaceState(null, '', appPath(getUsageTabPath(tab)) + cpamcEmbedSearch());")
+    expect(usagePageSource).toContain("window.history.replaceState(null, '', getUsageTabHref(tab));")
   })
 
   it('widens simplified and traditional Chinese tabs without separating the connected segments', () => {
