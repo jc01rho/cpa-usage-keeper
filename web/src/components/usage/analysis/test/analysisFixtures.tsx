@@ -11,6 +11,7 @@ export const emptyAnalysis: AnalysisResponse = {
   model_composition: [],
   auth_files_composition: [],
   ai_provider_composition: [],
+  provider_composition: [],
   cost_breakdown: {
     uncached_input_cost_usd: 0,
     output_cost_usd: 0,

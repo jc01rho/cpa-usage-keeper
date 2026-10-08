@@ -65,6 +65,8 @@ export interface CredentialsTabData {
   aiProviderRows: AiProviderCredentialRow[]
   authFileTypeCounts: UsageIdentityTypeCount[]
   aiProviderTypeCounts: UsageIdentityTypeCount[]
+  authFileProviderCounts: UsageIdentityTypeCount[]
+  aiProviderProviderCounts: UsageIdentityTypeCount[]
   authFileTotal: number
   aiProviderTotal: number
   authFilePageSize: number
@@ -297,6 +299,8 @@ export function useCredentialsTabData({ enabledAuthFiles, enabledAiProviders, on
     aiProviderRows,
     authFileTypeCounts: credentialPages.authFileTypeCounts,
     aiProviderTypeCounts: credentialPages.aiProviderTypeCounts,
+    authFileProviderCounts: credentialPages.authFileProviderCounts,
+    aiProviderProviderCounts: credentialPages.aiProviderProviderCounts,
     authFileTotal: credentialPages.authFileTotal,
     aiProviderTotal: credentialPages.aiProviderTotal,
     authFilePageSize: credentialPages.authFilePageSize,

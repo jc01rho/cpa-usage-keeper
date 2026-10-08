@@ -30,13 +30,14 @@ export interface UseUsageDataOptions {
   enabled?: boolean;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
+  providers?: ReadonlyArray<string>;
   onRangeBoundsConflict?: (error: unknown) => boolean;
 }
 
 export const normalizeUsageOverviewRange = normalizeUsageRange;
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
-  const { onAuthRequired, onRangeBoundsConflict, range = '8h', customUnit, customStart, customEnd, instanceId, enabled = true, apiKeyId, excludedApiKeyIds } = options;
+  const { onAuthRequired, onRangeBoundsConflict, range = '8h', customUnit, customStart, customEnd, instanceId, enabled = true, apiKeyId, excludedApiKeyIds, providers } = options;
   const usageSnapshot = useUsageStatsStore((state) => state.usage);
   const loading = useUsageStatsStore((state) => state.loading);
   const storeError = useUsageStatsStore((state) => state.error);
@@ -62,6 +63,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
         instanceId: rangeQuery.instanceId,
         apiKeyId,
         excludedApiKeyIds,
+        ...(providers ? { providers } : {}),
       });
     } catch (error) {
       if (isUsageRangeBoundsConflict(error) && onRangeBoundsConflict?.(error)) {
@@ -72,7 +74,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       }
       throw error;
     }
-  }, [apiKeyId, excludedApiKeyIds, loadUsageStats, onAuthRequired, onRangeBoundsConflict, rangeQuery]);
+  }, [apiKeyId, excludedApiKeyIds, providers, loadUsageStats, onAuthRequired, onRangeBoundsConflict, rangeQuery]);
 
   useEffect(() => {
     if (!enabled || !rangeQuery.valid) {
@@ -87,6 +89,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
         instanceId: rangeQuery.instanceId,
         apiKeyId,
       excludedApiKeyIds,
+      ...(providers ? { providers } : {}),
     }).catch((error) => {
       if (isUsageRangeBoundsConflict(error) && onRangeBoundsConflict?.(error)) {
         return;
@@ -95,9 +98,9 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
         onAuthRequired?.();
       }
     });
-  }, [apiKeyId, enabled, excludedApiKeyIds, loadUsageStats, onAuthRequired, onRangeBoundsConflict, rangeQuery]);
+  }, [apiKeyId, enabled, excludedApiKeyIds, providers, loadUsageStats, onAuthRequired, onRangeBoundsConflict, rangeQuery]);
 
-  const currentQueryKey = rangeQuery.valid ? buildUsageStatsQueryKey(rangeQuery, apiKeyId, excludedApiKeyIds) : null;
+  const currentQueryKey = rangeQuery.valid ? buildUsageStatsQueryKey(rangeQuery, apiKeyId, excludedApiKeyIds, providers) : null;
   const usage = usageSnapshot as UsageOverviewPayload | null;
 
   return {

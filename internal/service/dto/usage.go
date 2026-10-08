@@ -41,6 +41,7 @@ type UsageFilter struct {
 	AuthType          string
 	APIKeyID          string
 	ExcludedAPIKeyIDs []string
+	Providers         []string
 	Result            string
 }
 

@@ -102,14 +102,59 @@ func (s *usageService) resolveAPIKeyScope(ctx context.Context, filter servicedto
 	return apiGroupKey, excludedAPIGroupKeys, nil
 }
 
+// resolveProviderScope 将公开供应商键解析为事件值和聚合身份范围。
+func (s *usageService) resolveProviderScope(ctx context.Context, filter servicedto.UsageFilter) ([]string, []string, error) {
+	if len(filter.Providers) == 0 {
+		return nil, nil, nil
+	}
+	selected := make(map[string]bool, len(filter.Providers))
+	for _, value := range filter.Providers {
+		selected[repository.NormalizeUsageProvider(value)] = true
+	}
+	var raw []string
+	if err := s.db.WithContext(usageServiceContext(ctx)).Model(&entities.UsageEvent{}).Distinct("provider").Where("provider <> ''").Pluck("provider", &raw).Error; err != nil {
+		return nil, nil, err
+	}
+	// 非 nil 空切片表示已选择供应商但没有匹配，不能退化为全部数据。
+	providers := make([]string, 0)
+	for _, value := range raw {
+		if selected[repository.NormalizeUsageProvider(value)] {
+			providers = append(providers, value)
+		}
+	}
+	var identities []entities.UsageIdentity
+	if err := s.db.WithContext(usageServiceContext(ctx)).Model(&entities.UsageIdentity{}).Distinct("identity", "provider", "type").Where("is_deleted = ? AND identity <> ''", false).Find(&identities).Error; err != nil {
+		return nil, nil, err
+	}
+	indexes := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, identity := range identities {
+		provider := identity.Provider
+		if strings.TrimSpace(provider) == "" {
+			provider = identity.Type
+		}
+		if selected[repository.NormalizeUsageProvider(provider)] && !seen[identity.Identity] {
+			indexes = append(indexes, identity.Identity)
+			seen[identity.Identity] = true
+		}
+	}
+	return providers, indexes, nil
+}
+
 // Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
 func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	apiGroupKey, excludedAPIGroupKeys, err := s.resolveAPIKeyScope(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		Providers:            providers,
+		ProviderAuthIndexes:  authIndexes,
 		InstanceID:           filter.InstanceID,
 		Range:                filter.Range,
 		CustomUnit:           filter.CustomUnit,
@@ -147,20 +192,26 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 // GetUsageOverviewComparisons 为 Overview 比较图单独构建维度汇总，不拖慢基础 Overview 查询。
 func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:     filter.InstanceID,
-		Range:          filter.Range,
-		ComparisonOnly: true,
-		CustomUnit:     filter.CustomUnit,
-		StartTime:      filter.StartTime,
-		EndTime:        filter.EndTime,
-		EndExclusive:   filter.EndExclusive,
-		QueryNow:       filter.QueryNow,
-		APIGroupKey:    apiGroupKey,
+		Providers:           providers,
+		ProviderAuthIndexes: authIndexes,
+		InstanceID:          filter.InstanceID,
+		Range:               filter.Range,
+		ComparisonOnly:      true,
+		CustomUnit:          filter.CustomUnit,
+		StartTime:           filter.StartTime,
+		EndTime:             filter.EndTime,
+		EndExclusive:        filter.EndExclusive,
+		QueryNow:            filter.QueryNow,
+		APIGroupKey:         apiGroupKey,
 	}, s.recentUsage, s.pricing.NewResolver())
 	if err != nil {
 		return nil, err
@@ -171,6 +222,10 @@ func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter s
 // GetUsageActivity 用统一时间条件选择档位；today/yesterday 额外保留本地自然日边界。
 func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageActivitySnapshot, error) {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	apiGroupKey, excludedAPIGroupKeys, err := s.resolveAPIKeyScope(ctx, filter)
 	if err != nil {
 		return nil, err
@@ -198,7 +253,7 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 		// Today/Yesterday 只改变网格终点，仍复用普通 Activity 聚合查询。
 		referenceEnd = filter.StartTime.AddDate(0, 0, 1)
 	}
-	grid, err := repository.QueryUsageActivityGridForInstance(ctx, s.db, filter.InstanceID, grain, referenceEnd, dataEnd, apiGroupKey, excludedAPIGroupKeys...)
+	grid, err := repository.QueryUsageActivityGridWithFilter(ctx, s.db, grain, referenceEnd, dataEnd, repodto.UsageQueryFilter{InstanceID: filter.InstanceID, APIGroupKey: apiGroupKey, ExcludedAPIGroupKeys: excludedAPIGroupKeys, Providers: providers, ProviderAuthIndexes: authIndexes})
 	if err != nil {
 		return nil, err
 	}
@@ -302,11 +357,17 @@ func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageAc
 
 func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	apiGroupKey, excludedAPIGroupKeys, err := s.resolveAPIKeyScope(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	realtime, err := repository.BuildUsageOverviewRealtimeWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		Providers:            providers,
+		ProviderAuthIndexes:  authIndexes,
 		InstanceID:           filter.InstanceID,
 		RealtimeWindow:       filter.RealtimeWindow,
 		RealtimeEndTime:      filter.RealtimeEndTime,
@@ -499,11 +560,17 @@ func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []ser
 
 func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	apiGroupKey, excludedAPIGroupKeys, err := s.resolveAPIKeyScope(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		Providers:            providers,
+		ProviderAuthIndexes:  authIndexes,
 		InstanceID:           filter.InstanceID,
 		Range:                filter.Range,
 		CustomUnit:           filter.CustomUnit,
@@ -521,11 +588,17 @@ func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageF
 
 func (s *usageService) GetAnalysisLatency(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisLatencyDiagnostics, error) {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	apiGroupKey, excludedAPIGroupKeys, err := s.resolveAPIKeyScope(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	record, err := repository.BuildAnalysisLatencyDiagnosticsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		Providers:            providers,
+		ProviderAuthIndexes:  authIndexes,
 		InstanceID:           filter.InstanceID,
 		Range:                filter.Range,
 		CustomUnit:           filter.CustomUnit,
@@ -586,6 +659,10 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 	for _, item := range record.AIProviderComposition {
 		aiProviders = append(aiProviders, mapAnalysisCompositionRecord(item))
 	}
+	providers := make([]servicedto.AnalysisCompositionItem, 0, len(record.ProviderComposition))
+	for _, item := range record.ProviderComposition {
+		providers = append(providers, mapAnalysisCompositionRecord(item))
+	}
 	heatmap := make([]servicedto.AnalysisHeatmapCell, 0, len(record.Heatmap))
 	for _, cell := range record.Heatmap {
 		heatmap = append(heatmap, servicedto.AnalysisHeatmapCell{
@@ -631,6 +708,7 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		ModelComposition:      models,
 		AuthFilesComposition:  authFiles,
 		AIProviderComposition: aiProviders,
+		ProviderComposition:   providers,
 		Heatmap:               heatmap,
 		CostBreakdown: servicedto.AnalysisCostBreakdown{
 			UncachedInputCostUSD: record.CostBreakdown.UncachedInputCostUSD,
@@ -664,14 +742,15 @@ func mapAnalysisLatencyDiagnosticsRecord(record repodto.AnalysisLatencyDiagnosti
 		})
 	}
 	return servicedto.AnalysisLatencyDiagnostics{
-		Points:       points,
-		Density:      density,
-		TotalPoints:  record.TotalPoints,
-		Sampled:      record.Sampled,
-		P95TTFTMS:    record.P95TTFTMS,
-		P95LatencyMS: record.P95LatencyMS,
-		MaxTTFTMS:    record.MaxTTFTMS,
-		MaxLatencyMS: record.MaxLatencyMS,
+		UnsupportedReason: record.UnsupportedReason,
+		Points:            points,
+		Density:           density,
+		TotalPoints:       record.TotalPoints,
+		Sampled:           record.Sampled,
+		P95TTFTMS:         record.P95TTFTMS,
+		P95LatencyMS:      record.P95LatencyMS,
+		MaxTTFTMS:         record.MaxTTFTMS,
+		MaxLatencyMS:      record.MaxLatencyMS,
 	}
 }
 
@@ -695,11 +774,17 @@ func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servic
 // Usage 页面里的 Request Event Log tab 下传分页、列表筛选条件和全局 API-Key。
 func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	apiGroupKey, excludedAPIGroupKeys, err := s.resolveAPIKeyScope(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		Providers:            providers,
+		ProviderAuthIndexes:  authIndexes,
 		Range:                filter.Range,
 		CustomUnit:           filter.CustomUnit,
 		StartTime:            filter.StartTime,
@@ -769,11 +854,17 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 // StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。
 func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.UsageFilter, emit func(servicedto.UsageEventRecord) error) error {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return err
+	}
 	apiGroupKey, excludedAPIGroupKeys, err := s.resolveAPIKeyScope(ctx, filter)
 	if err != nil {
 		return err
 	}
 	return repository.StreamUsageEventsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+		Providers:            providers,
+		ProviderAuthIndexes:  authIndexes,
 		Range:                filter.Range,
 		CustomUnit:           filter.CustomUnit,
 		StartTime:            filter.StartTime,
@@ -829,13 +920,19 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 // Request Event Log 的 model 筛选项只应用调用方传入的时间窗口；独立筛选项接口当前传空 filter。
 func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
 	ctx = usageServiceContext(ctx)
+	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
 	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		InstanceID:   filter.InstanceID,
-		Range:        filter.Range,
-		CustomUnit:   filter.CustomUnit,
-		StartTime:    filter.StartTime,
-		EndTime:      filter.EndTime,
-		EndExclusive: filter.EndExclusive,
+		Providers:           providers,
+		ProviderAuthIndexes: authIndexes,
+		InstanceID:          filter.InstanceID,
+		Range:               filter.Range,
+		CustomUnit:          filter.CustomUnit,
+		StartTime:           filter.StartTime,
+		EndTime:             filter.EndTime,
+		EndExclusive:        filter.EndExclusive,
 	})
 	if err != nil {
 		return nil, err

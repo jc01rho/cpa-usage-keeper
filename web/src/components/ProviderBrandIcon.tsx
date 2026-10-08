@@ -6,6 +6,7 @@ import geminiIcon from '@/assets/icons/gemini.svg'
 import grokIcon from '@/assets/icons/grok.svg'
 import kimiIcon from '@/assets/icons/kimi.svg'
 import metaIcon from '@/assets/icons/meta.svg'
+import ollamaIcon from '@/assets/icons/ollama.svg'
 import openaiIcon from '@/assets/icons/openai.svg'
 import vertexIcon from '@/assets/icons/vertex.svg'
 import styles from './ProviderBrandIcon.module.scss'
@@ -18,6 +19,7 @@ export const PROVIDER_BRAND_ICON_KEYS = [
   'gemini',
   'kimi',
   'meta',
+  'ollama',
   'openai',
   'vertex',
   'xai',
@@ -46,6 +48,7 @@ const providerBrandIconKeyByType: Readonly<Record<string, ProviderBrandIconKey>>
   'kimi.ai': 'kimi',
   'kimi.com': 'kimi',
   meta: 'meta',
+  ollama: 'ollama',
   openai: 'openai',
   vertex: 'vertex',
   xai: 'xai',
@@ -60,6 +63,7 @@ const providerBrandIconUrlByKey: Readonly<Record<ProviderBrandIconKey, string>> 
   gemini: geminiIcon,
   kimi: kimiIcon,
   meta: metaIcon,
+  ollama: ollamaIcon,
   openai: openaiIcon,
   vertex: vertexIcon,
   xai: grokIcon,

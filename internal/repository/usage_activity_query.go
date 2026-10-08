@@ -26,6 +26,11 @@ func QueryUsageActivityGrid(ctx context.Context, db *gorm.DB, grain entities.Usa
 }
 
 func QueryUsageActivityGridForInstance(ctx context.Context, db *gorm.DB, instanceID string, grain entities.UsageActivityGrain, referenceEnd, dataEnd time.Time, apiGroupKey string, excludedAPIGroupKeys ...string) (dto.UsageActivityGridRecord, error) {
+	return QueryUsageActivityGridWithFilter(ctx, db, grain, referenceEnd, dataEnd, dto.UsageQueryFilter{InstanceID: instanceID, APIGroupKey: apiGroupKey, ExcludedAPIGroupKeys: excludedAPIGroupKeys})
+}
+
+func QueryUsageActivityGridWithFilter(ctx context.Context, db *gorm.DB, grain entities.UsageActivityGrain, referenceEnd, dataEnd time.Time, filter dto.UsageQueryFilter) (dto.UsageActivityGridRecord, error) {
+	instanceID, apiGroupKey, excludedAPIGroupKeys := filter.InstanceID, filter.APIGroupKey, filter.ExcludedAPIGroupKeys
 	// result 先记录请求 grain，错误路径也能保留调用上下文。
 	result := dto.UsageActivityGridRecord{Grain: grain}
 	// nil 数据库无法读取 Activity rows。
@@ -94,7 +99,12 @@ func QueryUsageActivityGridForInstance(ctx context.Context, db *gorm.DB, instanc
 	// 使用完整 entity 读取数据库保存的 bucket_end 和全部 canonical Activity 字段。
 	var rows []entities.UsageActivityStat
 	// 查询失败必须阻止返回半完整 Activity 网格。
-	if err := query.Find(&rows).Error; err != nil {
+	if filter.Providers != nil {
+		rows, err = loadUsageActivityProviderRows(db.WithContext(ctx), filter, grain, result.WindowStart, result.WindowEnd)
+	} else {
+		err = query.Find(&rows).Error
+	}
+	if err != nil {
 		return result, fmt.Errorf("load usage activity grid rows: %w", err)
 	}
 	// 多 API group 无 scope 查询时在同一固定块内做内存求和，数据库返回顺序不影响结果。
@@ -102,7 +112,7 @@ func QueryUsageActivityGridForInstance(ctx context.Context, db *gorm.DB, instanc
 		// 行起点归一化后查找对应固定槽位。
 		index, ok := bucketIndex[timeutil.NormalizeStorageTime(row.BucketStart).Unix()]
 		// 不属于本次窗口的异常行不写入其它槽位。
-		if !ok {
+		if !ok || (!dataEnd.IsZero() && !row.BucketStart.Before(dataEnd)) {
 			continue
 		}
 		// block 指针用于逐字段累计同一 bucket 的多个 API group。

@@ -9,13 +9,14 @@ import { buildCredentialProviderFilterOptions, type CredentialProviderFilterKey,
 interface CredentialProviderFilterBarProps {
   scope: CredentialProviderFilterScope
   typeCounts: UsageIdentityTypeCount[]
+  providerCounts?: UsageIdentityTypeCount[]
   value: CredentialProviderFilterKey
   onChange: (value: CredentialProviderFilterKey) => void
 }
 
-export function CredentialProviderFilterBar({ scope, typeCounts, value, onChange }: CredentialProviderFilterBarProps) {
+export function CredentialProviderFilterBar({ scope, typeCounts, providerCounts, value, onChange }: CredentialProviderFilterBarProps) {
   const { t } = useTranslation()
-  const visibleOptions = useMemo(() => buildCredentialProviderFilterOptions(scope, typeCounts, value), [scope, typeCounts, value])
+  const visibleOptions = useMemo(() => buildCredentialProviderFilterOptions(scope, typeCounts, value, providerCounts), [scope, typeCounts, providerCounts, value])
 
   if (visibleOptions.length === 0) {
     return null

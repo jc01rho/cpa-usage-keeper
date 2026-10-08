@@ -25,9 +25,9 @@ interface AnalysisPanelProps {
   compositionDimensions?: readonly AnalysisCompositionDimension[];
 }
 
-export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider';
+export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider' | 'provider';
 
-const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['api_key', 'model', 'auth_files', 'ai_provider'];
+const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['api_key', 'model', 'auth_files', 'ai_provider', 'provider'];
 
 type ChartRow = {
   label: string;
@@ -1065,6 +1065,9 @@ function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile 
     samples: t('usage_stats.analysis_latency_samples'),
   }), [t]);
   const unsupported = safeDiagnostics.supported === false;
+  const unsupportedMessageKey = safeDiagnostics.unsupported_reason === 'provider_filter_requires_provider_latency_rollups'
+    ? 'usage_stats.analysis_latency_provider_filter_unsupported'
+    : 'usage_stats.analysis_latency_recent_range_only';
   const hasData = toNumber(safeDiagnostics.total_points) > 0 && safeDiagnostics.points.length > 0;
   return (
     <section className={`${styles.analysisCard} keeper-card-surface`}>
@@ -1079,7 +1082,7 @@ function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile 
       ) : error ? (
         <div className={styles.emptyState}>{error}</div>
       ) : unsupported ? (
-        <div className={styles.emptyState}>{t('usage_stats.analysis_latency_recent_range_only')}</div>
+        <div className={styles.emptyState}>{t(unsupportedMessageKey)}</div>
       ) : !hasData ? (
         <div className={styles.emptyState}>{t('usage_stats.no_data')}</div>
       ) : (
@@ -1698,6 +1701,7 @@ export function AnalysisPanel({
   const modelComposition = analysis?.model_composition ?? EMPTY_COMPOSITION_ITEMS;
   const authFilesComposition = analysis?.auth_files_composition ?? EMPTY_COMPOSITION_ITEMS;
   const aiProviderComposition = analysis?.ai_provider_composition ?? EMPTY_COMPOSITION_ITEMS;
+  const providerComposition = analysis?.provider_composition ?? EMPTY_COMPOSITION_ITEMS;
   const analysisWindowMinutes = useMemo(() => calculateAnalysisWindowMinutes(analysis), [analysis]);
   const compositionTabs = useMemo<CompositionTab[]>(() => {
     const tabs: Record<AnalysisCompositionDimension, CompositionTab> = {
@@ -1705,9 +1709,10 @@ export function AnalysisPanel({
       model: { id: 'model', label: t('usage_stats.analysis_composition_model_tab'), items: modelComposition },
       auth_files: { id: 'auth_files', label: t('usage_stats.analysis_composition_auth_files_tab'), items: authFilesComposition },
       ai_provider: { id: 'ai_provider', label: t('usage_stats.analysis_composition_ai_provider_tab'), items: aiProviderComposition },
+      provider: { id: 'provider', label: t('usage_stats.analysis_composition_provider_tab'), items: providerComposition },
     };
     return compositionDimensions.map((dimension) => tabs[dimension]);
-  }, [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, compositionDimensions, t]);
+  }, [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, providerComposition, compositionDimensions, t]);
 
   return (
     <div className={styles.analysisPanel}>

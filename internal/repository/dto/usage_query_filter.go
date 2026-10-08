@@ -29,6 +29,8 @@ type UsageQueryFilter struct {
 	AuthType             string
 	APIGroupKey          string
 	ExcludedAPIGroupKeys []string
+	Providers            []string
+	ProviderAuthIndexes  []string
 	Result               string
 }
 

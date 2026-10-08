@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -108,6 +109,7 @@ type ListUsageIdentitiesPageRequest struct {
 	AuthType   *entities.UsageIdentityAuthType
 	ActiveOnly *bool
 	Types      []string
+	Providers  []string
 	Sort       string
 	Page       int
 	PageSize   int
@@ -192,6 +194,10 @@ func ListActiveUsageIdentitiesPage(ctx context.Context, db *gorm.DB, request Lis
 	query := activeUsageIdentitiesPageBaseQuery(db.WithContext(ctx), request.AuthType, request.ActiveOnly)
 	if request.InstanceID = strings.TrimSpace(request.InstanceID); request.InstanceID != "" {
 		query = query.Where("instance_id = ?", request.InstanceID)
+	}
+	query, err = applyUsageIdentityProvidersFilter(db.WithContext(ctx), query, request.Providers)
+	if err != nil {
+		return nil, 0, nil, err
 	}
 	query = applyUsageIdentityTypesFilter(query, types)
 	var total int64
@@ -337,6 +343,10 @@ func ListActiveUsageIdentityTypeCounts(ctx context.Context, db *gorm.DB, request
 	if request.InstanceID = strings.TrimSpace(request.InstanceID); request.InstanceID != "" {
 		query = query.Where("instance_id = ?", request.InstanceID)
 	}
+	query, err := applyUsageIdentityProvidersFilter(db.WithContext(ctx), query, request.Providers)
+	if err != nil {
+		return nil, err
+	}
 	if err := query.Model(&entities.UsageIdentity{}).
 		Select("type, COUNT(*) AS count").
 		Group("type").
@@ -344,6 +354,67 @@ func ListActiveUsageIdentityTypeCounts(ctx context.Context, db *gorm.DB, request
 		Scan(&counts).Error; err != nil {
 		return nil, fmt.Errorf("count active usage identity types: %w", err)
 	}
+	return counts, nil
+}
+
+// 先解析原始值，再应用 IN，避免在分页主查询中逐行归一化。
+func applyUsageIdentityProvidersFilter(db, query *gorm.DB, providers []string) (*gorm.DB, error) {
+	if len(providers) == 0 {
+		return query, nil
+	}
+	selected := make(map[string]bool)
+	for _, provider := range providers {
+		selected[NormalizeUsageProvider(provider)] = true
+	}
+	var rows []entities.UsageIdentity
+	if err := db.Model(&entities.UsageIdentity{}).Distinct("provider", "type").Where("is_deleted = ?", false).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	var rawProviders, rawTypes []string
+	for _, row := range rows {
+		if selected[NormalizeUsageProvider(row.Provider)] {
+			rawProviders = append(rawProviders, row.Provider)
+		}
+		if selected[NormalizeUsageProvider(row.Type)] {
+			rawTypes = append(rawTypes, row.Type)
+		}
+	}
+	return query.Where("(provider IN ? OR type IN ?)", rawProviders, rawTypes), nil
+}
+
+// 供应商按钮数量与类型按钮一样不受当前 type 选择影响。
+func ListActiveUsageIdentityProviderCounts(ctx context.Context, db *gorm.DB, request ListUsageIdentitiesPageRequest) ([]dto.UsageIdentityTypeCount, error) {
+	query := activeUsageIdentitiesPageBaseQuery(db.WithContext(ctx), request.AuthType, request.ActiveOnly)
+	if instanceID := strings.TrimSpace(request.InstanceID); instanceID != "" {
+		query = query.Where("instance_id = ?", instanceID)
+	}
+	query, err := applyUsageIdentityProvidersFilter(db.WithContext(ctx), query, request.Providers)
+	if err != nil {
+		return nil, err
+	}
+	var rows []struct {
+		Provider string
+		Type     string
+		Count    int64
+	}
+	if err := query.Model(&entities.UsageIdentity{}).Select("provider, type, COUNT(*) AS count").Group("provider, type").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	totals := make(map[string]int64)
+	for _, row := range rows {
+		provider := row.Provider
+		if strings.TrimSpace(provider) == "" {
+			provider = row.Type
+		}
+		if value := NormalizeUsageProvider(provider); value != "" {
+			totals[value] += row.Count
+		}
+	}
+	counts := make([]dto.UsageIdentityTypeCount, 0, len(totals))
+	for provider, count := range totals {
+		counts = append(counts, dto.UsageIdentityTypeCount{Type: provider, Count: count})
+	}
+	sort.Slice(counts, func(i, j int) bool { return counts[i].Type < counts[j].Type })
 	return counts, nil
 }
 

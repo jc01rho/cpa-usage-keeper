@@ -99,14 +99,15 @@ type AnalysisLatencyDensityCellRecord struct {
 }
 
 type AnalysisLatencyDiagnosticsRecord struct {
-	Points       []AnalysisLatencyPointRecord
-	Density      []AnalysisLatencyDensityCellRecord
-	TotalPoints  int64
-	Sampled      bool
-	P95TTFTMS    int64
-	P95LatencyMS int64
-	MaxTTFTMS    int64
-	MaxLatencyMS int64
+	UnsupportedReason string
+	Points            []AnalysisLatencyPointRecord
+	Density           []AnalysisLatencyDensityCellRecord
+	TotalPoints       int64
+	Sampled           bool
+	P95TTFTMS         int64
+	P95LatencyMS      int64
+	MaxTTFTMS         int64
+	MaxLatencyMS      int64
 }
 
 type AnalysisRecord struct {
@@ -119,6 +120,7 @@ type AnalysisRecord struct {
 	ModelComposition      []AnalysisCompositionRecord
 	AuthFilesComposition  []AnalysisCompositionRecord
 	AIProviderComposition []AnalysisCompositionRecord
+	ProviderComposition   []AnalysisCompositionRecord
 	Heatmap               []AnalysisHeatmapRecord
 	CostBreakdown         AnalysisCostBreakdownRecord
 	ModelEfficiency       []AnalysisModelEfficiencyRecord

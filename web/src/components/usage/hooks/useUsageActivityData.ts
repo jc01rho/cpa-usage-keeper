@@ -7,6 +7,7 @@ export interface UseUsageActivityDataOptions {
   request: UsageActivityRequest;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
+  providers?: ReadonlyArray<string>;
   enabled?: boolean;
   onAuthRequired?: () => void;
 }
@@ -37,11 +38,13 @@ export function useUsageActivityData({
   request,
   apiKeyId,
   excludedApiKeyIds,
+  providers,
   enabled = true,
   onAuthRequired,
 }: UseUsageActivityDataOptions): UseUsageActivityDataReturn {
   const normalizedAPIKeyID = viewer === 'admin' ? apiKeyId?.trim() ?? '' : '';
   const excludedAPIKeyIDs = viewer === 'admin' ? excludedApiKeyIds ?? EMPTY_API_KEY_IDS : EMPTY_API_KEY_IDS;
+  const providerScope = viewer === 'admin' && providers?.length ? `:providers=${JSON.stringify([...providers].sort())}` : '';
   const excludedAPIKeyScope = excludedAPIKeyIDs.join(',');
   const requestWindow = 'window' in request ? request.window : undefined;
   const requestRange = 'range' in request ? request.range : undefined;
@@ -61,10 +64,10 @@ export function useUsageActivityData({
         }
   ), [requestEnd, requestInstanceId, requestRange, requestStart, requestUnit, requestWindow]);
   const queryKey = useMemo(
-    () => `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}:${requestInstanceId ?? ''}:${requestWindow ?? ''}:${requestRange ?? ''}:${requestUnit ?? ''}:${requestStart ?? ''}:${requestEnd ?? ''}`,
-    [excludedAPIKeyScope, normalizedAPIKeyID, requestEnd, requestInstanceId, requestRange, requestStart, requestUnit, requestWindow, viewer],
+    () => `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}${providerScope}:${requestInstanceId ?? ''}:${requestWindow ?? ''}:${requestRange ?? ''}:${requestUnit ?? ''}:${requestStart ?? ''}:${requestEnd ?? ''}`,
+    [excludedAPIKeyScope, providerScope, normalizedAPIKeyID, requestEnd, requestInstanceId, requestRange, requestStart, requestUnit, requestWindow, viewer],
   );
-  const queryScope = `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}:${requestInstanceId ?? ''}`;
+  const queryScope = `${viewer}:${normalizedAPIKeyID}:${excludedAPIKeyScope}${providerScope}:${requestInstanceId ?? ''}`;
   const activeRequestRef = useRef<ActiveActivityRequest | null>(null);
   const [response, setResponse] = useState<UsageActivityResponse | null>(null);
   const [responseQueryKey, setResponseQueryKey] = useState('');
@@ -93,7 +96,7 @@ export function useUsageActivityData({
       try {
         const next = viewer === 'key'
           ? await fetchKeyActivity({ request: normalizedRequest, signal: controller.signal })
-          : await fetchUsageActivity({ request: normalizedRequest, apiKeyId: normalizedAPIKeyID, excludedApiKeyIds: excludedAPIKeyIDs, signal: controller.signal });
+          : await fetchUsageActivity({ request: normalizedRequest, apiKeyId: normalizedAPIKeyID, excludedApiKeyIds: excludedAPIKeyIDs, ...(providers ? { providers } : {}), signal: controller.signal });
         if (activeRequestRef.current !== activeRequest) return;
         setResponse(next);
         setResponseQueryKey(queryKey);
@@ -116,7 +119,7 @@ export function useUsageActivityData({
       }
     })();
     return activeRequest.promise;
-  }, [excludedAPIKeyIDs, normalizedAPIKeyID, normalizedRequest, onAuthRequired, queryKey, queryScope, viewer]);
+  }, [excludedAPIKeyIDs, providers, normalizedAPIKeyID, normalizedRequest, onAuthRequired, queryKey, queryScope, viewer]);
 
   useEffect(() => {
     if (!enabled) return;

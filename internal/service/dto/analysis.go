@@ -99,14 +99,15 @@ type AnalysisLatencyDensityCell struct {
 }
 
 type AnalysisLatencyDiagnostics struct {
-	Points       []AnalysisLatencyPoint
-	Density      []AnalysisLatencyDensityCell
-	TotalPoints  int64
-	Sampled      bool
-	P95TTFTMS    int64
-	P95LatencyMS int64
-	MaxTTFTMS    int64
-	MaxLatencyMS int64
+	UnsupportedReason string
+	Points            []AnalysisLatencyPoint
+	Density           []AnalysisLatencyDensityCell
+	TotalPoints       int64
+	Sampled           bool
+	P95TTFTMS         int64
+	P95LatencyMS      int64
+	MaxTTFTMS         int64
+	MaxLatencyMS      int64
 }
 
 type AnalysisSnapshot struct {
@@ -119,6 +120,7 @@ type AnalysisSnapshot struct {
 	ModelComposition      []AnalysisCompositionItem
 	AuthFilesComposition  []AnalysisCompositionItem
 	AIProviderComposition []AnalysisCompositionItem
+	ProviderComposition   []AnalysisCompositionItem
 	Heatmap               []AnalysisHeatmapCell
 	CostBreakdown         AnalysisCostBreakdown
 	ModelEfficiency       []AnalysisModelEfficiencyItem

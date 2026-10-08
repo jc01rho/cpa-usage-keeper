@@ -14,6 +14,7 @@ interface LoadUsageStatsOptions {
   instanceId?: string;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
+  providers?: ReadonlyArray<string>;
 }
 
 interface LoadUsageStatsRealtimeOptions {
@@ -21,6 +22,7 @@ interface LoadUsageStatsRealtimeOptions {
   staleTimeMs?: number;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
+  providers?: ReadonlyArray<string>;
   instanceId?: string;
   realtimeWindow?: OverviewRealtimeWindow;
 }
@@ -49,11 +51,11 @@ let activeRealtimeRequest: Promise<void> | null = null;
 let activeRealtimeRequestKey: string | null = null;
 let activeRealtimeRequestController: AbortController | null = null;
 
-export const buildUsageStatsQueryKey = (request: UsageRangeRequest, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>): string =>
-  `${request.instanceId ?? ''}:${request.range}:${request.unit ?? ''}:${request.start ?? ''}:${request.end ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}`;
+export const buildUsageStatsQueryKey = (request: UsageRangeRequest, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>, providers?: ReadonlyArray<string>): string =>
+  `${request.instanceId ?? ''}:${request.range}:${request.unit ?? ''}:${request.start ?? ''}:${request.end ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}${providers?.length ? `:providers=${JSON.stringify([...providers].sort())}` : ''}`;
 
-const buildRealtimeQueryKey = (instanceId?: string, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>, realtimeWindow?: OverviewRealtimeWindow): string =>
-  `${instanceId ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}:${realtimeWindow ?? ''}`;
+export const buildRealtimeQueryKey = (instanceId?: string, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>, realtimeWindow?: OverviewRealtimeWindow, providers?: ReadonlyArray<string>): string =>
+  `${instanceId ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}${providers?.length ? `:providers=${JSON.stringify([...providers].sort())}` : ''}:${realtimeWindow ?? ''}`;
 
 export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
   usage: null,
@@ -78,11 +80,12 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       instanceId,
       apiKeyId,
       excludedApiKeyIds,
+      providers,
     } = options;
     const { lastRefreshedAt, loading, usage, lastQueryKey } = get();
     const now = Date.now();
     const request: UsageRangeRequest = { range, unit, start, end, instanceId };
-    const queryKey = buildUsageStatsQueryKey(request, apiKeyId, excludedApiKeyIds);
+    const queryKey = buildUsageStatsQueryKey(request, apiKeyId, excludedApiKeyIds, providers);
     const overviewFresh = Boolean(!force && usage && lastRefreshedAt && lastQueryKey === queryKey && now - lastRefreshedAt < staleTimeMs);
 
     if (overviewFresh) {
@@ -106,7 +109,9 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
 
     activeOverviewRequest = (async () => {
       try {
-        const overview = await fetchUsageOverview(request, controller.signal, apiKeyId, excludedApiKeyIds);
+        const overview = providers?.length
+          ? await fetchUsageOverview(request, controller.signal, apiKeyId, excludedApiKeyIds, providers)
+          : await fetchUsageOverview(request, controller.signal, apiKeyId, excludedApiKeyIds);
         if (activeOverviewRequestController !== controller) return;
         set({
           usage: overview,
@@ -148,12 +153,13 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       staleTimeMs = USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
       excludedApiKeyIds,
+      providers,
       instanceId,
       realtimeWindow,
     } = options;
     const { lastRealtimeRefreshedAt, realtimeLoading, realtime, lastRealtimeQueryKey, realtimeError, lastRealtimeErrorQueryKey } = get();
     const now = Date.now();
-    const realtimeQueryKey = buildRealtimeQueryKey(instanceId, apiKeyId, excludedApiKeyIds, realtimeWindow);
+    const realtimeQueryKey = buildRealtimeQueryKey(instanceId, apiKeyId, excludedApiKeyIds, realtimeWindow, providers);
     const realtimeFresh = Boolean(!force && realtime && lastRealtimeRefreshedAt && lastRealtimeQueryKey === realtimeQueryKey && now - lastRealtimeRefreshedAt < staleTimeMs);
 
     if (realtimeFresh) {
@@ -185,6 +191,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           signal: controller.signal,
           apiKeyId,
           excludedApiKeyIds,
+          ...(providers?.length ? { providers } : {}),
           instanceId,
           window: realtimeWindow,
         });

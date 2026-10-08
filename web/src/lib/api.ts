@@ -1,5 +1,6 @@
 import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CPAInstance, type CPAInstanceCredential, type CreateCPAInstanceRequest, type CreateCPAInstanceResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type ListCPAInstanceCredentialsResponse, type ListCPAInstancesResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingEntry, type PricingResponse, type PricingRulesResponse, type PricingSyncPreviewResponse, type PricingSyncSource, type QuotaAutoRefreshSettings, type ReplacePricingRulesRequest, type StatusResponse, type UpdateCPAInstanceRequest, type UpdateCPAInstanceResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
+import type { UsageEventProviderFilterOptionsResponse } from './types'
 import { resolveUsageRequestRange } from '@/utils/usage/rangeQuery'
 
 export class ApiError extends Error {
@@ -82,6 +83,7 @@ export interface FetchKeyOverviewRealtimeOptions {
 export interface FetchUsageOverviewRealtimeOptions extends FetchKeyOverviewRealtimeOptions {
   apiKeyId?: string
   excludedApiKeyIds?: ReadonlyArray<string>
+  providers?: ReadonlyArray<string>
   instanceId?: string
 }
 
@@ -414,6 +416,7 @@ export interface FetchUsageActivityOptions {
   request: UsageActivityRequest
   apiKeyId?: string
   excludedApiKeyIds?: ReadonlyArray<string>
+  providers?: ReadonlyArray<string>
   signal?: AbortSignal
 }
 
@@ -423,6 +426,13 @@ function appendExcludedAPIKeyIDs(params: URLSearchParams, excludedApiKeyIds?: Re
     if (normalizedAPIKeyID) {
       params.append('exclude_api_key_id', normalizedAPIKeyID)
     }
+  }
+}
+
+function appendProviderParams(params: URLSearchParams, providers?: ReadonlyArray<string>): void {
+  for (const provider of providers ?? []) {
+    const value = provider.trim()
+    if (value) params.append('provider', value)
   }
 }
 
@@ -465,8 +475,9 @@ export async function fetchKeyOverviewRealtime(options: FetchKeyOverviewRealtime
   return normalizeOverviewRealtimeBlock(payload, window)
 }
 
-export async function fetchUsageOverview(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>): Promise<UsageOverviewResponse> {
+export async function fetchUsageOverview(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds?: ReadonlyArray<string>, providers?: ReadonlyArray<string>): Promise<UsageOverviewResponse> {
   const params = buildUsageRangeParams(request)
+  appendProviderParams(params, providers)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
@@ -480,8 +491,9 @@ export async function fetchUsageOverview(request: UsageRangeRequest, signal?: Ab
   return response.json()
 }
 
-export async function fetchUsageOverviewComparisons(request: UsageRangeRequest, options: { signal?: AbortSignal; apiKeyId?: string; keyViewer?: boolean } = {}): Promise<UsageOverviewComparisons> {
+export async function fetchUsageOverviewComparisons(request: UsageRangeRequest, options: { signal?: AbortSignal; apiKeyId?: string; keyViewer?: boolean; providers?: ReadonlyArray<string> } = {}): Promise<UsageOverviewComparisons> {
   const params = buildUsageRangeParams(request)
+  appendProviderParams(params, options.providers)
   const selectedAPIKeyId = options.apiKeyId?.trim()
   if (selectedAPIKeyId) params.set('api_key_id', selectedAPIKeyId)
   const path = options.keyViewer ? '/key-overview/comparisons' : '/usage/overview/comparisons'
@@ -493,8 +505,9 @@ export async function fetchUsageOverviewComparisons(request: UsageRangeRequest, 
   return response.json()
 }
 
-export async function fetchUsageActivity({ request, apiKeyId, excludedApiKeyIds, signal }: FetchUsageActivityOptions): Promise<UsageActivityResponse> {
+export async function fetchUsageActivity({ request, apiKeyId, excludedApiKeyIds, providers, signal }: FetchUsageActivityOptions): Promise<UsageActivityResponse> {
   const params = buildUsageActivityParams(request)
+  appendProviderParams(params, providers)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
@@ -510,6 +523,7 @@ export async function fetchUsageActivity({ request, apiKeyId, excludedApiKeyIds,
 export async function fetchUsageOverviewRealtime(options: FetchUsageOverviewRealtimeOptions = {}): Promise<OverviewRealtimeBlock> {
   const { signal, apiKeyId, excludedApiKeyIds, instanceId, window } = options
   const params = new URLSearchParams()
+  appendProviderParams(params, options.providers)
   if (instanceId) {
     params.set('instance_id', instanceId)
   }
@@ -544,6 +558,7 @@ export interface FetchUsageEventsOptions {
   result?: string
   apiKeyId?: string
   excludedApiKeyIds?: ReadonlyArray<string>
+  providers?: ReadonlyArray<string>
 }
 
 export type UsageEventsExportFormat = 'csv' | 'json'
@@ -559,6 +574,7 @@ interface UsageEventRequestLogDownloadURLResponse {
 
 function buildUsageEventsParams(request: UsageRangeRequest | undefined, options?: FetchUsageEventsOptions, includePagination = true): URLSearchParams {
   const params = request ? buildUsageRangeParams(request) : new URLSearchParams()
+  appendProviderParams(params, options?.providers)
   if (includePagination && typeof options?.page === 'number' && Number.isFinite(options.page) && options.page > 0) {
     params.set('page', String(Math.floor(options.page)))
   }
@@ -619,6 +635,17 @@ export async function fetchUsageEventSourceFilterOptions(signal?: AbortSignal, i
   const response = await apiFetch(`${apiPath('/usage/events/filters/sources')}${query ? `?${query}` : ''}`, { signal, cache: 'no-store' })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage event source filters: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchUsageEventProviderFilterOptions(signal?: AbortSignal, instanceId?: string): Promise<UsageEventProviderFilterOptionsResponse> {
+  const params = new URLSearchParams()
+  if (instanceId) params.set('instance_id', instanceId)
+  const query = params.toString()
+  const response = await apiFetch(`${apiPath('/usage/events/filters/providers')}${query ? `?${query}` : ''}`, { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage event provider filters: ${response.status}`)
   }
   return response.json()
 }
@@ -688,6 +715,7 @@ export interface FetchUsageIdentitiesPageOptions {
   authType?: UsageIdentityAuthType
   activeOnly?: boolean
   types?: string[]
+  providers?: ReadonlyArray<string>
   sort?: UsageIdentityPageSort
   page?: number
   pageSize?: number
@@ -712,6 +740,7 @@ export async function fetchUsageIdentity(id: string, signal?: AbortSignal): Prom
 export async function fetchUsageIdentitiesPage(signal?: AbortSignal, options?: FetchUsageIdentitiesPageOptions): Promise<UsageIdentitiesPageResponse> {
   // Credentials 两个分区共用分页接口，通过 auth_type 控制服务端过滤。
   const params = new URLSearchParams()
+  appendProviderParams(params, options?.providers)
   if (options?.authType) {
     params.set('auth_type', String(options.authType))
   }
@@ -953,8 +982,9 @@ export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagem
   return response.json()
 }
 
-export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds: ReadonlyArray<string> = []): Promise<AnalysisResponse> {
+export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds: ReadonlyArray<string> = [], providers?: ReadonlyArray<string>): Promise<AnalysisResponse> {
   const params = buildUsageRangeParams(request)
+  appendProviderParams(params, providers)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)
@@ -968,8 +998,9 @@ export async function fetchAnalysis(request: UsageRangeRequest, signal?: AbortSi
   return response.json()
 }
 
-export async function fetchAnalysisLatency(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds: ReadonlyArray<string> = []): Promise<AnalysisLatencyDiagnostics> {
+export async function fetchAnalysisLatency(request: UsageRangeRequest, signal?: AbortSignal, apiKeyId?: string, excludedApiKeyIds: ReadonlyArray<string> = [], providers?: ReadonlyArray<string>): Promise<AnalysisLatencyDiagnostics> {
   const params = buildUsageRangeParams(request)
+  appendProviderParams(params, providers)
   const selectedAPIKeyId = apiKeyId?.trim()
   if (selectedAPIKeyId) {
     params.set('api_key_id', selectedAPIKeyId)

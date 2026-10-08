@@ -148,6 +148,8 @@
     padding-top: 4px;
     border-top: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
     &[data-count='1'] { grid-template-columns: minmax(0, min(var(--toolbar-first-filter), 100%)); }
+    // 三个以上筛选控件按等宽列换行，避免后续供应商控件继承 API Key 的窄列宽。
+    &[data-count='3'], &[data-count='4'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 }
 
