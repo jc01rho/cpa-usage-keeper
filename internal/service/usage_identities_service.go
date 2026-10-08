@@ -16,6 +16,7 @@ type ListUsageIdentitiesRequest struct {
 	AuthType   *entities.UsageIdentityAuthType
 	ActiveOnly *bool
 	Types      []string
+	Providers  []string
 	Sort       string
 	Page       int
 	PageSize   int
@@ -49,6 +50,7 @@ type ListUsageIdentitiesResponse struct {
 	Items            []entities.UsageIdentity
 	Total            int64
 	TypeCounts       []UsageIdentityTypeCount
+	ProviderCounts   []UsageIdentityTypeCount
 	CredentialHealth []UsageCredentialHealthSnapshot
 }
 
@@ -121,19 +123,25 @@ func (s *usageIdentityService) GetUsageIdentity(ctx context.Context, id int64) (
 }
 
 func (s *usageIdentityService) ListActiveUsageIdentitiesPage(ctx context.Context, request ListUsageIdentitiesRequest) (ListUsageIdentitiesResponse, error) {
-	items, total, typeCounts, err := repository.ListActiveUsageIdentitiesPage(ctx, s.db, repository.ListUsageIdentitiesPageRequest{
+	query := repository.ListUsageIdentitiesPageRequest{
 		InstanceID: request.InstanceID,
 		AuthType:   request.AuthType,
 		ActiveOnly: request.ActiveOnly,
 		Types:      request.Types,
+		Providers:  request.Providers,
 		Sort:       request.Sort,
 		Page:       request.Page,
 		PageSize:   request.PageSize,
-	})
+	}
+	items, total, typeCounts, err := repository.ListActiveUsageIdentitiesPage(ctx, s.db, query)
 	if err != nil {
 		return ListUsageIdentitiesResponse{}, err
 	}
-	return ListUsageIdentitiesResponse{Items: items, Total: total, TypeCounts: typeCounts, CredentialHealth: s.credentialHealthSnapshots(items)}, nil
+	providerCounts, err := repository.ListActiveUsageIdentityProviderCounts(ctx, s.db, query)
+	if err != nil {
+		return ListUsageIdentitiesResponse{}, err
+	}
+	return ListUsageIdentitiesResponse{Items: items, Total: total, TypeCounts: typeCounts, ProviderCounts: providerCounts, CredentialHealth: s.credentialHealthSnapshots(items)}, nil
 }
 
 func (s *usageIdentityService) UpdateUsageIdentityAlias(ctx context.Context, id int64, alias string) (entities.UsageIdentity, error) {

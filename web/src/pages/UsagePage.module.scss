@@ -631,6 +631,26 @@
   }
 }
 
+.providerFilterMenu {
+  min-width: 0;
+  max-width: 100%;
+
+  summary {
+    height: auto;
+    min-height: 34px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  @include mobile {
+    .apiKeyExcludePopover {
+      left: 0;
+      right: auto;
+      width: min(320px, calc(100vw - 64px));
+    }
+  }
+}
+
 .apiKeyExcludeSummary {
   display: inline-flex;
   align-items: center;

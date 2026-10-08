@@ -27,6 +27,7 @@ type analysisResponse struct {
 	ModelComposition      []analysisCompositionItem `json:"model_composition"`
 	AuthFilesComposition  []analysisCompositionItem `json:"auth_files_composition"`
 	AIProviderComposition []analysisCompositionItem `json:"ai_provider_composition"`
+	ProviderComposition   []analysisCompositionItem `json:"provider_composition"`
 	Heatmap               analysisHeatmap           `json:"heatmap"`
 	CostBreakdown         analysisCostBreakdown     `json:"cost_breakdown"`
 	ModelEfficiency       []analysisModelEfficiency `json:"model_efficiency"`
@@ -236,6 +237,7 @@ func registerKeyUsageAnalysisRoute(router gin.IRoutes, usageProvider service.Usa
 		// 来源身份属于管理员视图；Viewer JSON 在服务端直接清空，避免仅靠 UI 隐藏。
 		payload.AuthFilesComposition = []analysisCompositionItem{}
 		payload.AIProviderComposition = []analysisCompositionItem{}
+		payload.ProviderComposition = []analysisCompositionItem{}
 		c.JSON(http.StatusOK, payload)
 	})
 
@@ -278,6 +280,7 @@ func emptyAnalysisResponse() analysisResponse {
 		ModelComposition:      []analysisCompositionItem{},
 		AuthFilesComposition:  []analysisCompositionItem{},
 		AIProviderComposition: []analysisCompositionItem{},
+		ProviderComposition:   []analysisCompositionItem{},
 		Heatmap:               analysisHeatmap{APIKeys: []string{}, APIKeyLabels: map[string]string{}, Models: []string{}, Cells: []analysisHeatmapCell{}},
 		CostBreakdown:         analysisCostBreakdown{CostAvailable: true},
 		ModelEfficiency:       []analysisModelEfficiency{},
@@ -376,6 +379,7 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 		ModelComposition:      modelComposition,
 		AuthFilesComposition:  authFilesComposition,
 		AIProviderComposition: aiProviderComposition,
+		ProviderComposition:   buildAnalysisCompositionPayload(snapshot.ProviderComposition, nil),
 		Heatmap:               buildAnalysisHeatmapPayload(snapshot.Heatmap, apiKeyInfos),
 		CostBreakdown: analysisCostBreakdown{
 			UncachedInputCostUSD: snapshot.CostBreakdown.UncachedInputCostUSD,
@@ -451,15 +455,16 @@ func buildAnalysisLatencyDiagnosticsPayload(diagnostics servicedto.AnalysisLaten
 		})
 	}
 	return analysisLatencyDiagnostics{
-		Supported:    true,
-		Points:       points,
-		Density:      density,
-		TotalPoints:  diagnostics.TotalPoints,
-		Sampled:      diagnostics.Sampled,
-		P95TTFTMS:    diagnostics.P95TTFTMS,
-		P95LatencyMS: diagnostics.P95LatencyMS,
-		MaxTTFTMS:    diagnostics.MaxTTFTMS,
-		MaxLatencyMS: diagnostics.MaxLatencyMS,
+		Supported:         diagnostics.UnsupportedReason == "",
+		UnsupportedReason: diagnostics.UnsupportedReason,
+		Points:            points,
+		Density:           density,
+		TotalPoints:       diagnostics.TotalPoints,
+		Sampled:           diagnostics.Sampled,
+		P95TTFTMS:         diagnostics.P95TTFTMS,
+		P95LatencyMS:      diagnostics.P95LatencyMS,
+		MaxTTFTMS:         diagnostics.MaxTTFTMS,
+		MaxLatencyMS:      diagnostics.MaxLatencyMS,
 	}
 }
 

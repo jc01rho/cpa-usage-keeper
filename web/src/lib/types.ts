@@ -433,6 +433,16 @@ export interface UsageEventSourceFilterOptionsResponse {
   sources: UsageSourceFilterOption[]
 }
 
+export interface UsageEventProviderFilterOption {
+  value: string
+  label: string
+  count: number
+}
+
+export interface UsageEventProviderFilterOptionsResponse {
+  providers: UsageEventProviderFilterOption[]
+}
+
 export type UsageIdentityAuthType = 1 | 2
 
 export interface UsageCredentialHealthBucket {
@@ -530,6 +540,7 @@ export interface UsageIdentitiesPageResponse {
   page_size: number
   total_pages: number
   type_counts?: UsageIdentityTypeCount[]
+  provider_counts?: UsageIdentityTypeCount[]
 }
 
 export interface UsageQuotaWindow {
@@ -873,7 +884,7 @@ export interface AnalysisLatencyDensityCell {
 
 export interface AnalysisLatencyDiagnostics {
   supported?: boolean
-  unsupported_reason?: 'range_outside_recent_30_days'
+  unsupported_reason?: 'range_outside_recent_30_days' | 'provider_filter_requires_provider_latency_rollups'
   points: AnalysisLatencyPoint[]
   density: AnalysisLatencyDensityCell[]
   total_points: number
@@ -895,6 +906,7 @@ export interface AnalysisResponse {
   model_composition: AnalysisCompositionItem[]
   auth_files_composition: AnalysisCompositionItem[]
   ai_provider_composition: AnalysisCompositionItem[]
+  provider_composition: AnalysisCompositionItem[]
   heatmap: AnalysisHeatmapPayload
   cost_breakdown: AnalysisCostBreakdown
   model_efficiency: AnalysisModelEfficiencyItem[]

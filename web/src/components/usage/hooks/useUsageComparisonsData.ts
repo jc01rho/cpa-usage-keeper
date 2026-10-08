@@ -9,6 +9,7 @@ export interface UseUsageComparisonsDataOptions {
   enabled?: boolean
   keyViewer?: boolean
   apiKeyId?: string
+  providers?: ReadonlyArray<string>
   range?: UsageTimeRange
   customUnit?: UsageCustomRangeUnit
   customStart?: string
@@ -20,7 +21,7 @@ interface LoadComparisonsOptions {
 }
 
 export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions = {}) {
-  const { onAuthRequired, onRangeBoundsConflict, enabled = true, keyViewer = false, apiKeyId, range = 'today', customUnit, customStart, customEnd } = options
+  const { onAuthRequired, onRangeBoundsConflict, enabled = true, keyViewer = false, apiKeyId, providers, range = 'today', customUnit, customStart, customEnd } = options
   const [comparisons, setComparisons] = useState<UsageOverviewComparisons | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -38,7 +39,7 @@ export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions 
     setLoading(true)
     setError('')
     try {
-      const nextComparisons = await fetchUsageOverviewComparisons(rangeQuery, { apiKeyId, keyViewer, signal: controller.signal })
+      const nextComparisons = await fetchUsageOverviewComparisons(rangeQuery, { apiKeyId, keyViewer, signal: controller.signal, ...(providers ? { providers } : {}) })
       if (sequence === requestSequence.current) setComparisons(nextComparisons)
     } catch (nextError) {
       if (controller.signal.aborted || sequence !== requestSequence.current) return
@@ -49,7 +50,7 @@ export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions 
       if (sequence === requestSequence.current) setLoading(false)
       if (sequence === requestSequence.current) activeController.current = null
     }
-  }, [apiKeyId, keyViewer, onAuthRequired, onRangeBoundsConflict, rangeQuery])
+  }, [apiKeyId, providers, keyViewer, onAuthRequired, onRangeBoundsConflict, rangeQuery])
 
   useEffect(() => {
     if (!enabled || !rangeQuery.valid) return

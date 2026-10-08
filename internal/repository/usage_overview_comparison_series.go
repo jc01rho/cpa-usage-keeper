@@ -26,6 +26,7 @@ func loadUsageOverviewComparisonTokenSeries(db *gorm.DB, filter dto.UsageQueryFi
 		if key := strings.TrimSpace(filter.APIGroupKey); key != "" {
 			query = query.Where("api_group_key = ?", key)
 		}
+		query = applyUsageAuthIndexScope(query, filter)
 		if err := scanUsageOverviewComparisonTokenSeries(query, dimension, byDay, comparisons, identities); err != nil {
 			return fmt.Errorf("load usage overview %s %s token series: %w", grain, dimension, err)
 		}

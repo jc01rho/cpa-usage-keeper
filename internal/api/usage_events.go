@@ -30,6 +30,12 @@ type usageEventsResponse struct {
 	HasMore    bool                `json:"has_more"`
 }
 
+type usageProviderFilterOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+	Count int64  `json:"count"`
+}
+
 type usageSourceFilterOption struct {
 	Value       string `json:"value"`
 	Label       string `json:"label"`
@@ -163,6 +169,34 @@ func registerUsageEventsRoute(
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"models": models})
+	})
+
+	// Count 表示所选时间窗口内的请求数；仅存在于活跃身份表的供应商计为零。
+	router.GET("/usage/events/filters/providers", func(c *gin.Context) {
+		options := make([]usageProviderFilterOption, 0)
+		provider, ok := usageProvider.(service.UsageProviderFilterProvider)
+		if !ok {
+			c.JSON(http.StatusOK, gin.H{"providers": options})
+			return
+		}
+		filter := servicedto.UsageFilter{InstanceID: serviceInstanceFilter(c.Request)}
+		if strings.TrimSpace(c.Query("range")) != "" || c.Query("start") != "" || c.Query("end") != "" {
+			var err error
+			filter, err = parseUsageEventsTimeFilterQuery(c.Request, timeutil.NormalizeStorageTime(time.Now()))
+			if err != nil {
+				writeUsageFilterParseError(c, err)
+				return
+			}
+		}
+		rows, err := provider.ListUsageEventProviderFilterOptions(c.Request.Context(), filter)
+		if err != nil {
+			writeInternalError(c, "list usage event provider filter options failed", err)
+			return
+		}
+		for _, row := range rows {
+			options = append(options, usageProviderFilterOption{Value: row.Value, Label: row.Label, Count: row.Count})
+		}
+		c.JSON(http.StatusOK, gin.H{"providers": options})
 	})
 
 	router.GET("/usage/events/filters/sources", func(c *gin.Context) {

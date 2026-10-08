@@ -85,7 +85,7 @@ func parseUsageActivityFilterQueryWithClientAPIKey(req *http.Request, anchor tim
 		window == servicedto.UsageActivityWindowWeek ||
 		window == servicedto.UsageActivityWindowMonth ||
 		window == servicedto.UsageActivityWindowYear {
-		return servicedto.UsageFilter{InstanceID: serviceInstanceFilter(req), ActivityWindow: window, QueryNow: &queryNow, APIKeyID: apiKeyID}, nil
+		return servicedto.UsageFilter{InstanceID: serviceInstanceFilter(req), ActivityWindow: window, QueryNow: &queryNow, APIKeyID: apiKeyID, Providers: cleanUsageProviderFilters(req.URL.Query()["provider"])}, nil
 	}
 
 	// today/yesterday 复用公共时间解析器，确保 Overview、Analysis 与 Activity 的自然日边界一致。
@@ -104,6 +104,7 @@ func parseUsageActivityFilterQueryWithClientAPIKey(req *http.Request, anchor tim
 		EndTime:        &endTime,
 		EndExclusive:   normalizedRange.EndExclusive,
 		ActivityWindow: window,
+		Providers:      cleanUsageProviderFilters(req.URL.Query()["provider"]),
 		QueryNow:       &queryNow,
 		APIKeyID:       apiKeyID,
 	}, nil

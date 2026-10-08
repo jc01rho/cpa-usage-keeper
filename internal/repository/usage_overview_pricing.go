@@ -94,6 +94,7 @@ func loadUsageOverviewStatProjection(query *gorm.DB, filter dto.UsageQueryFilter
 	if len(filter.ExcludedAPIGroupKeys) > 0 {
 		query = query.Where("api_group_key NOT IN ?", filter.ExcludedAPIGroupKeys)
 	}
+	query = applyUsageAuthIndexScope(query, filter)
 	query = query.Group(strings.Join(dimensionColumns, ", "))
 	query = query.Order("bucket_start asc")
 	if err := query.Scan(&rows).Error; err != nil {
@@ -144,6 +145,10 @@ func loadUsageOverviewComparisonProjection(query *gorm.DB, filter dto.UsageQuery
 	if key := strings.TrimSpace(filter.APIGroupKey); key != "" {
 		where += " AND api_group_key = ?"
 		args = append(args, key)
+	}
+	if filter.ProviderAuthIndexes != nil {
+		where += " AND auth_index IN ?"
+		args = append(args, filter.ProviderAuthIndexes)
 	}
 	group := strings.Join(dimensions, ", ")
 	sql := fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s GROUP BY %s ORDER BY model ASC, api_group_key ASC", strings.Join(dimensions, ", "), usageOverviewStatProjectionAggregateColumns, table, where, group)

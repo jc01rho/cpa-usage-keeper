@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { ApiError } from '@/lib/api';
 import type { OverviewRealtimeBlock, OverviewRealtimeWindow } from '@/lib/types';
 import { USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
+import { buildRealtimeQueryKey } from '@/stores/useUsageStatsStore';
 
 export interface UseOverviewRealtimeDataReturn {
   realtime: OverviewRealtimeBlock | null;
@@ -15,6 +16,7 @@ export interface UseOverviewRealtimeDataOptions {
   enabled?: boolean;
   apiKeyId?: string;
   excludedApiKeyIds?: ReadonlyArray<string>;
+  providers?: ReadonlyArray<string>;
   instanceId?: string;
   realtimeWindow?: OverviewRealtimeWindow;
 }
@@ -47,14 +49,14 @@ export function resolveDisplayRealtime({
 }
 
 export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions = {}): UseOverviewRealtimeDataReturn {
-  const { onAuthRequired, enabled = true, apiKeyId, excludedApiKeyIds, instanceId, realtimeWindow } = options;
+  const { onAuthRequired, enabled = true, apiKeyId, excludedApiKeyIds, providers, instanceId, realtimeWindow } = options;
   const realtime = useUsageStatsStore((state) => state.realtime);
   const loading = useUsageStatsStore((state) => state.realtimeLoading);
   const storeError = useUsageStatsStore((state) => state.realtimeError);
   const lastRealtimeQueryKey = useUsageStatsStore((state) => state.lastRealtimeQueryKey);
   const lastRealtimeErrorQueryKey = useUsageStatsStore((state) => state.lastRealtimeErrorQueryKey);
   const loadUsageStatsRealtime = useUsageStatsStore((state) => state.loadUsageStatsRealtime);
-  const realtimeQueryKey = `${instanceId ?? ''}:${apiKeyId ?? ''}:${excludedApiKeyIds?.join(',') ?? ''}:${realtimeWindow ?? ''}`;
+  const realtimeQueryKey = buildRealtimeQueryKey(instanceId, apiKeyId, excludedApiKeyIds, realtimeWindow, providers);
   const currentRealtime = resolveDisplayRealtime({
     realtime,
     lastRealtimeQueryKey,
@@ -69,6 +71,7 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
         staleTimeMs: USAGE_STATS_STALE_TIME_MS,
         apiKeyId,
         excludedApiKeyIds,
+        ...(providers ? { providers } : {}),
         instanceId,
         realtimeWindow,
       });
@@ -78,7 +81,7 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
       }
       throw error;
     }
-  }, [apiKeyId, excludedApiKeyIds, instanceId, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
+  }, [apiKeyId, excludedApiKeyIds, providers, instanceId, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
 
   useEffect(() => {
     if (!enabled) {
@@ -88,6 +91,7 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
       staleTimeMs: USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
       excludedApiKeyIds,
+      ...(providers ? { providers } : {}),
       instanceId,
       realtimeWindow,
     }).catch((error) => {
@@ -95,7 +99,7 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
         onAuthRequired?.();
       }
     });
-  }, [apiKeyId, enabled, excludedApiKeyIds, instanceId, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
+  }, [apiKeyId, enabled, excludedApiKeyIds, providers, instanceId, loadUsageStatsRealtime, onAuthRequired, realtimeWindow]);
 
   return {
     realtime: currentRealtime,

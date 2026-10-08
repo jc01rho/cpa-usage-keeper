@@ -32,6 +32,7 @@ const (
 
 // RecentUsageEvent 是 Overview 边界补偿和 realtime 共用的最近事件最小投影。
 type RecentUsageEvent struct {
+	Provider   string
 	InstanceID string
 	// Timestamp 是事件时间，所有入缓存路径都会先归一化到项目配置时区。
 	Timestamp time.Time
@@ -503,6 +504,7 @@ func (c *UsageRecentEventCache) recentEventFromRowLocked(row recentUsageEventLoa
 		Model:                 c.pool.intern(strings.TrimSpace(row.Model)),
 		ModelAlias:            c.pool.intern(strings.TrimSpace(row.ModelAlias)),
 		AuthIndex:             c.pool.intern(strings.TrimSpace(row.AuthIndex)),
+		Provider:              c.pool.intern(row.Provider),
 		ServiceTier:           c.pool.intern(strings.TrimSpace(row.ServiceTier)),
 		ResponseServiceTier:   c.pool.intern(strings.TrimSpace(row.ResponseServiceTier)),
 		ReasoningEffort:       c.pool.intern(strings.TrimSpace(row.ReasoningEffort)),
@@ -552,6 +554,7 @@ func (c *UsageRecentEventCache) releaseEventStringsLocked(event RecentUsageEvent
 	c.pool.release(event.Model)
 	c.pool.release(event.ModelAlias)
 	c.pool.release(event.AuthIndex)
+	c.pool.release(event.Provider)
 	c.pool.release(event.ServiceTier)
 	c.pool.release(event.ResponseServiceTier)
 	c.pool.release(event.ReasoningEffort)
@@ -654,6 +657,7 @@ func recentUsageEventToEntity(event RecentUsageEvent) entities.UsageEvent {
 	// Overview 聚合已有实体处理函数，这里把缓存投影还原成最小 UsageEvent。
 	generate := event.Generate
 	result := entities.UsageEvent{
+		Provider:            event.Provider,
 		InstanceID:          event.InstanceID,
 		APIGroupKey:         event.APIGroupKey,
 		Model:               event.Model,

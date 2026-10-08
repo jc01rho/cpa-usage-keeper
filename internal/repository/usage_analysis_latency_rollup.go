@@ -49,6 +49,12 @@ func BuildAnalysisLatencyDiagnosticsWithFilter(db *gorm.DB, filter dto.UsageQuer
 		return empty, nil
 	}
 
+	// 现有 sketch 只按 API Key 聚合，不能从中恢复供应商维度；禁止返回未过滤结果。
+	if filter.Providers != nil || filter.ProviderAuthIndexes != nil {
+		empty.UnsupportedReason = "provider_filter_requires_provider_latency_rollups"
+		return empty, nil
+	}
+
 	var rows []entities.UsageLatencyStat
 	query := db.Clauses(dbresolver.Read).
 		Where("bucket_type = ? AND bucket_start >= ? AND bucket_start < ?", bucketType, timeutil.FormatStorageTime(alignedStart), timeutil.FormatStorageTime(alignedEnd))

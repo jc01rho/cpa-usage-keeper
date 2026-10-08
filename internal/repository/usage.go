@@ -345,6 +345,37 @@ func applyUsageQueryWindow(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB
 	return query
 }
 
+// NormalizeUsageProvider 统一公开供应商键，兼容 OpenAI-compatible 实例名称。
+func NormalizeUsageProvider(value string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "openai-compatible-")
+}
+
+func applyUsageProviderScope(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	if filter.Providers != nil {
+		query = query.Where("provider IN ?", filter.Providers)
+	}
+	return query
+}
+
+func applyUsageAuthIndexScope(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	if filter.ProviderAuthIndexes != nil {
+		query = query.Where("auth_index IN ?", filter.ProviderAuthIndexes)
+	}
+	return query
+}
+
+func usageProviderExcluded(value string, values []string) bool {
+	if values == nil {
+		return false
+	}
+	for _, candidate := range values {
+		if value == candidate {
+			return false
+		}
+	}
+	return true
+}
+
 func applyUsageAPIKeyScope(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
@@ -369,11 +400,12 @@ func applyUsageAnalysisTabQuery(query *gorm.DB, filter dto.UsageQueryFilter) *go
 
 // Request Event Log 筛选项第一步：只应用时间窗口，不叠加当前列表筛选。
 func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
-	return applyUsageQueryWindow(query, filter)
+	return applyUsageProviderScope(applyUsageQueryWindow(query, filter), filter)
 }
 
 // Request Event Log 列表第一步：在时间窗口上叠加 model/auth_index/result。
 func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	query = applyUsageProviderScope(query, filter)
 	query = applyUsageQueryWindow(query, filter)
 	query = applyUsageAPIKeyScope(query, filter)
 	if model := strings.TrimSpace(filter.Model); model != "" {
@@ -515,6 +547,7 @@ type analysisModelUsageKey struct {
 const analysisIdentityLookupBatchSize = 900
 
 type analysisIdentityInfo struct {
+	provider string
 	identity string
 	label    string
 	authType entities.UsageIdentityAuthType
@@ -566,7 +599,11 @@ func loadAnalysisIdentityLookup(db *gorm.DB, instanceID string, authIndexes []st
 		}
 		for _, identity := range identities {
 			label := helper.UsageIdentityDisplayName(identity)
-			lookup[identity.AuthType][analysisIdentityKey(identity.InstanceID, identity.Identity)] = analysisIdentityInfo{identity: identity.Identity, label: label, authType: identity.AuthType}
+			provider := identity.Provider
+			if strings.TrimSpace(provider) == "" {
+				provider = identity.Type
+			}
+			lookup[identity.AuthType][analysisIdentityKey(identity.InstanceID, identity.Identity)] = analysisIdentityInfo{identity: identity.Identity, label: label, authType: identity.AuthType, provider: NormalizeUsageProvider(provider)}
 		}
 	}
 	return lookup, nil
@@ -579,6 +616,7 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverview
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
 	authFileTotals := map[string]*dto.AnalysisCompositionRecord{}
 	aiProviderTotals := map[string]*dto.AnalysisCompositionRecord{}
+	providerTotals := map[string]*dto.AnalysisCompositionRecord{}
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
@@ -586,9 +624,9 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverview
 		cost, costAvailable := costResult.Cost, costResult.Available
 		modelName := resolveAnalysisModelName(costResolver, row)
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.InstanceID, row.APIGroupKey, modelName, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.InstanceID, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, providerTotals, row.InstanceID, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
-	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
+	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, providerTotals, heatmapTotals)
 }
 
 func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, costResolver pricing.Resolver) {
@@ -598,6 +636,7 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOver
 	modelTotals := map[string]*dto.AnalysisCompositionRecord{}
 	authFileTotals := map[string]*dto.AnalysisCompositionRecord{}
 	aiProviderTotals := map[string]*dto.AnalysisCompositionRecord{}
+	providerTotals := map[string]*dto.AnalysisCompositionRecord{}
 	heatmapTotals := map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord{}
 	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
@@ -605,9 +644,9 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOver
 		cost, costAvailable := costResult.Cost, costResult.Available
 		modelName := resolveAnalysisModelName(costResolver, row)
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.InstanceID, row.APIGroupKey, modelName, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
-		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.InstanceID, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
+		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, providerTotals, row.InstanceID, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
-	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
+	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, providerTotals, heatmapTotals)
 }
 
 // resolveAnalysisModelName 将同一上游模型的不同命名变体（provider 前缀、多个客户端 alias）归一到
@@ -706,7 +745,7 @@ func applyAnalysisCompositionTotals(item *dto.AnalysisCompositionRecord, request
 	}
 }
 
-func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, instanceID, authIndex string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
+func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, authFileTotals, aiProviderTotals, providerTotals map[string]*dto.AnalysisCompositionRecord, instanceID, authIndex string, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens int64, cost helper.UsageTokenCostBreakdown, costAvailable bool) {
 	authIndex = strings.TrimSpace(authIndex)
 	if authIndex == "" {
 		return
@@ -716,6 +755,19 @@ func applyAnalysisIdentityComposition(identityLookup analysisIdentityLookup, aut
 	}
 	if identity, ok := identityLookup.find(entities.UsageIdentityAuthTypeAIProvider, instanceID, authIndex); ok {
 		applyAnalysisIdentityCompositionTotal(aiProviderTotals, instanceID, identity, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+	}
+	for _, kind := range []entities.UsageIdentityAuthType{entities.UsageIdentityAuthTypeAuthFile, entities.UsageIdentityAuthTypeAIProvider} {
+		identity, ok := identityLookup.find(kind, instanceID, authIndex)
+		if !ok || identity.provider == "" {
+			continue
+		}
+		item := providerTotals[identity.provider]
+		if item == nil {
+			item = &dto.AnalysisCompositionRecord{Key: identity.provider, Label: identity.provider, CostAvailable: true}
+			providerTotals[identity.provider] = item
+		}
+		applyAnalysisCompositionTotals(item, requests, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, reasoningTokens, totalTokens, cost.TotalCostUSD, costAvailable)
+		break
 	}
 }
 
@@ -769,7 +821,7 @@ func fillAnalysisFullDayHourlyBuckets(record *dto.AnalysisRecord, filter dto.Usa
 	}
 }
 
-func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals, authFileTotals, aiProviderTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord) {
+func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Time]*dto.AnalysisTokenUsageBucketRecord, modelUsageTotals map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord, apiTotals, modelTotals, authFileTotals, aiProviderTotals, providerTotals map[string]*dto.AnalysisCompositionRecord, heatmapTotals map[analysisHeatmapKey]*dto.AnalysisHeatmapRecord) {
 	for _, bucket := range bucketTotals {
 		record.TokenUsage = append(record.TokenUsage, *bucket)
 	}
@@ -809,6 +861,10 @@ func finalizeAnalysisRecord(record *dto.AnalysisRecord, bucketTotals map[time.Ti
 		record.AIProviderComposition = append(record.AIProviderComposition, *item)
 	}
 	sortAnalysisComposition(record.AIProviderComposition)
+	for _, item := range providerTotals {
+		record.ProviderComposition = append(record.ProviderComposition, *item)
+	}
+	sortAnalysisComposition(record.ProviderComposition)
 	for _, cell := range heatmapTotals {
 		record.Heatmap = append(record.Heatmap, *cell)
 	}
@@ -1260,7 +1316,7 @@ func loadUsageOverviewRawEventWindowsWithFilter(db *gorm.DB, filter dto.UsageQue
 			// ok=false 只表示缓存对象不可用；缓存为空也会 ok=true 并返回空切片。
 			if ok {
 				for _, cachedEvent := range cachedEvents {
-					if usageAPIGroupKeyExcluded(cachedEvent.APIGroupKey, filter.ExcludedAPIGroupKeys) {
+					if usageAPIGroupKeyExcluded(cachedEvent.APIGroupKey, filter.ExcludedAPIGroupKeys) || usageProviderExcluded(cachedEvent.Provider, filter.Providers) || usageProviderExcluded(cachedEvent.AuthIndex, filter.ProviderAuthIndexes) {
 						continue
 					}
 					// 下游聚合函数使用 entities.UsageEvent，这里把缓存投影转回最小实体。
@@ -1349,6 +1405,7 @@ func loadUsageOverviewEventRangeWithProjection(db *gorm.DB, filter dto.UsageQuer
 	if len(filter.ExcludedAPIGroupKeys) > 0 {
 		query = query.Where("api_group_key NOT IN ?", filter.ExcludedAPIGroupKeys)
 	}
+	query = applyUsageProviderScope(query, filter)
 	var rows []usageEventProjection
 	if err := query.Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load usage overview boundary event range: %w", err)
@@ -1608,7 +1665,7 @@ func loadUsageOverviewRealtimeEventsFromRecentCache(recentCache *UsageRecentEven
 	// 保留 fallback kind/label，后续 identity lookup 找不到时仍能展示 source/provider。
 	events := make([]usageOverviewRealtimeEvent, 0, len(cachedEvents))
 	for _, cachedEvent := range cachedEvents {
-		if usageAPIGroupKeyExcluded(cachedEvent.APIGroupKey, filter.ExcludedAPIGroupKeys) {
+		if usageAPIGroupKeyExcluded(cachedEvent.APIGroupKey, filter.ExcludedAPIGroupKeys) || usageProviderExcluded(cachedEvent.Provider, filter.Providers) || usageProviderExcluded(cachedEvent.AuthIndex, filter.ProviderAuthIndexes) {
 			continue
 		}
 		events = append(events, usageOverviewRealtimeEvent{

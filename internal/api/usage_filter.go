@@ -99,6 +99,7 @@ func parseUsageTimeFilterQueryWithOptions(req *http.Request, anchor time.Time, i
 	if normalizedRange.Range == "custom" {
 		filter.CustomUnit = string(normalizedRange.Unit)
 	}
+	filter.Providers = cleanUsageProviderFilters(query["provider"])
 	if includeClientAPIKey {
 		apiKeyID, err := parseUsageAPIKeyID(query.Get("api_key_id"))
 		if err != nil {
@@ -123,6 +124,17 @@ func serviceInstanceFilter(req *http.Request) string {
 		return ""
 	}
 	return service.InstanceFilterFromContext(req.Context())
+}
+
+func cleanUsageProviderFilters(values []string) []string {
+	var providers []string
+	for _, value := range values {
+		value = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "openai-compatible-")
+		if value != "" {
+			providers = append(providers, value)
+		}
+	}
+	return providers
 }
 
 func parseUsageAPIKeyID(value string) (string, error) {
@@ -186,6 +198,7 @@ func parseUsageFilterQueryWithLatestIdentity(req *http.Request, anchor time.Time
 		filter.APIKeyID = apiKeyID
 		// 详情只消费游标和 has_more，不为最新请求列表扫描全部历史总数。
 		filter.SkipTotalCount = true
+		filter.Providers = cleanUsageProviderFilters(query["provider"])
 	} else {
 		var err error
 		filter, err = parseUsageEventsTimeFilterQuery(req, anchor)
@@ -320,6 +333,7 @@ func parseUsageRealtimeFilterQueryWithClientAPIKey(req *http.Request, anchor tim
 	filter := servicedto.UsageFilter{
 		InstanceID:     serviceInstanceFilter(req),
 		RealtimeWindow: realtimeWindow,
+		Providers:      cleanUsageProviderFilters(query["provider"]),
 		APIKeyID:       apiKeyID,
 	}
 	switch realtimeWindow {
