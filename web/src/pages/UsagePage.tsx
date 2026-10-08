@@ -2311,9 +2311,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   {(!isEmbeddedInCPAMC || showApiKeyFilter) && (
                   /* 普通模式保留筛选区节点以执行过渡；CPAMC 继续按需挂载，维持既有布局。 */
                   <div
-                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showApiKeyFilter ? styles.usageFilterTransitionOpen : ''} ${isApiKeyExcludeOpen || isProviderFilterOpen ? styles.usageFilterTransitionPopoverOpen : ''}`.trim()}
-                    aria-hidden={!showApiKeyFilter}
-                    inert={!showApiKeyFilter}
+                    className={`${styles.usageFilterTransition} ${isEmbeddedInCPAMC ? styles.usageFilterTransitionImmediate : ''} ${showRangeControls ? styles.usageFilterTransitionOpen : ''} ${isApiKeyExcludeOpen || isProviderFilterOpen ? styles.usageFilterTransitionPopoverOpen : ''}`.trim()}
+                    aria-hidden={!showRangeControls}
+                    inert={!showRangeControls}
                   >
                     <div className={styles.usageFilterTransitionInner}>
                       <div className={styles.usageFilterBar}>
