@@ -550,6 +550,7 @@ export interface UsageQuotaWindow {
 }
 
 export interface UsageQuotaRow {
+  usageBreakdown?: { product: string; usedPercent?: number }[]
   key: string
   label?: string
   scope?: string
