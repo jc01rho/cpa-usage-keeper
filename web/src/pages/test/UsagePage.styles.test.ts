@@ -1456,7 +1456,7 @@ describe('UsagePage toolbar styles', () => {
     adaptiveColumnIds.forEach((columnId) => {
       const block = requestEventColumnDefinitionBlock(columnId)
       expect(block).toMatch(/header:\s*<th[^>]*styles\.requestEventsNoWrapCell/)
-      expect(block).toMatch(/renderCell:[\s\S]*<td[^>]*styles\.requestEventsNoWrapCell/)
+      expect(block).toMatch(/renderCell:[\s\S]*<(?:td|RequestEventRequestCell)[^>]*styles\.requestEventsNoWrapCell/)
     })
 
     const executorBlock = requestEventColumnDefinitionBlock('executor_type')
