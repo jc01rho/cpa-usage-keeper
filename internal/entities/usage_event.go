@@ -2,6 +2,12 @@ package entities
 
 import "time"
 
+// DefaultUsageEventsHotRetentionDays 是 usage_events 热表的默认保留自然日数。
+//
+// 热表窗口之外的事件会被移到 usage_events_archive；该默认值同时用于配置回落与
+// 仓储层零值策略，因此保留在此处作为单一来源。
+const DefaultUsageEventsHotRetentionDays = 90
+
 // UsageEvent 是落库后的单条 usage 请求事件实体。
 type UsageEvent struct {
 	ID                  int64  `gorm:"primaryKey;index:idx_usage_events_timestamp_id,sort:desc,priority:2;index:idx_usage_events_auth_type_auth_index_id,priority:3;index:idx_usage_events_auth_index_timestamp_id,priority:3"`

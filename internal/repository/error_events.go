@@ -79,3 +79,47 @@ func ListErrorEventsByAuthIndex(ctx context.Context, db *gorm.DB, authIndex stri
 	}
 	return ErrorEventPage{Events: events, HasMore: hasMore}, nil
 }
+
+// CleanupUsageErrorEvents 按保留期分批删除过期的 error_events。
+//
+// error_events 没有聚合替代品（每次凭证错误都是最终业务数据），也没有 instance 维度
+// （CPA error event 不带实例），因此这里不做实例过滤，多实例行一并收敛。
+// retentionDays <= 0 表示不清理，与配置默认值一致。
+// 删除按 id 升序游标推进，避免每批重复扫描保留记录；比较使用项目本地自然日的
+// 日期前缀，因此保留日当天（含零点小数秒）的记录不会被删。
+func CleanupUsageErrorEvents(db *gorm.DB, now time.Time, retentionDays int) (int64, error) {
+	if db == nil {
+		return 0, fmt.Errorf("database is nil")
+	}
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	local := now.In(time.Local)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.Local)
+	// 极大保留值覆盖所有有效历史，避免 AddDate 的整数溢出反向删除数据。
+	if retentionDays/366 > day.Year() {
+		return 0, nil
+	}
+	cutoff := day.AddDate(0, 0, -retentionDays).Format("2006-01-02")
+	var deleted, afterID int64
+	for {
+		if err := databaseContext(db).Err(); err != nil {
+			return deleted, err
+		}
+		var ids []int64
+		if err := db.Model(&entities.ErrorEvent{}).
+			Where("id > ? AND timestamp < ?", afterID, cutoff).
+			Order("id ASC").Limit(sqliteVariableLimit).Pluck("id", &ids).Error; err != nil {
+			return deleted, fmt.Errorf("load expired error event batch: %w", err)
+		}
+		if len(ids) == 0 {
+			return deleted, nil
+		}
+		result := db.Where("id IN ? AND timestamp < ?", ids, cutoff).Delete(&entities.ErrorEvent{})
+		if result.Error != nil {
+			return deleted, fmt.Errorf("delete expired error event batch: %w", result.Error)
+		}
+		deleted += result.RowsAffected
+		afterID = ids[len(ids)-1]
+	}
+}

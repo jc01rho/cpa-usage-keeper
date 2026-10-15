@@ -11,6 +11,7 @@ func TestStorageVacuumRequiredUsesFreeBytesRatioAndDiskSpace(t *testing.T) {
 		pageSize = int64(4096)
 		oneGiB   = uint64(1 << 30)
 	)
+	// 阈值是 128 MiB 空闲页与 10% 空闲占比的与关系，再叠加 2×库大小 + 阈值的临时磁盘要求。
 	tests := []struct {
 		name          string
 		pageCount     int64
@@ -19,9 +20,9 @@ func TestStorageVacuumRequiredUsesFreeBytesRatioAndDiskSpace(t *testing.T) {
 		want          bool
 	}{
 		{name: "all conditions", pageCount: 1_500_000, freelistCount: 300_000, available: 13 * oneGiB, want: true},
-		{name: "free bytes below one GiB", pageCount: 1_000_000, freelistCount: 250_000, available: 8 * oneGiB},
-		{name: "free ratio below twenty percent", pageCount: 1_500_000, freelistCount: 299_999, available: 13 * oneGiB},
-		{name: "temporary disk space insufficient", pageCount: 1_500_000, freelistCount: 300_000, available: 12 * oneGiB},
+		{name: "free bytes below the floor", pageCount: 20_000, freelistCount: 16_000, available: 8 * oneGiB},
+		{name: "free ratio below ten percent", pageCount: 1_500_000, freelistCount: 149_999, available: 13 * oneGiB},
+		{name: "temporary disk space insufficient", pageCount: 1_500_000, freelistCount: 300_000, available: 11 * oneGiB},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

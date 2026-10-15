@@ -131,7 +131,7 @@ func TestUsageLatencyStatsMigrationEnablesUsageEventArchive(t *testing.T) {
 		t.Fatalf("seed caught-up overview/activity checkpoints: %v", err)
 	}
 
-	result, err := repository.CleanupStorage(db, now, 0)
+	result, err := repository.CleanupStorage(db, now, repository.StorageCleanupPolicy{})
 	if err != nil {
 		t.Fatalf("archive after latency migration: %v", err)
 	}

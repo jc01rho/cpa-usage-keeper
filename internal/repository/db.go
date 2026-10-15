@@ -363,15 +363,45 @@ func InsertUsageEvents(db *gorm.DB, events []entities.UsageEvent) (int, int, err
 	return inserted, 0, nil
 }
 
-const usageEventsRetentionDays = 90
+// StorageCleanupPolicy 汇总每日维护使用的各保留期（自然日）。
+//
+// 零值合法：HotRetentionDays 为 0 时回落到 entities.DefaultUsageEventsHotRetentionDays，
+// 与引入本结构之前的固定 90 天行为一致；ErrorEventsRetentionDays 与
+// HourlyRetentionDays 为 0 时表示不清理对应表。
+//
+// 保留期之间没有强制关系：RawRetentionDays 小于 HotRetentionDays 时归档清理会
+// 自动跳过（归档表保存的是热表窗口之外的记录，提前删除它没有意义）。
+// 生产调用方应从配置读取，不要依赖零值回落。
+type StorageCleanupPolicy struct {
+	// RawRetentionDays 是归档表 usage_events_archive 的总保留天数；0 表示永久保留。
+	RawRetentionDays int
+	// HotRetentionDays 是 usage_events 热表保留的自然日数；<=0 时回落到默认 90 天。
+	HotRetentionDays int
+	// ErrorEventsRetentionDays 是 error_events 保留的自然日数；0 表示不清理。
+	ErrorEventsRetentionDays int
+	// HourlyRetentionDays 是 usage_overview_hourly_stats 保留的自然日数；0 表示不清理。
+	HourlyRetentionDays int
+}
+
+// normalize 把零值回落到与历史行为一致的默认值。
+func (p StorageCleanupPolicy) normalize() StorageCleanupPolicy {
+	if p.HotRetentionDays <= 0 {
+		p.HotRetentionDays = entities.DefaultUsageEventsHotRetentionDays
+	}
+	return p
+}
 
 // CleanupStorage 是每日维护任务的统一仓储入口：先清 inbox、归档 raw events，再清限期统计并条件式整理空闲页。
-func CleanupStorage(db *gorm.DB, now time.Time, rawRetentionDays int) (dto.StorageCleanupResult, error) {
+func CleanupStorage(db *gorm.DB, now time.Time, policy StorageCleanupPolicy) (dto.StorageCleanupResult, error) {
+	if db == nil {
+		return dto.StorageCleanupResult{}, fmt.Errorf("database is nil")
+	}
+	policy = policy.normalize()
 	redisResult, err := CleanupRedisUsageInbox(db, now)
 	if err != nil {
 		return dto.StorageCleanupResult{RedisInbox: redisResult}, err
 	}
-	usageEventsArchive, err := ArchiveExpiredUsageEvents(databaseContext(db), db, now)
+	usageEventsArchive, err := ArchiveExpiredUsageEvents(databaseContext(db), db, now, policy.HotRetentionDays)
 	result := dto.StorageCleanupResult{
 		RedisInbox:               redisResult,
 		UsageEventsArchived:      usageEventsArchive.Archived,
@@ -381,7 +411,7 @@ func CleanupStorage(db *gorm.DB, now time.Time, rawRetentionDays int) (dto.Stora
 		return result, err
 	}
 	// 仅在归档步骤成功后清理冷表，热表及聚合水位保护保持原样。
-	result.UsageEventsArchiveDeleted, err = cleanupUsageEventArchive(db, now, rawRetentionDays)
+	result.UsageEventsArchiveDeleted, err = cleanupUsageEventArchive(db, now, policy.RawRetentionDays, policy.HotRetentionDays)
 	if err != nil {
 		return result, err
 	}
@@ -391,6 +421,16 @@ func CleanupStorage(db *gorm.DB, now time.Time, rawRetentionDays int) (dto.Stora
 	}
 	// Latency 小时保留 3 天、自然日保留 365 天；空闲页由后面的条件式 VACUUM 统一评估。
 	if err := CleanupUsageLatencyStats(db, now); err != nil {
+		return result, err
+	}
+	// error_events 没有聚合替代品，只能按保留期直接删除；0 表示保留全部。
+	result.ErrorEventsDeleted, err = CleanupUsageErrorEvents(db, now, policy.ErrorEventsRetentionDays)
+	if err != nil {
+		return result, err
+	}
+	// 小时级 Overview 只服务最近窗口的边界补偿，超过保留期后由 daily rollup 承担长范围查询。
+	result.OverviewHourlyDeleted, err = CleanupUsageOverviewHourlyStats(db, now, policy.HourlyRetentionDays)
+	if err != nil {
 		return result, err
 	}
 	vacuumResult, err := maybeVacuumStorage(db)
@@ -442,10 +482,10 @@ func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string) (
 	return !pendingIdentity, nil
 }
 
-func usageEventsArchiveCutoff(now time.Time) time.Time {
+func usageEventsArchiveCutoff(now time.Time, hotRetentionDays int) time.Time {
 	localNow := now.In(time.Local)
 	localDayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
-	return localDayStart.AddDate(0, 0, -usageEventsRetentionDays)
+	return localDayStart.AddDate(0, 0, -hotRetentionDays)
 }
 
 // Vacuum 提供单独的 SQLite 收缩入口，供需要只做文件整理的调用方使用。

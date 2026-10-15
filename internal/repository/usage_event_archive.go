@@ -16,23 +16,27 @@ import (
 const usageEventArchiveBatchSize = sqliteVariableLimit
 
 // ArchiveExpiredUsageEvents 分批把超过 hot 保留线且已完成派生聚合的事件原子移动到冷表。
-func ArchiveExpiredUsageEvents(ctx context.Context, db *gorm.DB, now time.Time) (dto.UsageEventArchiveResult, error) {
-	return ArchiveExpiredUsageEventsForInstance(ctx, db, entities.LegacyCPAInstanceID, now)
+func ArchiveExpiredUsageEvents(ctx context.Context, db *gorm.DB, now time.Time, hotRetentionDays int) (dto.UsageEventArchiveResult, error) {
+	return ArchiveExpiredUsageEventsForInstance(ctx, db, entities.LegacyCPAInstanceID, now, hotRetentionDays)
 }
 
-func ArchiveExpiredUsageEventsForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) (dto.UsageEventArchiveResult, error) {
+func ArchiveExpiredUsageEventsForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time, hotRetentionDays int) (dto.UsageEventArchiveResult, error) {
 	if db == nil {
 		return dto.UsageEventArchiveResult{}, fmt.Errorf("database is nil")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// 直接调用本函数的测试与局部入口不传保留期，回落到与历史一致的热表窗口。
+	if hotRetentionDays <= 0 {
+		hotRetentionDays = entities.DefaultUsageEventsHotRetentionDays
+	}
 	result := dto.UsageEventArchiveResult{Status: dto.UsageEventArchiveStatusEmpty}
 	for {
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		archived, status, err := archiveExpiredUsageEventsBatchForInstance(ctx, db, instanceID, now)
+		archived, status, err := archiveExpiredUsageEventsBatchForInstance(ctx, db, instanceID, now, hotRetentionDays)
 		if err != nil {
 			return result, err
 		}
@@ -48,11 +52,11 @@ func ArchiveExpiredUsageEventsForInstance(ctx context.Context, db *gorm.DB, inst
 	}
 }
 
-func archiveExpiredUsageEventsBatchForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time) (int64, dto.UsageEventArchiveStatus, error) {
+func archiveExpiredUsageEventsBatchForInstance(ctx context.Context, db *gorm.DB, instanceID string, now time.Time, hotRetentionDays int) (int64, dto.UsageEventArchiveStatus, error) {
 	archived := int64(0)
 	status := dto.UsageEventArchiveStatusEmpty
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		cutoff := usageEventsArchiveCutoff(now)
+		cutoff := usageEventsArchiveCutoff(now, hotRetentionDays)
 		var ids []int64
 		if err := tx.Model(&entities.UsageEvent{}).
 			Select("id").
@@ -120,8 +124,13 @@ func databaseContext(db *gorm.DB) context.Context {
 }
 
 // cleanupUsageEventArchive 按请求时间清理冷表；ID 游标避免每批重复扫描保留记录。
-func cleanupUsageEventArchive(db *gorm.DB, now time.Time, retentionDays int) (int64, error) {
-	if retentionDays < usageEventsRetentionDays {
+// hotRetentionDays 是热表窗口：归档表只保存窗口之外的记录，因此总保留期小于
+// 热表窗口时直接跳过，避免删除热表仍需要的同一批数据。
+func cleanupUsageEventArchive(db *gorm.DB, now time.Time, retentionDays, hotRetentionDays int) (int64, error) {
+	if hotRetentionDays <= 0 {
+		hotRetentionDays = entities.DefaultUsageEventsHotRetentionDays
+	}
+	if retentionDays < hotRetentionDays {
 		return 0, nil
 	}
 	local := now.In(time.Local)

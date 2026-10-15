@@ -52,13 +52,16 @@ const (
 
 // SyncService 负责同步 CPA metadata，并处理已经落入本地 inbox 的 usage 原始消息。
 type SyncService struct {
-	usageRawRetentionDays int
-	db                    *gorm.DB
-	client                CPAClientFetcher
-	metadataFetcher       MetadataFetcher
-	baseURL               string
-	now                   func() time.Time
-	recentUsage           RecentUsageEventAppender
+	usageRawRetentionDays            int
+	usageEventsHotRetentionDays      int
+	errorEventsRetentionDays         int
+	usageOverviewHourlyRetentionDays int
+	db                               *gorm.DB
+	client                           CPAClientFetcher
+	metadataFetcher                  MetadataFetcher
+	baseURL                          string
+	now                              func() time.Time
+	recentUsage                      RecentUsageEventAppender
 	// usageAggregation 只接收提交后通知，不允许热路径同步调用聚合仓储函数。
 	usageAggregation UsageAggregationNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
@@ -68,20 +71,30 @@ type SyncService struct {
 // NewSyncService 按生产配置组装 CPA metadata client；远端 usage 拉取由 poller 独立负责。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL:               cfg.CPABaseURL,
-		UsageRawRetentionDays: cfg.UsageRawRetentionDays,
-		Client:                cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
+		BaseURL:                          cfg.CPABaseURL,
+		UsageRawRetentionDays:            cfg.UsageRawRetentionDays,
+		UsageEventsHotRetentionDays:      cfg.UsageEventsHotRetentionDays,
+		ErrorEventsRetentionDays:         cfg.ErrorEventsRetentionDays,
+		UsageOverviewHourlyRetentionDays: cfg.UsageOverviewHourlyRetentionDays,
+		Client:                           cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
 	})
 }
 
 // SyncServiceOptions 提供测试和局部调用需要替换的依赖。
 type SyncServiceOptions struct {
+	// UsageRawRetentionDays 是归档表总保留天数；0 表示永久保留。
 	UsageRawRetentionDays int
-	BaseURL               string
-	Client                CPAClientFetcher
-	MetadataFetcher       MetadataFetcher
-	Now                   func() time.Time
-	RecentUsageEvents     RecentUsageEventAppender
+	// UsageEventsHotRetentionDays 是 usage_events 热表保留天数；0 表示使用默认值。
+	UsageEventsHotRetentionDays int
+	// ErrorEventsRetentionDays 是 error_events 保留天数；0 表示不清理。
+	ErrorEventsRetentionDays int
+	// UsageOverviewHourlyRetentionDays 是小时级 Overview 聚合保留天数；0 表示不清理。
+	UsageOverviewHourlyRetentionDays int
+	BaseURL                          string
+	Client                           CPAClientFetcher
+	MetadataFetcher                  MetadataFetcher
+	Now                              func() time.Time
+	RecentUsageEvents                RecentUsageEventAppender
 	// UsageAggregationNotifier 注入 App 唯一的单 writer runner。
 	UsageAggregationNotifier UsageAggregationNotifier
 	// UsageHeaderQuota 独立接收原始 Header；是否配置聚合 notifier 不影响它。
@@ -99,13 +112,16 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		metadataFetcher = opts.Client
 	}
 	return &SyncService{
-		db:                    db,
-		usageRawRetentionDays: opts.UsageRawRetentionDays,
-		client:                opts.Client,
-		metadataFetcher:       metadataFetcher,
-		baseURL:               strings.TrimSpace(opts.BaseURL),
-		now:                   now,
-		recentUsage:           opts.RecentUsageEvents,
+		db:                               db,
+		usageRawRetentionDays:            opts.UsageRawRetentionDays,
+		usageEventsHotRetentionDays:      opts.UsageEventsHotRetentionDays,
+		errorEventsRetentionDays:         opts.ErrorEventsRetentionDays,
+		usageOverviewHourlyRetentionDays: opts.UsageOverviewHourlyRetentionDays,
+		client:                           opts.Client,
+		metadataFetcher:                  metadataFetcher,
+		baseURL:                          strings.TrimSpace(opts.BaseURL),
+		now:                              now,
+		recentUsage:                      opts.RecentUsageEvents,
 		// 构造时只保存 notifier 接口，不启动额外 goroutine。
 		usageAggregation: opts.UsageAggregationNotifier,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
@@ -205,18 +221,28 @@ func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
 	}
-	result, err := repository.CleanupStorage(s.db.WithContext(ctx), s.now(), s.usageRawRetentionDays)
+	result, err := repository.CleanupStorage(s.db.WithContext(ctx), s.now(), repository.StorageCleanupPolicy{
+		RawRetentionDays:         s.usageRawRetentionDays,
+		HotRetentionDays:         s.usageEventsHotRetentionDays,
+		ErrorEventsRetentionDays: s.errorEventsRetentionDays,
+		HourlyRetentionDays:      s.usageOverviewHourlyRetentionDays,
+	})
 	entry := logrus.WithFields(logrus.Fields{
-		"redis_processed_deleted":      result.RedisInbox.ProcessedDeleted,
-		"redis_failed_deleted":         result.RedisInbox.FailedDeleted,
-		"usage_events_archive_deleted": result.UsageEventsArchiveDeleted,
-		"usage_raw_retention_days":     s.usageRawRetentionDays,
-		"usage_events_archived":        result.UsageEventsArchived,
-		"usage_events_archive_status":  result.UsageEventsArchiveStatus,
-		"vacuum_performed":             result.Vacuum.Performed,
-		"vacuum_skipped_reason":        result.Vacuum.SkippedReason,
-		"sqlite_free_bytes":            result.Vacuum.FreeBytes,
-		"sqlite_free_ratio":            result.Vacuum.FreeRatio,
+		"redis_processed_deleted":              result.RedisInbox.ProcessedDeleted,
+		"redis_failed_deleted":                 result.RedisInbox.FailedDeleted,
+		"usage_events_archive_deleted":         result.UsageEventsArchiveDeleted,
+		"usage_raw_retention_days":             s.usageRawRetentionDays,
+		"usage_events_hot_retention_days":      s.usageEventsHotRetentionDays,
+		"error_events_deleted":                 result.ErrorEventsDeleted,
+		"error_events_retention_days":          s.errorEventsRetentionDays,
+		"overview_hourly_deleted":              result.OverviewHourlyDeleted,
+		"usage_overview_hourly_retention_days": s.usageOverviewHourlyRetentionDays,
+		"usage_events_archived":                result.UsageEventsArchived,
+		"usage_events_archive_status":          result.UsageEventsArchiveStatus,
+		"vacuum_performed":                     result.Vacuum.Performed,
+		"vacuum_skipped_reason":                result.Vacuum.SkippedReason,
+		"sqlite_free_bytes":                    result.Vacuum.FreeBytes,
+		"sqlite_free_ratio":                    result.Vacuum.FreeRatio,
 	})
 	if result.UsageEventsArchiveStatus == repositorydto.UsageEventArchiveStatusAggregationLagging {
 		entry.Warn("usage event archive deferred because aggregations are lagging")

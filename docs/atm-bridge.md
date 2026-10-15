@@ -22,6 +22,13 @@ feed the leaderboard with keeper-priced usage.
    - `cost_usd` = keeper pricing (`internal/pricing` + rule multipliers), identical to the tokscale bridge
    - `messages` = `usage_events` rows with a non-zero token count
    - `sessions` = distinct non-empty `session_id` among those rows
+
+   Keeper archives raw events past the hot window (`USAGE_EVENTS_HOT_RETENTION_DAYS`,
+   default 90) and may delete the archives, so a date with no raw rows left is
+   read from `usage_overview_daily_stats` instead — same pricing dimensions, with
+   `messages` taken from `request_count`. The daily rollup has no session
+   dimension, so those dates report `sessions: 0` and the run prints which dates
+   they were. While the hot window covers the requested range, nothing changes.
 3. POSTs `{p_provider, p_device_id, p_rows, p_stale_dates}` to the app's
    `sync_device_snapshots` RPC (`https://giunmtxxvapcgrpxjopq.supabase.co/rest/v1/rpc/sync_device_snapshots`)
    with the public anon key plus the logged-in user's access token.
@@ -109,5 +116,8 @@ curl -s "$SUPABASE_URL/rest/v1/daily_snapshots?select=date,total_tokens,cost_usd
 - The RPC, provider allowlist and row schema belong to the AI Token Monitor
   project and can change without notice — a rejected submit only shows up in the
   service log.
+- Dates served from the daily rollup report `sessions: 0`, because the rollup has
+  no session dimension. Shorten `--days` to fit inside `USAGE_EVENTS_HOT_RETENTION_DAYS`
+  if per-date session counts matter more than the longer window.
 - Submissions publish aggregated daily tokens, cost, message and session counts
   under the logged-in GitHub identity on a public leaderboard.
