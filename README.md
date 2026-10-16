@@ -78,7 +78,7 @@ Everything upstream ships, plus the pieces needed to run against [CLIProxyAPIPlu
 | **Keeper export protocol (`/api/v1/export/*`)** | Bearer-credential push API for usage batches and metadata (auth files, API keys, provider identities). Strict JSON validation, replay-safe ingestion, Argon2id-hashed credentials. See the [operator runbook](docs/keeper-export.md). |
 | **tokscale bridge** | `scripts/tokscale_bridge.py` exports keeper-priced usage to gjc JSONL for [tokscale](https://github.com/junhoyeo/tokscale) analytics and leaderboard submission, with optional systemd timer. See [docs/tokscale-bridge.md](docs/tokscale-bridge.md). |
 | **OpenRouter pricing sync** | Optional `OPENROUTER_API_KEY` auto-fetches model pricing for cost estimates. |
-| **Raw event cleanup toggle** | `CLEANUP_USAGE_EVENTS_ENABLED` controls whether daily maintenance deletes `usage_events` older than 90 local days. |
+| **Configurable storage retention** | `USAGE_EVENTS_HOT_RETENTION_DAYS`, `USAGE_RAW_RETENTION_DAYS`, `ERROR_EVENTS_RETENTION_DAYS`, and `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS` bound how long each storage layer keeps data, so a long-running host can reclaim the SQLite file. |
 
 ## Features
 
@@ -445,9 +445,12 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
 | `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
-| `USAGE_RAW_RETENTION_DAYS` | No | `0` | Total raw-request retention in days; only archives are deleted. `0` retains archives forever; `>=90` enables cleanup. Negative values and `1–89` fall back to `0` with a warning without preventing startup |
+| `USAGE_EVENTS_HOT_RETENTION_DAYS` | No | `90` | Local calendar days of raw `usage_events` kept in the hot table before archiving. Must be positive |
+| `USAGE_RAW_RETENTION_DAYS` | No | `0` | Total raw-request retention in days; only archives are deleted. `0` retains archives forever. Values below `USAGE_EVENTS_HOT_RETENTION_DAYS` fall back to `0` with a warning without preventing startup |
+| `ERROR_EVENTS_RETENTION_DAYS` | No | `30` | Local calendar days of credential `error_events` to keep; `0` keeps every row |
+| `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS` | No | `90` | Local calendar days of hourly Overview rollup rows to keep; `0` keeps every row. Daily rollups still serve long ranges |
 
-Keeper archives raw request records older than 90 local calendar days daily at 04:30 in the configured timezone. Archives are retained permanently by default. With `USAGE_RAW_RETENTION_DAYS>=90`, daily maintenance deletes expired archived records in batches after archiving, using the request timestamp and local calendar days in the configured timezone. The 90-day hot-table window remains unchanged. Normal pages do not directly query archived records; historical aggregates and backups keep their own retention policies. Deleted raw records cannot support later historical recalculation. Deletion may not immediately shrink the SQLite file: freed space can be reused and is reclaimed by the existing conditional compaction policy. Archived rows are stored in the `usage_events_archive` cold table, which is also reserved for future schema-migration rebuilds.
+Keeper archives raw request records older than `USAGE_EVENTS_HOT_RETENTION_DAYS` (default 90) local calendar days daily at 04:30 in the configured timezone, and retains archives permanently by default. Setting `USAGE_RAW_RETENTION_DAYS` to at least the hot window makes daily maintenance delete expired archived records in batches after archiving, using the request timestamp and local calendar days in the configured timezone. `ERROR_EVENTS_RETENTION_DAYS` and `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS` bound the credential error history and the hourly rollup independently. Normal pages do not directly query archived records; historical aggregates and backups keep their own retention policies. Deleted raw records cannot support later historical recalculation, and hourly rollups older than their retention are only needed for the partial start/end day of a custom range longer than that retention (full days are served by the daily rollup). Deletion may not immediately shrink the SQLite file: freed space can be reused and is reclaimed by the conditional compaction policy, which now runs once the freelist holds at least 256 MiB and 10% of the database. Archived rows are stored in the `usage_events_archive` cold table, which is also used to rebuild incremental data for future schema migrations.
 
 When file logging is enabled, `cpa-usage-keeper-YYYY-MM-DD.log` contains all emitted levels. Error, fatal, and panic entries are also copied to `cpa-usage-keeper-error-YYYY-MM-DD.log`, which keeps the previous 30 local calendar dates plus the current date.
 
@@ -494,3 +497,13 @@ CPA_PUBLIC_URL=https://cpa.example.com
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
+
+## Star History
+
+<a href="https://star-history.dera.page/Willxup/cpa-usage-keeper">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper" />
+ </picture>
+</a>

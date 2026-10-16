@@ -78,7 +78,7 @@ CPA Usage Keeper는 [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProx
 | **Keeper export 프로토콜 (`/api/v1/export/*`)** | 사용량 배치와 메타데이터(인증 파일, API 키, 프로바이더 아이덴티티)를 위한 Bearer 자격 증명 푸시 API입니다. 엄격한 JSON 검증, 재전송 안전 수집, Argon2id 해시 자격 증명을 제공합니다. [운영자 런북](docs/keeper-export.md)을 참조하세요. |
 | **tokscale 브리지** | `scripts/tokscale_bridge.py`가 Keeper에서 가격이 책정된 사용량을 gjc JSONL로보내 [tokscale](https://github.com/junhoyeo/tokscale) 분석 및 리더보드 제출에 사용하며, 선택적 systemd 타이머를 지원합니다. [docs/tokscale-bridge.md](docs/tokscale-bridge.md)를 참조하세요. |
 | **OpenRouter 가격 동기화** | 선택적 `OPENROUTER_API_KEY`로 비용 추정을 위한 모델 가격을 자동으로 가져옵니다. |
-| **원시 이벤트 정리 토글** | `CLEANUP_USAGE_EVENTS_ENABLED`가 일일 유지 관리에서 90일(로컬 기준)이 지난 `usage_events` 삭제 여부를 제어합니다. |
+| **저장소 보존 기간 설정** | `USAGE_EVENTS_HOT_RETENTION_DAYS`, `USAGE_RAW_RETENTION_DAYS`, `ERROR_EVENTS_RETENTION_DAYS`, `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS`가 계층별 보존 기간을 정해, 오래 운영한 호스트에서 SQLite 파일을 회수할 수 있게 합니다. |
 
 ## 기능
 
@@ -445,8 +445,12 @@ cp .env.example .env
 | `BACKUP_ENABLED` | 아니오 | `true` | SQLite 데이터베이스 백업 활성화 |
 | `BACKUP_INTERVAL` | 아니오 | `24h` | 데이터베이스 백업 간격 |
 | `BACKUP_RETENTION_DAYS` | 아니오 | `7` | 백업 보관 일수 |
+| `USAGE_EVENTS_HOT_RETENTION_DAYS` | 아니오 | `90` | 아카이브로 옮기기 전까지 핫 테이블에 두는 `usage_events` 로컬 자연일 수. 양수여야 함 |
+| `USAGE_RAW_RETENTION_DAYS` | 아니오 | `0` | 원시 요청 총 보존 일수. 아카이브만 삭제됨. `0`은 아카이브 영구 보존. `USAGE_EVENTS_HOT_RETENTION_DAYS`보다 작으면 경고 후 `0`으로 처리되며 기동은 막지 않음 |
+| `ERROR_EVENTS_RETENTION_DAYS` | 아니오 | `30` | 자격 증명 `error_events` 보관 로컬 자연일 수. `0`은 전부 보관 |
+| `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS` | 아니오 | `90` | 시간별 Overview 롤업 보관 로컬 자연일 수. `0`은 전부 보관. 장기 조회는 일별 롤업이 담당 |
 
-Keeper는 매일 04:30 유지 관리 시간에 로컬 달력 기준 90일이 지난 원시 `usage_events`를 영구 보관되는 `usage_events_archive` 콜드 테이블로 자동 이동합니다. 아카이브는 향후 스키마 마이그레이션 재구축을 위해 예약되어 있으며 일반 대시보드 API에서는 조회되지 않습니다.
+Keeper는 매일 04:30 유지 관리 시간에 로컬 달력 기준 `USAGE_EVENTS_HOT_RETENTION_DAYS`(기본 90)일이 지난 원시 `usage_events`를 `usage_events_archive` 콜드 테이블로 이동하며, 아카이브는 기본적으로 영구 보존됩니다. `USAGE_RAW_RETENTION_DAYS`를 핫 윈도 이상으로 설정하면 유지 관리가 아카이브된 만료 레코드를 요청 시각과 설정 시간대의 자연일 기준으로 배치 삭제합니다. `ERROR_EVENTS_RETENTION_DAYS`와 `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS`는 자격 증명 오류 이력과 시간별 롤업을 각각 제한합니다. 일반 대시보드 API는 아카이브를 조회하지 않으며, 삭제된 원시 레코드는 이후 역사 재계산에 사용할 수 없습니다. 보존 기간을 넘긴 시간별 롤업은 그 기간보다 긴 사용자 지정 범위의 시작/끝 부분일 계산에만 필요하고(완전한 날짜는 일별 롤업이 담당), 삭제만으로는 SQLite 파일이 즉시 줄지 않으며 프리리스트가 256MiB와 데이터베이스의 10%를 넘을 때 조건부 정리가 공간을 회수합니다.
 
 파일 로깅이 활성화되면 `cpa-usage-keeper-YYYY-MM-DD.log`에 출력된 모든 레벨이 포함됩니다. Error, fatal, panic 항목은 `cpa-usage-keeper-error-YYYY-MM-DD.log`에도 복사되며, 이 파일은 이전 30개 로컬 달력 날짜와 당일을 보관합니다.
 

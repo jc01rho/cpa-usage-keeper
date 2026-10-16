@@ -12,19 +12,20 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/entities"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	DefaultTimeZone                = "Asia/Shanghai"
-	publicLoginPasswordPlaceholder = "replace-with-your-login-password"
-	RedisQueueBatchSizeDefault     = 10000
-	MetadataSyncIntervalDefault    = 30 * time.Second
+	DefaultTimeZone                 = "Asia/Shanghai"
+	publicLoginPasswordPlaceholder  = "replace-with-your-login-password"
+	RedisQueueBatchSizeDefault      = 10000
+	MetadataSyncIntervalDefault     = 30 * time.Second
 	QuotaAutoRefreshIntervalDefault = 5 * time.Minute
 	QuotaAutoRefreshIntervalMin     = 60 * time.Second
-	QuotaRefreshWorkerLimitDefault = 10
-	QuotaRefreshWorkerLimitMax     = 100
+	QuotaRefreshWorkerLimitDefault  = 10
+	QuotaRefreshWorkerLimitMax      = 100
 )
 
 var (
@@ -94,6 +95,12 @@ type Config struct {
 	BackupRetentionDays int
 	// UsageRawRetentionDays 是原始请求总保留天数；0 永久保留，仅清理归档表。
 	UsageRawRetentionDays int
+	// UsageEventsHotRetentionDays 是 usage_events 热表保留的自然日数。
+	UsageEventsHotRetentionDays int
+	// ErrorEventsRetentionDays 是 error_events 保留的自然日数；0 表示不清理。
+	ErrorEventsRetentionDays int
+	// UsageOverviewHourlyRetentionDays 是 usage_overview_hourly_stats 保留的自然日数；0 表示不清理。
+	UsageOverviewHourlyRetentionDays int
 	// RequestTimeout 是访问 CPA HTTP 和 Redis TCP 的超时时间。
 	RequestTimeout time.Duration
 	// TLSSkipVerify 控制是否跳过 CPA HTTPS 和 Redis 队列 TLS 的证书验证。
@@ -111,7 +118,7 @@ type Config struct {
 	// LoginPassword 是启用登录保护时使用的登录密码。
 	LoginPassword string
 	// AuthSessionTTL 是登录 session 有效时长。
-	AuthSessionTTL time.Duration
+	AuthSessionTTL   time.Duration
 	OpenRouterAPIKey string
 }
 
@@ -217,13 +224,38 @@ func Load(options LoadOptions) (*Config, error) {
 	if backupRetentionDays < 0 {
 		return nil, fmt.Errorf("BACKUP_RETENTION_DAYS must be non-negative")
 	}
+	usageEventsHotRetentionDays, err := getInt("USAGE_EVENTS_HOT_RETENTION_DAYS", entities.DefaultUsageEventsHotRetentionDays)
+	if err != nil {
+		return nil, err
+	}
+	if usageEventsHotRetentionDays <= 0 {
+		return nil, fmt.Errorf("USAGE_EVENTS_HOT_RETENTION_DAYS must be positive")
+	}
 	usageRawRetentionDays, err := getInt("USAGE_RAW_RETENTION_DAYS", 0)
 	if err != nil {
 		return nil, err
 	}
-	if usageRawRetentionDays != 0 && usageRawRetentionDays < 90 {
-		logrus.WithField("usage_raw_retention_days", usageRawRetentionDays).Warn("unsupported USAGE_RAW_RETENTION_DAYS; using 0 (archived events retained permanently)")
+	// 归档表保存的是热表窗口之外的记录，总保留期低于热表窗口时无法删除任何有意义的行。
+	if usageRawRetentionDays != 0 && usageRawRetentionDays < usageEventsHotRetentionDays {
+		logrus.WithFields(logrus.Fields{
+			"usage_raw_retention_days":        usageRawRetentionDays,
+			"usage_events_hot_retention_days": usageEventsHotRetentionDays,
+		}).Warn("USAGE_RAW_RETENTION_DAYS is below the hot retention window; using 0 (archived events retained permanently)")
 		usageRawRetentionDays = 0
+	}
+	errorEventsRetentionDays, err := getInt("ERROR_EVENTS_RETENTION_DAYS", 30)
+	if err != nil {
+		return nil, err
+	}
+	if errorEventsRetentionDays < 0 {
+		return nil, fmt.Errorf("ERROR_EVENTS_RETENTION_DAYS must be non-negative")
+	}
+	usageOverviewHourlyRetentionDays, err := getInt("USAGE_OVERVIEW_HOURLY_RETENTION_DAYS", 90)
+	if err != nil {
+		return nil, err
+	}
+	if usageOverviewHourlyRetentionDays < 0 {
+		return nil, fmt.Errorf("USAGE_OVERVIEW_HOURLY_RETENTION_DAYS must be non-negative")
 	}
 	logFileEnabled, err := getBool("LOG_FILE_ENABLED", true)
 	if err != nil {
@@ -285,43 +317,46 @@ func Load(options LoadOptions) (*Config, error) {
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
 	cfg := &Config{
-		AppHost:                         strings.TrimSpace(os.Getenv("APP_HOST")),
-		AppPort:                         getString("APP_PORT", "8080"),
-		AppBasePath:                     appBasePath,
-		CPAPublicURL:                    strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
-		TrustedProxyCIDRs:               trustedProxyCIDRs,
-		TLSEnabled:                      tlsEnabled,
-		TLSCertFile:                     strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
-		TLSKeyFile:                      strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
-		CPABaseURL:                      strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
-		CPAManagementKey:                strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
-		CPARequestLogAccessEnabled:      cpaRequestLogAccessEnabled,
-		APIKeyViewerLocalRankingEnabled: apiKeyViewerLocalRankingEnabled,
-		RedisQueueAddr:                  strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
-		RedisQueueTLS:                   redisQueueTLS,
-		RedisQueueBatchSize:             redisQueueBatchSize,
-		RedisQueueIdleInterval:          redisQueueIdleInterval,
-		MetadataSyncInterval:            MetadataSyncIntervalDefault,
-		QuotaAutoRefreshEnabled:         quotaAutoRefreshEnabled,
-		QuotaAutoRefreshInterval:        quotaAutoRefreshInterval,
-		QuotaRefreshWorkerLimit:         quotaRefreshWorkerLimit,
-		QuotaUpstreamResponsesEnabled:   quotaUpstreamResponsesEnabled,
-		WorkDir:                         workDir,
-		SQLitePath:                      filepath.Join(workDir, workDirDatabaseName),
-		BackupEnabled:                   backupEnabled,
-		BackupDir:                       filepath.Join(workDir, workDirBackupsName),
-		BackupInterval:                  backupInterval,
-		BackupRetentionDays:             backupRetentionDays,
-		UsageRawRetentionDays:           usageRawRetentionDays,
-		RequestTimeout:                  requestTimeout,
-		TLSSkipVerify:                   tlsSkipVerify,
-		LogLevel:                        getString("LOG_LEVEL", "info"),
-		LogFileEnabled:                  logFileEnabled,
-		LogDir:                          filepath.Join(workDir, workDirLogsName),
-		LogRetentionDays:                logRetentionDays,
-		AuthEnabled:                     authEnabled,
-		LoginPassword:                   strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
-		AuthSessionTTL:                  authSessionTTL,
+		AppHost:                          strings.TrimSpace(os.Getenv("APP_HOST")),
+		AppPort:                          getString("APP_PORT", "8080"),
+		AppBasePath:                      appBasePath,
+		CPAPublicURL:                     strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
+		TrustedProxyCIDRs:                trustedProxyCIDRs,
+		TLSEnabled:                       tlsEnabled,
+		TLSCertFile:                      strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
+		TLSKeyFile:                       strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
+		CPABaseURL:                       strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
+		CPAManagementKey:                 strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
+		CPARequestLogAccessEnabled:       cpaRequestLogAccessEnabled,
+		APIKeyViewerLocalRankingEnabled:  apiKeyViewerLocalRankingEnabled,
+		RedisQueueAddr:                   strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
+		RedisQueueTLS:                    redisQueueTLS,
+		RedisQueueBatchSize:              redisQueueBatchSize,
+		RedisQueueIdleInterval:           redisQueueIdleInterval,
+		MetadataSyncInterval:             MetadataSyncIntervalDefault,
+		QuotaAutoRefreshEnabled:          quotaAutoRefreshEnabled,
+		QuotaAutoRefreshInterval:         quotaAutoRefreshInterval,
+		QuotaRefreshWorkerLimit:          quotaRefreshWorkerLimit,
+		QuotaUpstreamResponsesEnabled:    quotaUpstreamResponsesEnabled,
+		WorkDir:                          workDir,
+		SQLitePath:                       filepath.Join(workDir, workDirDatabaseName),
+		BackupEnabled:                    backupEnabled,
+		BackupDir:                        filepath.Join(workDir, workDirBackupsName),
+		BackupInterval:                   backupInterval,
+		BackupRetentionDays:              backupRetentionDays,
+		UsageRawRetentionDays:            usageRawRetentionDays,
+		UsageEventsHotRetentionDays:      usageEventsHotRetentionDays,
+		ErrorEventsRetentionDays:         errorEventsRetentionDays,
+		UsageOverviewHourlyRetentionDays: usageOverviewHourlyRetentionDays,
+		RequestTimeout:                   requestTimeout,
+		TLSSkipVerify:                    tlsSkipVerify,
+		LogLevel:                         getString("LOG_LEVEL", "info"),
+		LogFileEnabled:                   logFileEnabled,
+		LogDir:                           filepath.Join(workDir, workDirLogsName),
+		LogRetentionDays:                 logRetentionDays,
+		AuthEnabled:                      authEnabled,
+		LoginPassword:                    strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
+		AuthSessionTTL:                   authSessionTTL,
 	}
 	if appHost := strings.TrimSpace(options.AppHost); appHost != "" {
 		cfg.AppHost = appHost

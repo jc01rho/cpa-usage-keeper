@@ -107,7 +107,7 @@ func TestRedisUsageTraceMetadataSurvivesInboxSyncArchiveAndReplay(t *testing.T) 
 			t.Fatalf("inbox raw data/status changed: %+v", inbox)
 		}
 	}
-	archived, err := repository.ArchiveExpiredUsageEvents(context.Background(), db, now)
+	archived, err := repository.ArchiveExpiredUsageEvents(context.Background(), db, now, entities.DefaultUsageEventsHotRetentionDays)
 	if err != nil || archived.Archived != int64(len(testCases)-1) {
 		t.Fatalf("archive old executions: result=%+v, error=%v", archived, err)
 	}

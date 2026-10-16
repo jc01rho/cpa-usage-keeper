@@ -129,3 +129,48 @@ func ApplyUsageOverviewAggregationPageForInstance(ctx context.Context, db *gorm.
 		return AdvanceUsageAggregationCheckpointForInstance(ctx, tx, instanceID, entities.UsageAggregationCheckpointOverview, expectedCursor, nextCursor, normalizedNow)
 	})
 }
+
+// CleanupUsageOverviewHourlyStats 按保留期分批删除过期的小时级 Overview 聚合。
+//
+// 小时表只服务最近窗口的边界补偿（长范围查询由 daily rollup 承担完整自然日），
+// 因此它的保留期可以远短于 daily。删除按 bucket_start 判定，不做实例过滤，
+// 多实例行一并收敛。retentionDays <= 0 表示不清理，与配置默认值一致。
+//
+// 不使用 id 游标：迟到的增量聚合可能给更早的 bucket 写入更大的 id，
+// 用 id 游标会永久跳过这些行。每轮重新按 bucket_start 索引取前 N 行即可。
+func CleanupUsageOverviewHourlyStats(db *gorm.DB, now time.Time, retentionDays int) (int64, error) {
+	if db == nil {
+		return 0, fmt.Errorf("database is nil")
+	}
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	local := now.In(time.Local)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.Local)
+	// 极大保留值覆盖所有有效历史，避免 AddDate 的整数溢出反向删除数据。
+	if retentionDays/366 > day.Year() {
+		return 0, nil
+	}
+	// bucket_start 使用 storageTime 保存项目本地墙钟时间；清理参数必须保持同一种文本格式。
+	cutoff := timeutil.FormatStorageTime(day.AddDate(0, 0, -retentionDays))
+	var deleted int64
+	for {
+		if err := databaseContext(db).Err(); err != nil {
+			return deleted, err
+		}
+		var ids []int64
+		if err := db.Model(&entities.UsageOverviewHourlyStat{}).
+			Where("bucket_start < ?", cutoff).
+			Order("id ASC").Limit(sqliteVariableLimit).Pluck("id", &ids).Error; err != nil {
+			return deleted, fmt.Errorf("load expired overview hourly batch: %w", err)
+		}
+		if len(ids) == 0 {
+			return deleted, nil
+		}
+		result := db.Where("id IN ? AND bucket_start < ?", ids, cutoff).Delete(&entities.UsageOverviewHourlyStat{})
+		if result.Error != nil {
+			return deleted, fmt.Errorf("delete expired overview hourly batch: %w", result.Error)
+		}
+		deleted += result.RowsAffected
+	}
+}

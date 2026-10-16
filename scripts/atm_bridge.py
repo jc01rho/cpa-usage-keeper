@@ -89,6 +89,26 @@ ROW_COLUMNS = [
     "session_id",
 ]
 
+# usage_overview_daily_stats carries the same pricing dimensions as usage_events plus
+# request_count, so a date whose raw rows were archived can still be priced. It has no
+# session dimension, which is why rollup-sourced dates report zero sessions.
+ROLLUP_COLUMNS = [
+    "model",
+    "model_alias",
+    "api_group_key",
+    "auth_index",
+    "service_tier",
+    "response_service_tier",
+    "reasoning_effort",
+    "endpoint",
+    "executor_type",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+    "request_count",
+]
+
 
 def default_session_path():
     override = os.environ.get("ATM_BRIDGE_SESSION")
@@ -330,6 +350,35 @@ def iter_rows(bridge, conn, dates, instance_id):
         if date in wanted:
             yield date, row
 
+def iter_daily_rollup_rows(bridge, conn, dates, instance_id):
+    """Yield (date, row) for dates whose raw usage_events rows are gone.
+
+    Keeper archives raw events older than the hot window (`USAGE_EVENTS_HOT_RETENTION_DAYS`,
+    default 90) and may delete the archives, so a trailing window longer than that window
+    would otherwise silently under-report. Dates still present in usage_events are never
+    read from here, so the default 60-day window is unaffected while it fits in the hot table.
+
+    `sessions` cannot be reconstructed: the daily rollup has no session dimension. The caller
+    prints which dates came from the rollup so the submitted sessions count is never silently
+    wrong.
+    """
+    columns = bridge.table_columns(conn, "usage_overview_daily_stats")
+    if not columns or "bucket_start" not in columns:
+        return
+    select = [name for name in ROLLUP_COLUMNS if name in columns]
+    select.insert(0, "substr(bucket_start, 1, 10) AS usage_date")
+    sql = "SELECT {} FROM usage_overview_daily_stats WHERE substr(bucket_start, 1, 10) >= ?".format(
+        ", ".join(select)
+    )
+    params = [min(dates)]
+    if "instance_id" in columns and instance_id:
+        sql += " AND instance_id = ?"
+        params.append(instance_id)
+    wanted = set(dates)
+    for row in conn.execute(sql, params):
+        if row["usage_date"] in wanted:
+            yield row["usage_date"], row
+
 
 def build_daily_rows(bridge, catalog, rows, dates, dimension_keys):
     tokens_by_date = {date: 0 for date in dates}
@@ -344,7 +393,11 @@ def build_daily_rows(bridge, catalog, rows, dates, dimension_keys):
         cache_write = bridge.safe_int(row["cache_creation_tokens"])
         if input_tokens == 0 and output_tokens == 0 and cache_read == 0 and cache_write == 0:
             continue
-        messages_by_date[date] += 1
+        # Rollup rows already aggregate a whole day, so request_count replaces the per-row count.
+        if "request_count" in row.keys():
+            messages_by_date[date] += bridge.safe_int(row["request_count"])
+        else:
+            messages_by_date[date] += 1
         session_id = (row["session_id"] or "").strip() if "session_id" in row.keys() else ""
         if session_id:
             sessions_by_date[date].add(session_id)
@@ -432,10 +485,24 @@ def main():
     if conn is None:
         raise SystemExit("cannot open {} read-only".format(db_path))
     dates = window_dates(args.days)
-    rows = iter_rows(bridge, conn, dates, args.instance)
+    # Stream raw rows first, then fill only the dates that have no raw rows left from the
+    # daily rollup. Materializing every raw row is avoided on purpose (see iter_rows).
+    covered_dates = set()
+    rollup_dates = []
+
+    def window_rows():
+        for date, row in iter_rows(bridge, conn, dates, args.instance):
+            covered_dates.add(date)
+            yield date, row
+        missing = [date for date in dates if date not in covered_dates]
+        for date, row in iter_daily_rollup_rows(bridge, conn, missing, args.instance):
+            if date not in rollup_dates:
+                rollup_dates.append(date)
+            yield date, row
+
     catalog = bridge.PriceCatalog(conn)
     payload, unmatched = build_daily_rows(
-        bridge, catalog, rows, dates, bridge.RULE_DIMENSION_COLUMNS
+        bridge, catalog, window_rows(), dates, bridge.RULE_DIMENSION_COLUMNS
     )
     rows = [payload[date] for date in dates if payload.get(date, {}).get("messages")]
     empty_dates = [date for date in dates if not payload.get(date, {}).get("messages")]
@@ -457,6 +524,14 @@ def main():
             print("    {} ({} events)".format(model, unmatched[model]))
     stale_preview = "{}{}".format(empty_dates[:3], "..." if len(empty_dates) > 3 else "")
     print("  stale dates ({}/{}): {}".format(len(empty_dates), len(dates), stale_preview))
+    if rollup_dates:
+        preview = "{}{}".format(sorted(rollup_dates)[:3], "..." if len(rollup_dates) > 3 else "")
+        print(
+            "  WARNING: {} date(s) had no raw usage_events rows and were read from "
+            "usage_overview_daily_stats ({}); sessions are reported as 0 for them".format(
+                len(rollup_dates), preview
+            )
+        )
 
     if args.dry_run:
         print(json.dumps({"p_provider": args.provider, "p_device_id": args.device_id,

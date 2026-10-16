@@ -73,7 +73,7 @@ func TestLegacyArchiveExpiredUsageEventsRetainsFutureInstanceRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedArchiveCaughtUpCheckpoints(t, db, eventsMaxID(t, db), now)
-	result, err := repository.ArchiveExpiredUsageEvents(context.Background(), db, now)
+	result, err := repository.ArchiveExpiredUsageEvents(context.Background(), db, now, entities.DefaultUsageEventsHotRetentionDays)
 	if err != nil {
 		t.Fatal(err)
 	}

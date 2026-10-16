@@ -435,9 +435,12 @@ Auth Files 定时限额刷新在 Auth Files 巡检弹窗的小齿轮中配置。
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用 SQLite 数据库备份 |
 | `BACKUP_INTERVAL` | 否 | `24h` | 数据库备份间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
-| `USAGE_RAW_RETENTION_DAYS` | 否 | `0` | 原始请求总保留天数，仅清理归档表；`0` 永久保留，`>=90` 生效，负数及 `1～89` 按 `0` 处理并记录 warning，不影响启动 |
+| `USAGE_EVENTS_HOT_RETENTION_DAYS` | 否 | `90` | 热表在归档前保留 `usage_events` 的本地自然日数，必须为正 |
+| `USAGE_RAW_RETENTION_DAYS` | 否 | `0` | 原始请求总保留天数，仅清理归档表；`0` 永久保留。小于 `USAGE_EVENTS_HOT_RETENTION_DAYS` 时按 `0` 处理并记录 warning，不影响启动 |
+| `ERROR_EVENTS_RETENTION_DAYS` | 否 | `30` | 凭证 `error_events` 保留的本地自然日数；`0` 表示全部保留 |
+| `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS` | 否 | `90` | 小时级 Overview 汇总保留的本地自然日数；`0` 表示全部保留，长范围查询由每日汇总承担 |
 
-Keeper 每天按配置时区在 04:30 自动归档超过 90 个本地自然日的原始请求记录。归档默认永久保留。设置 `USAGE_RAW_RETENTION_DAYS>=90` 后，每日归档完成后会分批删除超过总保留天数的归档记录，期限按请求发生时间及配置时区的自然日计算；热表的 90 天窗口不变。常规页面不直接查询归档明细；历史汇总和备份继续采用各自的保留策略。删除的原始记录无法用于后续历史重算；SQLite 文件不一定立即缩小，空闲空间可复用，并由现有条件式整理回收。归档记录存放在 `usage_events_archive` 冷表中，该冷表同时用于未来 schema migration 重建增量数据。
+Keeper 每天按配置时区在 04:30 自动归档超过 `USAGE_EVENTS_HOT_RETENTION_DAYS`（默认 90）个本地自然日的原始请求记录，归档默认永久保留。将 `USAGE_RAW_RETENTION_DAYS` 设为不小于热表窗口后，每日归档完成后会分批删除超过总保留天数的归档记录，期限按请求发生时间及配置时区的自然日计算。`ERROR_EVENTS_RETENTION_DAYS` 与 `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS` 分别限制凭证错误历史与小时级汇总。常规页面不直接查询归档明细；删除的原始记录无法用于后续历史重算；超过保留期的小时级汇总只对长于该保留期的自定义范围的起止部分天有意义（完整自然日由每日汇总承担）；删除后 SQLite 文件不一定立即缩小，当空闲页达到 256 MiB 且占数据库 10% 时由条件式整理回收。归档记录存放在 `usage_events_archive` 冷表中。
 
 启用文件日志后，`cpa-usage-keeper-YYYY-MM-DD.log` 会记录所有已输出级别；error、fatal 和 panic 级别还会同时写入 `cpa-usage-keeper-error-YYYY-MM-DD.log`，该文件固定保留历史 30 个本地自然日及当天。
 
@@ -484,3 +487,13 @@ CPA_PUBLIC_URL=https://cpa.example.com
 ## License
 
 本项目基于 [MIT License](./LICENSE) 开源。
+
+## Star History
+
+<a href="https://star-history.dera.page/Willxup/cpa-usage-keeper">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=Willxup/cpa-usage-keeper" />
+ </picture>
+</a>

@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	storageVacuumMinFreeBytes = uint64(1 << 30)
-	storageVacuumMinFreeRatio = 0.20
+	storageVacuumMinFreeBytes = uint64(128 << 20)
+	storageVacuumMinFreeRatio = 0.10
 )
 
 // StorageVacuumStats 是 SQLite 主库当前页使用情况。
@@ -44,6 +44,8 @@ func (s StorageVacuumStats) freeRatio() float64 {
 }
 
 // StorageVacuumRequired 只根据当前空闲页和临时磁盘空间决定，不保存或检查上次整理时间。
+// 空闲页占比是主判据，128 MiB 只是防止微小回收触发全库重写的最低门槛：
+// 旧的 1 GiB / 20% 组合在 1 GB 级数据库上几乎永远不会同时满足，删除数据后文件会一直不缩。
 func StorageVacuumRequired(stats StorageVacuumStats, availableDiskBytes uint64) bool {
 	if stats.freeBytes() < storageVacuumMinFreeBytes || stats.freeRatio() < storageVacuumMinFreeRatio {
 		return false

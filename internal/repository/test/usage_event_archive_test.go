@@ -87,7 +87,7 @@ func TestArchiveExpiredUsageEventsPreservesOriginalRowAndHotSequence(t *testing.
 	previousMaxID := eventsMaxID(t, db)
 	seedArchiveCaughtUpCheckpoints(t, db, previousMaxID, now)
 
-	result, err := repository.CleanupStorage(db, now, 0)
+	result, err := repository.CleanupStorage(db, now, repository.StorageCleanupPolicy{})
 	if err != nil {
 		t.Fatalf("CleanupStorage returned error: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestArchiveExpiredUsageEventsRollsBackOnArchivePrimaryKeyConflict(t *testin
 		t.Fatalf("seed conflicting archive row: %v", err)
 	}
 
-	if _, err := repository.ArchiveExpiredUsageEvents(context.Background(), db, now); err == nil {
+	if _, err := repository.ArchiveExpiredUsageEvents(context.Background(), db, now, entities.DefaultUsageEventsHotRetentionDays); err == nil {
 		t.Fatal("expected archive primary key conflict to fail")
 	}
 	var hotCount int64
@@ -172,7 +172,7 @@ func TestArchiveExpiredUsageEventsProcessesMoreThanOneBatch(t *testing.T) {
 	}
 	seedArchiveCaughtUpCheckpoints(t, db, eventsMaxID(t, db), now)
 
-	archiveResult, err := repository.ArchiveExpiredUsageEvents(context.Background(), db, now)
+	archiveResult, err := repository.ArchiveExpiredUsageEvents(context.Background(), db, now, entities.DefaultUsageEventsHotRetentionDays)
 	if err != nil {
 		t.Fatalf("ArchiveExpiredUsageEvents returned error: %v", err)
 	}
