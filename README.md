@@ -445,7 +445,7 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
 | `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
-| `BACKUP_COMPRESS` | No | `true` | gzip completed backups (`.db.gz`), roughly one tenth the size |
+| `BACKUP_COMPRESS` | No | `true` | gzip completed backups (`.db.gz`), roughly one fifth the size |
 | `USAGE_EVENTS_HOT_RETENTION_DAYS` | No | `90` | Local calendar days of raw `usage_events` kept in the hot table before archiving. Must be positive |
 | `USAGE_RAW_RETENTION_DAYS` | No | `0` | Total raw-request retention in days; only archives are deleted. `0` retains archives forever. Values below `USAGE_EVENTS_HOT_RETENTION_DAYS` fall back to `0` with a warning without preventing startup |
 | `ERROR_EVENTS_RETENTION_DAYS` | No | `30` | Local calendar days of credential `error_events` to keep; `0` keeps every row |

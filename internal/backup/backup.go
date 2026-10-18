@@ -21,7 +21,7 @@ const CompressedBackupSuffix = ".gz"
 
 type Writer struct {
 	dir string
-	// compress 控制备份完成后是否用 gzip 压缩；压缩备份约占用未压缩体积的十分之一。
+	// compress 控制备份完成后是否用 gzip 压缩；生产库实测压缩后约占未压缩体积的五分之一。
 	compress bool
 }
 

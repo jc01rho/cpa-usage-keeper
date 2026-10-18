@@ -97,7 +97,7 @@ type Config struct {
 	BackupInterval time.Duration
 	// BackupRetentionDays 是备份文件保留天数。
 	BackupRetentionDays int
-	// BackupCompress 控制备份完成后是否压缩保存，压缩后备份体积约为未压缩的十分之一。
+	// BackupCompress 控制备份完成后是否压缩保存，压缩后备份体积约为未压缩的五分之一。
 	BackupCompress bool
 	// UsageRawRetentionDays 是原始请求总保留天数；0 永久保留，仅清理归档表。
 	UsageRawRetentionDays int
