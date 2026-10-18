@@ -891,6 +891,63 @@ func TestCleanupStorageDefersUsageEventsUntilIdentityCatchUp(t *testing.T) {
 	}
 }
 
+// TestCleanupStorageArchivesAggregatedEventsWhileNewerEventsArePending 覆盖在线实例：
+// 维护时刻总有刚写入、尚未聚合的新事件，它们不能把早已聚合的过期事件扣在 hot 表。
+func TestCleanupStorageArchivesAggregatedEventsWhileNewerEventsArePending(t *testing.T) {
+	db := openTestDatabase(t)
+	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
+
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "aggregated-old-1", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -92), TotalTokens: 1},
+		{EventKey: "aggregated-old-2", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -91), TotalTokens: 2},
+	}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate overview: %v", err)
+	}
+	if err := repository.AggregateUsageActivityStats(context.Background(), db, now); err != nil {
+		t.Fatalf("aggregate activity: %v", err)
+	}
+	seedCaughtUpLatencyCheckpoint(t, db, now)
+	var oldEvents []entities.UsageEvent
+	if err := db.Order("id asc").Find(&oldEvents).Error; err != nil {
+		t.Fatalf("load usage events: %v", err)
+	}
+	if err := db.Create(&entities.UsageIdentity{
+		Name:                       "Auth 1",
+		AuthType:                   entities.UsageIdentityAuthTypeAuthFile,
+		Identity:                   "auth-1",
+		LastAggregatedUsageEventID: oldEvents[1].ID,
+		CreatedAt:                  now,
+		UpdatedAt:                  now,
+	}).Error; err != nil {
+		t.Fatalf("seed usage identity: %v", err)
+	}
+
+	// 所有聚合水位都停在旧事件上，这条新事件模拟维护时刻仍在流入的请求。
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+		{EventKey: "fresh-pending", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: now.Add(-time.Minute), TotalTokens: 3},
+	}); err != nil {
+		t.Fatalf("insert fresh event: %v", err)
+	}
+
+	result, err := repository.CleanupStorage(db, now, repository.StorageCleanupPolicy{})
+	if err != nil {
+		t.Fatalf("CleanupStorage returned error: %v", err)
+	}
+	if result.UsageEventsArchived != 2 || result.UsageEventsArchiveStatus != dto.UsageEventArchiveStatusArchived {
+		t.Fatalf("expected both aggregated old events to be archived, got %+v", result)
+	}
+	var remainingKeys []string
+	if err := db.Model(&entities.UsageEvent{}).Order("event_key asc").Pluck("event_key", &remainingKeys).Error; err != nil {
+		t.Fatalf("load remaining usage events: %v", err)
+	}
+	if !slices.Equal(remainingKeys, []string{"fresh-pending"}) {
+		t.Fatalf("expected only the fresh event to remain hot, got %v", remainingKeys)
+	}
+}
+
 func seedCaughtUpLatencyCheckpoint(t *testing.T, db *gorm.DB, now time.Time) {
 	// 显式推进 Latency 水位，让保留期测试聚焦归档边界。
 	t.Helper()

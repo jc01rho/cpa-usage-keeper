@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -24,14 +25,15 @@ func HasPendingUsageIdentityAggregationForInstance(ctx context.Context, db *gorm
 	if db == nil {
 		return false, fmt.Errorf("database is nil")
 	}
-	pending, err := hasPendingUsageIdentityAggregationForInstance(db.Clauses(dbresolver.Read).WithContext(ctx), instanceID)
+	pending, err := hasPendingUsageIdentityAggregationForInstance(db.Clauses(dbresolver.Read).WithContext(ctx), instanceID, math.MaxInt64)
 	if err != nil {
 		return false, fmt.Errorf("check pending usage identity aggregation: %w", err)
 	}
 	return pending, nil
 }
 
-func hasPendingUsageIdentityAggregationForInstance(db *gorm.DB, instanceID string) (bool, error) {
+// hasPendingUsageIdentityAggregationForInstance 只检查 ID 不超过 maxEventID 的事件；传 math.MaxInt64 表示全部事件。
+func hasPendingUsageIdentityAggregationForInstance(db *gorm.DB, instanceID string, maxEventID int64) (bool, error) {
 	var pending int
 	err := db.Raw(`SELECT EXISTS (
 		SELECT 1
@@ -39,11 +41,12 @@ func hasPendingUsageIdentityAggregationForInstance(db *gorm.DB, instanceID strin
 		JOIN usage_events AS event
 		  ON event.instance_id = identity.instance_id
 		 AND event.id > identity.last_aggregated_usage_event_id
+		 AND event.id <= ?
 		 AND event.auth_index = identity.identity
 		 AND ((identity.auth_type = ? AND event.auth_type = ?) OR (identity.auth_type = ? AND event.auth_type = ?))
 		WHERE identity.instance_id = ?
 		LIMIT 1
-	)`, entities.UsageIdentityAuthTypeAuthFile, "oauth", entities.UsageIdentityAuthTypeAIProvider, "apikey", instanceID).Scan(&pending).Error
+	)`, maxEventID, entities.UsageIdentityAuthTypeAuthFile, "oauth", entities.UsageIdentityAuthTypeAIProvider, "apikey", instanceID).Scan(&pending).Error
 	if err != nil {
 		return false, err
 	}

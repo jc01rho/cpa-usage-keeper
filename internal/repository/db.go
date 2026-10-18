@@ -454,14 +454,12 @@ func truncateWriteAheadLog(db *gorm.DB) error {
 	return db.Clauses(dbresolver.Write).Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error
 }
 
-func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string) (bool, error) {
-	// 当前实例最大 event ID 是三个 checkpoint 和每行 Identity cursor 的共同安全目标。
-	var maxEventID int64
-	if err := tx.Model(&entities.UsageEvent{}).Where("instance_id = ?", instanceID).Select("COALESCE(MAX(id), 0)").Scan(&maxEventID).Error; err != nil {
-		return false, fmt.Errorf("load usage event archive watermark: %w", err)
-	}
-	// 空 hot 表没有待聚合数据，也没有需要归档的事件。
-	if maxEventID == 0 {
+// usageEventAggregationsCaughtUpForInstance 判断 ID 不超过 maxEventID 的事件是否已全部进入聚合。
+// maxEventID 是本批待归档事件的最大 ID：在线实例每秒都有新事件，若以全表最大 ID 为目标，
+// 维护时刻只要有一条新事件尚未聚合就会把早已聚合的旧事件一起扣在 hot 表。
+func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string, maxEventID int64) (bool, error) {
+	// 没有待归档事件时无需等待任何聚合。
+	if maxEventID <= 0 {
 		return true, nil
 	}
 
@@ -487,7 +485,7 @@ func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string) (
 	}
 
 	// Identity 没有全局 checkpoint；复用兼容追赶的同一 EXISTS 判断，但保持在当前 archive 事务内读取。
-	pendingIdentity, err := hasPendingUsageIdentityAggregationForInstance(tx, instanceID)
+	pendingIdentity, err := hasPendingUsageIdentityAggregationForInstance(tx, instanceID, maxEventID)
 	if err != nil {
 		return false, fmt.Errorf("check identity archive watermark: %w", err)
 	}
