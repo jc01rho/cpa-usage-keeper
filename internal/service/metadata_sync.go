@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
@@ -27,13 +28,18 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	// 管理 API Keys 保持第二个读取位置，失败同样不阻止 provider。
 	apiKeysResult, apiKeysErr := s.metadataFetcher.FetchManagementAPIKeys(ctx)
 	// 八个 provider endpoint 只在纯包内并发，返回按 registry 确定性归并的 snapshot。
-	providerSnapshot, providerFetchErr := providermetadata.Fetch(ctx, s.metadataFetcher)
+	// provider 配置变化极少，按独立 TTL 节流，避免每次 refresh 通知都把八个端点重新打一遍。
+	providerSnapshot, providerFetchErr, providerSkipped := s.fetchProviderMetadataThrottled(ctx, fetchedAt)
 	// Auth Files 先进入自己的 repository 事务，保持原有写入顺序。
 	authSyncErr := syncAuthFiles(ctx, s.db, authFilesResult, authFilesErr, fetchedAt)
 	// 管理 API Keys 第二个串行写入，不与 SQLite provider 写入并发。
 	apiKeySyncErr := syncManagementAPIKeys(s.db, apiKeysResult, apiKeysErr, fetchedAt)
 	// provider snapshot 最后一次进入 scoped replace 单事务，并分开返回 persistence error 与 fetch warning。
-	providerSyncErr, providerWarningErr := persistProviderMetadata(ctx, s.db, providerSnapshot, providerFetchErr, fetchedAt)
+	// 节流跳过的轮次必须完全跳过 replace，否则会把已有 provider 行当成空快照清掉。
+	var providerSyncErr, providerWarningErr error
+	if !providerSkipped {
+		providerSyncErr, providerWarningErr = persistProviderMetadata(ctx, s.db, providerSnapshot, providerFetchErr, fetchedAt)
+	}
 	// 三类持久化错误按 Auth Files、管理 key、provider 的既有顺序合并。
 	upsertErr := joinErrors(authSyncErr, apiKeySyncErr, providerSyncErr)
 	// aggregateErr 只承接没有 notifier 的兼容同步补算错误。
@@ -71,4 +77,34 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	logrus.WithFields(fields).Debug("metadata sync finished")
 	// 返回全部可观察错误，同时保留本轮已提交数据。
 	return err
+}
+
+// fetchProviderMetadataThrottled 在 TTL 内跳过 provider 配置拉取，
+// 返回 skipped=true 时调用方必须保留已有 provider 行而不是写入空快照。
+func (s *SyncService) fetchProviderMetadataThrottled(ctx context.Context, now time.Time) (providermetadata.Snapshot, error, bool) {
+	// 零值或非正间隔表示不做节流，保持旧行为。
+	if s.providerMetadataRefreshInterval <= 0 {
+		return fetchProviderMetadata(ctx, s.metadataFetcher)
+	}
+	// 读取最近一次成功拉取时间；失败轮次不推进时间戳，下一轮会立即重试。
+	s.providerMetadataMu.Lock()
+	lastFetchedAt := s.providerMetadataFetchedAt
+	s.providerMetadataMu.Unlock()
+	if !lastFetchedAt.IsZero() && now.Sub(lastFetchedAt) < s.providerMetadataRefreshInterval {
+		return providermetadata.Snapshot{}, nil, true
+	}
+	snapshot, err, _ := fetchProviderMetadata(ctx, s.metadataFetcher)
+	if err == nil {
+		// 只有完整成功的一轮才推进时间戳，避免部分失败的 provider 被节流锁定。
+		s.providerMetadataMu.Lock()
+		s.providerMetadataFetchedAt = now
+		s.providerMetadataMu.Unlock()
+	}
+	return snapshot, err, false
+}
+
+func fetchProviderMetadata(ctx context.Context, fetcher providermetadata.Fetcher) (providermetadata.Snapshot, error, bool) {
+	// 八个 provider endpoint 只在纯包内并发，返回按 registry 确定性归并的 snapshot。
+	snapshot, err := providermetadata.Fetch(ctx, fetcher)
+	return snapshot, err, false
 }

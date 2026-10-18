@@ -22,7 +22,9 @@ const (
 	publicLoginPasswordPlaceholder  = "replace-with-your-login-password"
 	RedisQueueBatchSizeDefault      = 10000
 	MetadataSyncIntervalDefault     = 30 * time.Second
-	QuotaAutoRefreshIntervalDefault = 5 * time.Minute
+	// ProviderMetadataRefreshIntervalDefault 是八个 provider 配置端点的最小拉取间隔。
+	ProviderMetadataRefreshIntervalDefault = 10 * time.Minute
+	QuotaAutoRefreshIntervalDefault        = 5 * time.Minute
 	QuotaAutoRefreshIntervalMin     = 60 * time.Second
 	QuotaRefreshWorkerLimitDefault  = 10
 	QuotaRefreshWorkerLimitMax      = 100
@@ -73,6 +75,8 @@ type Config struct {
 	RedisQueueIdleInterval time.Duration
 	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
 	MetadataSyncInterval time.Duration
+	// ProviderMetadataRefreshInterval 是 provider 配置端点的最小拉取间隔；0 表示每轮都拉取。
+	ProviderMetadataRefreshInterval time.Duration
 	// QuotaAutoRefreshEnabled 控制是否启动 Auth Files 限额自动刷新后台任务。
 	QuotaAutoRefreshEnabled bool
 	// QuotaAutoRefreshInterval 是 Auth Files 限额自动刷新的固定调度间隔。
@@ -169,6 +173,14 @@ func Load(options LoadOptions) (*Config, error) {
 	}
 	if redisQueueIdleInterval <= 0 {
 		return nil, fmt.Errorf("REDIS_QUEUE_IDLE_INTERVAL must be positive")
+	}
+
+	providerMetadataRefreshInterval, err := getDuration("PROVIDER_METADATA_REFRESH_INTERVAL", ProviderMetadataRefreshIntervalDefault)
+	if err != nil {
+		return nil, err
+	}
+	if providerMetadataRefreshInterval < 0 {
+		return nil, fmt.Errorf("PROVIDER_METADATA_REFRESH_INTERVAL must not be negative")
 	}
 
 	quotaAutoRefreshEnabled, err := getBool("QUOTA_AUTO_REFRESH_ENABLED", false)
@@ -334,6 +346,7 @@ func Load(options LoadOptions) (*Config, error) {
 		RedisQueueBatchSize:              redisQueueBatchSize,
 		RedisQueueIdleInterval:           redisQueueIdleInterval,
 		MetadataSyncInterval:             MetadataSyncIntervalDefault,
+		ProviderMetadataRefreshInterval:  providerMetadataRefreshInterval,
 		QuotaAutoRefreshEnabled:          quotaAutoRefreshEnabled,
 		QuotaAutoRefreshInterval:         quotaAutoRefreshInterval,
 		QuotaRefreshWorkerLimit:          quotaRefreshWorkerLimit,
