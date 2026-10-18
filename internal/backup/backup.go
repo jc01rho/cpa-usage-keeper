@@ -84,49 +84,62 @@ func (w *Writer) WriteDatabase(ctx context.Context, db *sql.DB, backupAt time.Ti
 
 // compressBackupFile 把已完成的备份就地压成 gzip，成功后才删除未压缩文件。
 func compressBackupFile(sourcePath string) (string, error) {
+	compressedPath := sourcePath + CompressedBackupSuffix
+	if err := writeCompressedCopy(sourcePath, compressedPath); err != nil {
+		return "", err
+	}
+	// 只有压缩文件落盘成功后才删除未压缩副本，失败时仍保留可用的 .db。
+	// 源文件句柄已在 writeCompressedCopy 内关闭：Windows 上仍被占用的文件无法删除。
+	if err := os.Remove(sourcePath); err != nil {
+		return "", fmt.Errorf("remove uncompressed backup file: %w", err)
+	}
+	return compressedPath, nil
+}
+
+// writeCompressedCopy 写出 gzip 副本并原子改名，返回前关闭全部句柄，
+// 让调用方可以立即删除源文件（Windows 不允许删除仍打开的文件）。
+func writeCompressedCopy(sourcePath, compressedPath string) error {
 	source, err := os.Open(sourcePath)
 	if err != nil {
-		return "", fmt.Errorf("open backup file for compression: %w", err)
+		return fmt.Errorf("open backup file for compression: %w", err)
 	}
 	defer source.Close()
 
-	compressedPath := sourcePath + CompressedBackupSuffix
 	tempPath := compressedPath + ".tmp"
 	_ = os.Remove(tempPath)
 	target, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
-		return "", fmt.Errorf("create compressed backup file: %w", err)
+		return fmt.Errorf("create compressed backup file: %w", err)
 	}
 	writer, err := gzip.NewWriterLevel(target, gzip.BestSpeed)
 	if err != nil {
 		_ = target.Close()
 		_ = os.Remove(tempPath)
-		return "", fmt.Errorf("create gzip writer: %w", err)
+		return fmt.Errorf("create gzip writer: %w", err)
 	}
 	if _, err := io.Copy(writer, source); err != nil {
 		_ = writer.Close()
 		_ = target.Close()
 		_ = os.Remove(tempPath)
-		return "", fmt.Errorf("compress backup file: %w", err)
+		return fmt.Errorf("compress backup file: %w", err)
 	}
 	if err := writer.Close(); err != nil {
 		_ = target.Close()
 		_ = os.Remove(tempPath)
-		return "", fmt.Errorf("finish gzip stream: %w", err)
+		return fmt.Errorf("finish gzip stream: %w", err)
 	}
 	if err := target.Close(); err != nil {
 		_ = os.Remove(tempPath)
-		return "", fmt.Errorf("close compressed backup file: %w", err)
+		return fmt.Errorf("close compressed backup file: %w", err)
 	}
+	// Windows 的 Rename 不覆盖已存在的目标文件，重新压缩时先移除上一次的 .gz。
+	// 此时新文件已完整落盘，替换只会丢掉同一份内容的旧副本。
+	_ = os.Remove(compressedPath)
 	if err := os.Rename(tempPath, compressedPath); err != nil {
 		_ = os.Remove(tempPath)
-		return "", fmt.Errorf("finalize compressed backup file: %w", err)
+		return fmt.Errorf("finalize compressed backup file: %w", err)
 	}
-	// 只有压缩文件落盘成功后才删除未压缩副本，失败时仍保留可用的 .db。
-	if err := os.Remove(sourcePath); err != nil {
-		return "", fmt.Errorf("remove uncompressed backup file: %w", err)
-	}
-	return compressedPath, nil
+	return nil
 }
 
 func copySQLiteDatabase(ctx context.Context, sourceDB *sql.DB, destPath string) error {
