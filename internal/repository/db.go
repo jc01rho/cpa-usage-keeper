@@ -163,7 +163,7 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 
 	// 已有业务表的数据库必须走显式迁移，确保旧库按版本顺序补齐结构和索引。
 	// 破坏性 migration 直接复用定时任务的 Writer，生成相同目录和 database_*.db 文件名。
-	migrationBackupWriter := backup.NewWriter(cfg.BackupDir)
+	migrationBackupWriter := backup.NewWriterWithCompression(cfg.BackupDir, cfg.BackupCompress)
 	if err := migration.Run(db, migration.RunOptions{BeforeDestructiveMigration: func(ctx context.Context, version string) error {
 		// 在线 SQLite backup 读取唯一 writer 的一致快照；失败会原样返回并阻止 migration 进入清表事务。
 		backupPath, err := migrationBackupWriter.WriteDatabase(ctx, sqlDB, time.Now())
@@ -438,7 +438,20 @@ func CleanupStorage(db *gorm.DB, now time.Time, policy StorageCleanupPolicy) (dt
 	if err != nil {
 		return result, err
 	}
+	// WAL 文件不会随检查点自动缩小；TRUNCATE 把历史高水位还给文件系统。
+	// 回收失败不影响已完成的清理结果，只记录告警。
+	if err := truncateWriteAheadLog(db); err != nil {
+		logrus.WithError(err).Warn("sqlite wal truncate failed")
+	}
 	return result, nil
+}
+
+// truncateWriteAheadLog 在每日维护末尾把 WAL 收缩到零长度；有未结束的读事务时 SQLite 会保守保留。
+func truncateWriteAheadLog(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	return db.Clauses(dbresolver.Write).Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error
 }
 
 func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string) (bool, error) {

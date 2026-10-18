@@ -171,6 +171,14 @@ func UpdateCPAAPIKeyAlias(db *gorm.DB, id int64, keyAlias string) error {
 	return nil
 }
 
+// UpdateCPAAPIKeyAliasByValue 把同一 key 字符串在全部实例上的别名一起更新，
+// 对应 all-instance 视图里合并成一行后的单次编辑。
+func UpdateCPAAPIKeyAliasByValue(db *gorm.DB, apiKey, keyAlias string) error {
+	return db.Model(&entities.CPAAPIKey{}).
+		Where("api_key = ? AND is_deleted = ?", apiKey, false).
+		Update("key_alias", strings.TrimSpace(keyAlias)).Error
+}
+
 // UpdateCPAAPIKeyLocalRankingProfile 在同一写事务中保存并回读 Key 的本地展示资料。
 func UpdateCPAAPIKeyLocalRankingProfile(db *gorm.DB, id int64, keyAlias string, avatarID uint8) (entities.CPAAPIKey, error) {
 	var row entities.CPAAPIKey

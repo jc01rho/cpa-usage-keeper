@@ -18,16 +18,16 @@ import (
 )
 
 const (
-	DefaultTimeZone                 = "Asia/Shanghai"
-	publicLoginPasswordPlaceholder  = "replace-with-your-login-password"
-	RedisQueueBatchSizeDefault      = 10000
-	MetadataSyncIntervalDefault     = 30 * time.Second
+	DefaultTimeZone                = "Asia/Shanghai"
+	publicLoginPasswordPlaceholder = "replace-with-your-login-password"
+	RedisQueueBatchSizeDefault     = 10000
+	MetadataSyncIntervalDefault    = 30 * time.Second
 	// ProviderMetadataRefreshIntervalDefault 是八个 provider 配置端点的最小拉取间隔。
 	ProviderMetadataRefreshIntervalDefault = 10 * time.Minute
 	QuotaAutoRefreshIntervalDefault        = 5 * time.Minute
-	QuotaAutoRefreshIntervalMin     = 60 * time.Second
-	QuotaRefreshWorkerLimitDefault  = 10
-	QuotaRefreshWorkerLimitMax      = 100
+	QuotaAutoRefreshIntervalMin            = 60 * time.Second
+	QuotaRefreshWorkerLimitDefault         = 10
+	QuotaRefreshWorkerLimitMax             = 100
 )
 
 var (
@@ -97,6 +97,8 @@ type Config struct {
 	BackupInterval time.Duration
 	// BackupRetentionDays 是备份文件保留天数。
 	BackupRetentionDays int
+	// BackupCompress 控制备份完成后是否压缩保存，压缩后备份体积约为未压缩的十分之一。
+	BackupCompress bool
 	// UsageRawRetentionDays 是原始请求总保留天数；0 永久保留，仅清理归档表。
 	UsageRawRetentionDays int
 	// UsageEventsHotRetentionDays 是 usage_events 热表保留的自然日数。
@@ -236,6 +238,10 @@ func Load(options LoadOptions) (*Config, error) {
 	if backupRetentionDays < 0 {
 		return nil, fmt.Errorf("BACKUP_RETENTION_DAYS must be non-negative")
 	}
+	backupCompress, err := getBool("BACKUP_COMPRESS", true)
+	if err != nil {
+		return nil, err
+	}
 	usageEventsHotRetentionDays, err := getInt("USAGE_EVENTS_HOT_RETENTION_DAYS", entities.DefaultUsageEventsHotRetentionDays)
 	if err != nil {
 		return nil, err
@@ -357,6 +363,7 @@ func Load(options LoadOptions) (*Config, error) {
 		BackupDir:                        filepath.Join(workDir, workDirBackupsName),
 		BackupInterval:                   backupInterval,
 		BackupRetentionDays:              backupRetentionDays,
+		BackupCompress:                   backupCompress,
 		UsageRawRetentionDays:            usageRawRetentionDays,
 		UsageEventsHotRetentionDays:      usageEventsHotRetentionDays,
 		ErrorEventsRetentionDays:         errorEventsRetentionDays,
