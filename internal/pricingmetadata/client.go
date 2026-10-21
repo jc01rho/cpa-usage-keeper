@@ -14,6 +14,9 @@ import (
 
 var ErrInvalidSource = errors.New("unsupported pricing source")
 
+// OpenRouterSourceID identifies the fork-only OpenRouter pricing source.
+const OpenRouterSourceID = "openrouter"
+
 type Source struct{ ID, Name, URL string }
 
 func SourceByID(id string) (Source, error) {
@@ -22,6 +25,9 @@ func SourceByID(id string) (Source, error) {
 		return Source{"models-dev", "Models.dev", "https://models.dev/api.json"}, nil
 	case "litellm":
 		return Source{"litellm", "LiteLLM", "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"}, nil
+	case OpenRouterSourceID:
+		// Fork-only source: fetched through internal/openrouter (optional OPENROUTER_API_KEY), not Client.Fetch.
+		return Source{OpenRouterSourceID, "OpenRouter", "https://openrouter.ai/api/v1/models"}, nil
 	default:
 		return Source{}, ErrInvalidSource
 	}
@@ -68,6 +74,9 @@ func (c *Client) Fetch(ctx context.Context, sourceID string) (Catalog, error) {
 	source, err := SourceByID(sourceID)
 	if err != nil {
 		return Catalog{}, err
+	}
+	if source.ID == OpenRouterSourceID {
+		return Catalog{}, fmt.Errorf("%w: OpenRouter is fetched through the OpenRouter client", ErrInvalidSource)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.URL, nil)
 	if err != nil {

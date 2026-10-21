@@ -18,7 +18,7 @@ func loadUsageActivityProviderRows(db *gorm.DB, filter dto.UsageQueryFilter, gra
 			query = query.Where("instance_id = ?", filter.InstanceID)
 		}
 		var rows []usageOverviewStatProjection
-		if err := query.Select("bucket_start, "+usageOverviewStatProjectionAggregateColumns).
+		if err := query.Select(usageOverviewStoredStatAggregateColumns).
 			Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(start), timeutil.FormatStorageTime(end)).
 			Group("bucket_start").Scan(&rows).Error; err != nil {
 			return nil, err

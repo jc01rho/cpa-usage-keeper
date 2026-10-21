@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  # 两种发布共用同一次完整 CI，任一检查失败或被跳过都不能发布。
+  ci:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+
+  # fork: Docker publishing is intentionally removed (docker-publish.yml deleted); only binaries are released.
+  binaries:
+    needs: ci
+    permissions:
+      contents: write
+    uses: ./.github/workflows/binary-release.yml
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

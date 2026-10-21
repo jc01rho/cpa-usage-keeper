@@ -96,10 +96,10 @@ func TestArchiveRetentionBelowHotWindowDeletesNothing(t *testing.T) {
 func TestCleanupStorageHonorsCustomHotWindow(t *testing.T) {
 	db := openTestDatabase(t)
 	now := time.Date(2026, 3, 9, 4, 30, 0, 0, time.Local)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, requestEventFixtureWithZeroFees([]entities.UsageEvent{
 		{EventKey: "beyond-window", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -70), TotalTokens: 1},
 		{EventKey: "inside-window", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -10), TotalTokens: 2},
-	}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {

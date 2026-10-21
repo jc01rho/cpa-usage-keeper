@@ -184,7 +184,6 @@ func (r *CPAInstanceRepository) Delete(ctx context.Context, instanceID string) e
 			"usage_activity_stats",
 			"usage_latency_stats",
 			"usage_aggregation_checkpoints",
-			"local_ranking_period_stats",
 			"cpa_instance_credentials",
 			"cpa_usage_deliveries",
 			"cpa_usage_stream_watermarks",

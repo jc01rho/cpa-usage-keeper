@@ -28,6 +28,9 @@ func TestUsageQueriesFilterInstancesAndAllEqualsSum(t *testing.T) {
 		}
 	}
 	for _, event := range []entities.UsageEvent{{InstanceID: instanceA, EventKey: "same-request", RequestID: "same-request", Timestamp: now, AuthIndex: "same-auth", APIGroupKey: "shared-fingerprint", TotalTokens: 10}, {InstanceID: instanceB, EventKey: "same-request", RequestID: "same-request", Timestamp: now, AuthIndex: "same-auth", APIGroupKey: "shared-fingerprint", TotalTokens: 20}} {
+		// Keeper v2 persists the ingest-time fee on every event; this query test uses settled zero fees.
+		zero, available := 0.0, true
+		event.CostUSD, event.CostAvailable = &zero, &available
 		if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{event}); err != nil {
 			t.Fatal(err)
 		}

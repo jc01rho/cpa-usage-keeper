@@ -13,6 +13,7 @@ import (
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -141,7 +142,7 @@ func (s *usageService) resolveProviderScope(ctx context.Context, filter serviced
 	return providers, indexes, nil
 }
 
-// Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
+// GetUsageOverview 解析请求的 Key 范围后读取完整汇总桶与窄边界事件的已存费用，不重新计价。
 func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
@@ -164,7 +165,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 		QueryNow:             filter.QueryNow,
 		APIGroupKey:          apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +190,7 @@ func (s *usageService) GetUsageOverview(ctx context.Context, filter servicedto.U
 	}, nil
 }
 
-// GetUsageOverviewComparisons 为 Overview 比较图单独构建维度汇总，不拖慢基础 Overview 查询。
+// GetUsageOverviewComparisons 按请求 Key 范围读取已存四维费用，比较与普通总览共用时间边界。
 func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
@@ -200,7 +201,7 @@ func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter s
 	if err != nil {
 		return nil, err
 	}
-	overview, err := repository.BuildUsageOverviewWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
+	overview, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
 		Providers:           providers,
 		ProviderAuthIndexes: authIndexes,
 		InstanceID:          filter.InstanceID,
@@ -212,7 +213,7 @@ func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter s
 		EndExclusive:        filter.EndExclusive,
 		QueryNow:            filter.QueryNow,
 		APIGroupKey:         apiGroupKey,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +252,9 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 			return nil, fmt.Errorf("activity calendar window %q requires start time", filter.ActivityWindow)
 		}
 		// Today/Yesterday 只改变网格终点，仍复用普通 Activity 聚合查询。
-		referenceEnd = filter.StartTime.AddDate(0, 0, 1)
+		localStart := timeutil.NormalizeStorageTime(*filter.StartTime)
+		bounds, _ := timeutil.DayBounds(timeutil.DateOf(localStart), localStart.Location())
+		referenceEnd = bounds.End
 	}
 	grid, err := repository.QueryUsageActivityGridWithFilter(ctx, s.db, grain, referenceEnd, dataEnd, repodto.UsageQueryFilter{InstanceID: filter.InstanceID, APIGroupKey: apiGroupKey, ExcludedAPIGroupKeys: excludedAPIGroupKeys, Providers: providers, ProviderAuthIndexes: authIndexes})
 	if err != nil {
@@ -355,6 +358,7 @@ func usageActivityGrain(window servicedto.UsageActivityWindow) (entities.UsageAc
 	}
 }
 
+// GetUsageOverviewRealtime 从近期缓存或窄窗事件读取已存费用，并保留实时请求与 Token 的原筛选口径。
 func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewRealtime, error) {
 	ctx = usageServiceContext(ctx)
 	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
@@ -373,7 +377,7 @@ func (s *usageService) GetUsageOverviewRealtime(ctx context.Context, filter serv
 		RealtimeEndTime:      filter.RealtimeEndTime,
 		APIGroupKey:          apiGroupKey,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
-	}, s.recentUsage, s.pricing.NewResolver())
+	}, s.recentUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +411,17 @@ func mapUsageOverviewSeries(series repodto.UsageOverviewSeriesRecord, filter ser
 			inputTokens += series.CacheReadRateInputTokens[label]
 			cacheReadTokens += series.CacheReadRateReadTokens[label]
 		}
-		minutes := float64(len(group) * 24 * 60)
+		minutes := 0.0
+		for _, label := range group {
+			date, err := timeutil.ParseCivilDate(label)
+			if err == nil {
+				if bounds, exists := timeutil.DayBounds(date, time.Local); exists {
+					minutes += bounds.Minutes()
+					continue
+				}
+			}
+			minutes += 24 * 60
+		}
 		result.Buckets = append(result.Buckets, bucket)
 		result.Requests = append(result.Requests, requests)
 		result.Tokens = append(result.Tokens, tokens)
@@ -421,11 +435,18 @@ func mapUsageOverviewSeries(series repodto.UsageOverviewSeriesRecord, filter ser
 
 func usageOverviewSeriesLabels(series repodto.UsageOverviewSeriesRecord, filter servicedto.UsageFilter) []string {
 	if filter.Range == "custom" && filter.CustomUnit == "day" && filter.RangeCount > 30 && filter.StartTime != nil && filter.EndTime != nil {
-		start := time.Date(filter.StartTime.Year(), filter.StartTime.Month(), filter.StartTime.Day(), 0, 0, 0, 0, time.Local)
-		end := time.Date(filter.EndTime.Year(), filter.EndTime.Month(), filter.EndTime.Day(), 0, 0, 0, 0, time.Local)
+		start := timeutil.DateOf(timeutil.NormalizeStorageTime(*filter.StartTime))
+		end := timeutil.NormalizeStorageTime(*filter.EndTime)
 		labels := make([]string, 0, filter.RangeCount)
-		for day := start; day.Before(end); day = day.AddDate(0, 0, 1) {
-			labels = append(labels, day.Format(time.DateOnly))
+		for date := start; ; date = date.AddDays(1) {
+			bounds, exists := timeutil.DayBounds(date, time.Local)
+			if !exists {
+				continue
+			}
+			if !bounds.Start.Before(end) {
+				break
+			}
+			labels = append(labels, date.String())
 		}
 		return labels
 	}
@@ -433,7 +454,26 @@ func usageOverviewSeriesLabels(series repodto.UsageOverviewSeriesRecord, filter 
 	for label := range series.Requests {
 		labels = append(labels, label)
 	}
-	sort.Strings(labels)
+	// 只解析一次。带 offset 的桶按 instant 排序；纯日期保持历法顺序。
+	instants := make(map[string]time.Time, len(labels))
+	for _, label := range labels {
+		if date, err := timeutil.ParseCivilDate(label); err == nil {
+			instants[label] = time.Date(date.Year, date.Month, date.Day, 0, 0, 0, 0, time.UTC)
+		} else if instant, err := timeutil.ParseStorageTime(label); err == nil {
+			instants[label] = instant
+		}
+	}
+	sort.Slice(labels, func(i, j int) bool {
+		left, leftOK := instants[labels[i]]
+		right, rightOK := instants[labels[j]]
+		if leftOK != rightOK {
+			return leftOK
+		}
+		if leftOK && !left.Equal(right) {
+			return left.Before(right)
+		}
+		return labels[i] < labels[j]
+	})
 	return labels
 }
 
@@ -475,6 +515,7 @@ func mapUsageOverviewRealtime(realtime repodto.UsageOverviewRealtimeRecord) serv
 		WindowStart:    realtime.WindowStart,
 		WindowEnd:      realtime.WindowEnd,
 		TokenVelocity:  mapRealtimeTokenVelocity(realtime.TokenVelocity),
+		ModelSpeed:     mapRealtimeModelSpeed(realtime.ModelSpeed),
 		LatencyScatter: mapRealtimeLatencyScatter(realtime.LatencyScatter),
 		CurrentUsage:   mapRealtimeCurrentUsage(realtime.CurrentUsage),
 		RequestLevel:   mapRealtimeRequestLevel(realtime.RequestLevel),
@@ -558,6 +599,7 @@ func mapRealtimeCacheLevel(points []repodto.RealtimeCacheLevelPointRecord) []ser
 	return result
 }
 
+// GetAnalysis 在授权 Key 范围内读取已存小时／日费用；映射沿用原自然日、Token和身份视图。
 func (s *usageService) GetAnalysis(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	ctx = usageServiceContext(ctx)
 	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
@@ -615,6 +657,7 @@ func (s *usageService) GetAnalysisLatency(ctx context.Context, filter servicedto
 	return &result, nil
 }
 
+// mapAnalysisRecord 将仓储的已存总费用及可用性映射到服务快照，不重新读取价格。
 func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnapshot {
 	if record == nil {
 		return &servicedto.AnalysisSnapshot{}
@@ -704,19 +747,16 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		RangeEnd:              record.RangeEnd,
 		TokenUsage:            tokenUsage,
 		ModelUsage:            modelUsage,
+		ModelSpeed:            mapAnalysisModelSpeed(record.ModelSpeed),
 		APIKeyComposition:     apiKeys,
 		ModelComposition:      models,
 		AuthFilesComposition:  authFiles,
 		AIProviderComposition: aiProviders,
 		ProviderComposition:   providers,
 		Heatmap:               heatmap,
-		CostBreakdown: servicedto.AnalysisCostBreakdown{
-			UncachedInputCostUSD: record.CostBreakdown.UncachedInputCostUSD,
-			CacheReadCostUSD:     record.CostBreakdown.CacheReadCostUSD,
-			CacheWriteCostUSD:    record.CostBreakdown.CacheWriteCostUSD,
-			OutputCostUSD:        record.CostBreakdown.OutputCostUSD,
-			TotalCostUSD:         record.CostBreakdown.TotalCostUSD,
-			CostAvailable:        record.CostBreakdown.CostAvailable,
+		CostSummary: servicedto.AnalysisCostSummary{
+			TotalCostUSD:  record.CostSummary.TotalCostUSD,
+			CostAvailable: record.CostSummary.CostAvailable,
 		},
 		ModelEfficiency: modelEfficiency,
 	}
@@ -771,7 +811,8 @@ func mapAnalysisCompositionRecord(item repodto.AnalysisCompositionRecord) servic
 	}
 }
 
-// Usage 页面里的 Request Event Log tab 下传分页、列表筛选条件和全局 API-Key。
+// ListUsageEvents 保留请求页的筛选、cursor 与 API-Key 权限，并转发已存 USD 费用及可用性。
+// 每次调用固定当前价格 Snapshot 只显示风格，不按现价重算；NULL／非法费用错误向上返回。
 func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventsPage, error) {
 	ctx = usageServiceContext(ctx)
 	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
@@ -805,7 +846,7 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 		Result:               filter.Result,
 		InstanceID:           filter.InstanceID,
 		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
-	}, s.pricing.NewResolver())
+	}, s.pricing.Snapshot())
 	if err != nil {
 		return nil, err
 	}
@@ -851,7 +892,8 @@ func (s *usageService) ListUsageEvents(ctx context.Context, filter servicedto.Us
 	return &servicedto.UsageEventsPage{Events: result, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages, HasMore: page.HasMore}, nil
 }
 
-// StreamUsageEvents 使用 Request Event Log 相同筛选条件逐行导出，不应用分页。
+// StreamUsageEvents 使用请求页相同筛选逐行导出已存费用，不应用分页。
+// 每次导出固定当前 Snapshot 只显示风格；NULL／非法费用及 emit 错误向上返回。
 func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.UsageFilter, emit func(servicedto.UsageEventRecord) error) error {
 	ctx = usageServiceContext(ctx)
 	providers, authIndexes, err := s.resolveProviderScope(ctx, filter)
@@ -914,7 +956,7 @@ func (s *usageService) StreamUsageEvents(ctx context.Context, filter servicedto.
 			CostAvailable:       row.CostAvailable,
 			PricingStyle:        row.PricingStyle,
 		})
-	}, s.pricing.NewResolver())
+	}, s.pricing.Snapshot())
 }
 
 // Request Event Log 的 model 筛选项只应用调用方传入的时间窗口；独立筛选项接口当前传空 filter。
@@ -938,4 +980,31 @@ func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter s
 		return nil, err
 	}
 	return &servicedto.UsageEventFilterOptions{Models: options.Models}, nil
+}
+
+// mapAnalysisModelSpeed 透传同次 rollup 读取的显示组及 sum/count，不触发额外查询。
+func mapAnalysisModelSpeed(record repodto.AnalysisModelSpeedRecord) servicedto.AnalysisModelSpeed {
+	result := servicedto.AnalysisModelSpeed{RangeStart: record.RangeStart, RangeEnd: record.RangeEnd, Buckets: make([]servicedto.AnalysisModelSpeedBucket, 0, len(record.Buckets)), Series: make([]servicedto.AnalysisModelSpeedSeries, 0, len(record.Series))}
+	for _, bucket := range record.Buckets {
+		result.Buckets = append(result.Buckets, servicedto.AnalysisModelSpeedBucket{Start: bucket.Start, End: bucket.End})
+	}
+	for _, series := range record.Series {
+		samples := make([]servicedto.AnalysisModelSpeedSample, 0, len(series.Samples))
+		for _, sample := range series.Samples {
+			samples = append(samples, servicedto.AnalysisModelSpeedSample{SpeedTPSSum: sample.SpeedTPSSum, SpeedSampleCount: sample.SpeedSampleCount, MeanTPS: sample.MeanTPS})
+		}
+		result.Series = append(result.Series, servicedto.AnalysisModelSpeedSeries{Model: series.Model, TotalTokens: series.TotalTokens, SpeedSampleCount: series.SpeedSampleCount, Samples: samples})
+	}
+	return result
+}
+
+func mapRealtimeModelSpeed(speed repodto.RealtimeModelSpeedRecord) servicedto.RealtimeModelSpeed {
+	result := servicedto.RealtimeModelSpeed{Available: speed.Available, Start: speed.Start, Mid: speed.Mid, End: speed.End, Series: make([]servicedto.RealtimeModelSpeedSeries, 0, len(speed.Series))}
+	sample := func(row repodto.RealtimeModelSpeedSampleRecord) servicedto.RealtimeModelSpeedSample {
+		return servicedto.RealtimeModelSpeedSample{SpeedTPSSum: row.SpeedTPSSum, SpeedSampleCount: row.SpeedSampleCount, MeanTPS: row.MeanTPS}
+	}
+	for _, row := range speed.Series {
+		result.Series = append(result.Series, servicedto.RealtimeModelSpeedSeries{Model: row.Model, TotalTokens: row.TotalTokens, SpeedSampleCount: row.SpeedSampleCount, FirstHalf: sample(row.FirstHalf), SecondHalf: sample(row.SecondHalf)})
+	}
+	return result
 }

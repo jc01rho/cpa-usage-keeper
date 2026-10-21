@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"cpa-usage-keeper/internal/entities"
 
@@ -26,9 +27,11 @@ func LoadUsageAggregationTargetEventIDForInstance(ctx context.Context, db *gorm.
 	}
 	// MAX 只返回一个整数，不加载事件实体；后续页面都受该 target 上界约束。
 	var targetEventID int64
-	if err := db.Clauses(dbresolver.Read).WithContext(ctx).
-		Model(&entities.UsageEvent{}).
-		Where("instance_id = ?", instanceID).
+	query := db.Clauses(dbresolver.Read).WithContext(ctx).Model(&entities.UsageEvent{})
+	if usageEventsHaveInstanceNamespace(db) {
+		query = query.Where("instance_id = ?", instanceID)
+	}
+	if err := query.
 		Select("COALESCE(MAX(id), 0)").
 		Scan(&targetEventID).Error; err != nil {
 		return 0, fmt.Errorf("load usage aggregation target event id: %w", err)
@@ -61,14 +64,24 @@ func LoadUsageAggregationEventPageForInstance(ctx context.Context, db *gorm.DB, 
 	}
 	// 显式 Reader、半开下界、闭合固定目标和 ID 升序共同保证 cursor 可安全取最后一行。
 	var events []entities.UsageEvent
-	if err := db.Clauses(dbresolver.Read).WithContext(ctx).
-		Model(&entities.UsageEvent{}).
-		Select(entities.UsageAggregationEventProjectionColumns).
-		Where("instance_id = ? AND id > ? AND id <= ?", instanceID, afterID, targetID).
+	query := db.Clauses(dbresolver.Read).WithContext(ctx).Model(&entities.UsageEvent{})
+	if usageEventsHaveInstanceNamespace(db) {
+		query = query.Select(entities.UsageAggregationEventProjectionColumns).Where("instance_id = ?", instanceID)
+	} else {
+		// Pre-instance (upstream-lineage) databases during the legacy pricing upgrade have no namespace column.
+		query = query.Select(strings.Replace(entities.UsageAggregationEventProjectionColumns, "instance_id, ", "", 1))
+	}
+	if err := query.
+		Where("id > ? AND id <= ?", afterID, targetID).
 		Order("id asc").
 		Limit(limit).
 		Find(&events).Error; err != nil {
 		return nil, fmt.Errorf("load usage aggregation event page: %w", err)
 	}
 	return events, nil
+}
+
+// usageEventsHaveInstanceNamespace reports whether usage_events already carries the fork instance_id column.
+func usageEventsHaveInstanceNamespace(db *gorm.DB) bool {
+	return db.Migrator().HasColumn(&entities.UsageEvent{}, "instance_id")
 }

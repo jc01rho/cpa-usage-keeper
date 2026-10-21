@@ -141,7 +141,7 @@ func TestFutureEventBuildsOnlyFutureInstanceRollups(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	generate := true
 	ttft := int64(10)
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{InstanceID: futureInstanceID, EventKey: "future", APIGroupKey: "shared", Model: "m", Timestamp: now, Generate: &generate, TTFTMS: &ttft, LatencyMS: 20, TotalTokens: 3}}); err != nil {
+	if _, _, err := repository.InsertUsageEvents(db, requestEventFixtureWithZeroFees([]entities.UsageEvent{{InstanceID: futureInstanceID, EventKey: "future", APIGroupKey: "shared", Model: "m", Timestamp: now, Generate: &generate, TTFTMS: &ttft, LatencyMS: 20, TotalTokens: 3}})); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.AggregateUsageOverviewStatsForInstance(context.Background(), db, futureInstanceID, now); err != nil {

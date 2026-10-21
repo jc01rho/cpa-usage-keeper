@@ -29,6 +29,32 @@ type AnalysisModelUsage struct {
 	Requests    int64
 }
 
+// AnalysisModelSpeed 保存跨源桶的 sum/count，显示桶在仓储层使用真实时间边界合并。
+type AnalysisModelSpeed struct {
+	RangeStart *time.Time
+	RangeEnd   *time.Time
+	Buckets    []AnalysisModelSpeedBucket
+	Series     []AnalysisModelSpeedSeries
+}
+
+type AnalysisModelSpeedBucket struct {
+	Start time.Time
+	End   time.Time
+}
+
+type AnalysisModelSpeedSample struct {
+	SpeedTPSSum      float64
+	SpeedSampleCount int64
+	MeanTPS          *float64
+}
+
+type AnalysisModelSpeedSeries struct {
+	Model            string
+	TotalTokens      int64
+	SpeedSampleCount int64
+	Samples          []AnalysisModelSpeedSample
+}
+
 type AnalysisCompositionItem struct {
 	InstanceID          string
 	Key                 string
@@ -59,13 +85,10 @@ type AnalysisHeatmapCell struct {
 	CostAvailable       bool
 }
 
-type AnalysisCostBreakdown struct {
-	UncachedInputCostUSD float64
-	CacheReadCostUSD     float64
-	CacheWriteCostUSD    float64
-	OutputCostUSD        float64
-	TotalCostUSD         float64
-	CostAvailable        bool
+// AnalysisCostSummary 只向服务调用方暴露已存总金额及其可用性。
+type AnalysisCostSummary struct {
+	TotalCostUSD  float64
+	CostAvailable bool
 }
 
 type AnalysisModelEfficiencyItem struct {
@@ -115,6 +138,7 @@ type AnalysisSnapshot struct {
 	RangeStart            *time.Time
 	RangeEnd              *time.Time
 	TokenUsage            []AnalysisTokenUsageBucket
+	ModelSpeed            AnalysisModelSpeed
 	ModelUsage            []AnalysisModelUsage
 	APIKeyComposition     []AnalysisCompositionItem
 	ModelComposition      []AnalysisCompositionItem
@@ -122,6 +146,6 @@ type AnalysisSnapshot struct {
 	AIProviderComposition []AnalysisCompositionItem
 	ProviderComposition   []AnalysisCompositionItem
 	Heatmap               []AnalysisHeatmapCell
-	CostBreakdown         AnalysisCostBreakdown
+	CostSummary           AnalysisCostSummary
 	ModelEfficiency       []AnalysisModelEfficiencyItem
 }

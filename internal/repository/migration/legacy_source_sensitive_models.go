@@ -56,46 +56,10 @@ type legacyUsageLatencyStat struct {
 
 func (legacyUsageLatencyStat) TableName() string { return "usage_latency_stats" }
 
-type legacyUsageEventArchive struct {
-	ID                  int64 `gorm:"primaryKey;autoIncrement:false"`
-	EventKey            string
-	APIGroupKey         string
-	Provider            string
-	Endpoint            string
-	AuthType            string
-	RequestID           string
-	ClientIP            *string
-	XForwardedFor       *string
-	UserAgent           *string
-	Model               string
-	ModelAlias          *string
-	ReasoningEffort     string
-	ServiceTier         string
-	ResponseServiceTier string
-	ExecutorType        string
-	Timestamp           time.Time `gorm:"serializer:storageTime"`
-	Source              string
-	AuthIndex           string
-	Failed              bool
-	Generate            *bool `gorm:"not null;default:true"`
-	LatencyMS           int64
-	TTFTMS              *int64
-	InputTokens         int64
-	OutputTokens        int64
-	ReasoningTokens     int64
-	CachedTokens        int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	TotalTokens         int64
-	CreatedAt           time.Time `gorm:"serializer:storageTime"`
-}
-
-func (legacyUsageEventArchive) TableName() string { return "usage_events_archive" }
-
 type legacyLocalRankingPeriodStat struct {
-	PeriodKind         entities.LocalRankingPeriodKind `gorm:"type:text;primaryKey"`
-	PeriodKey          string                          `gorm:"type:text;primaryKey"`
-	APIKeyID           int64                           `gorm:"primaryKey;index:idx_local_ranking_period_stats_api_key"`
+	PeriodKind         string `gorm:"type:text;primaryKey"`
+	PeriodKey          string `gorm:"type:text;primaryKey"`
+	APIKeyID           int64  `gorm:"primaryKey;index:idx_local_ranking_period_stats_api_key"`
 	RequestCount       int64
 	SuccessCount       int64
 	FailureCount       int64

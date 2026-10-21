@@ -57,11 +57,6 @@ CPA Usage Keeper는 [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProx
 </p>
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/ranking-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/ranking-light.png" />
-    <img src="./assets/screenshots/ranking-light.png" alt="CPA Usage Keeper Ranking" width="49%" />
-  </picture>
-  <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/login-dark.png" />
     <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/login-light.png" />
     <img src="./assets/screenshots/login-light.png" alt="CPA Usage Keeper Login" width="49%" />
@@ -74,10 +69,10 @@ CPA Usage Keeper는 [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProx
 
 | 추가 기능 | 설명 |
 | --- | --- |
-| **멀티 인스턴스 지원** | 하나의 Keeper에 여러 CPA 인스턴스를 등록합니다. 인스턴스별로 사용량, 랭킹, 요청 이벤트를 필터링할 수 있으며, 결정적 `Legacy` 인스턴스가 마이그레이션 이전 데이터를 그대로 유지합니다. |
+| **멀티 인스턴스 지원** | 하나의 Keeper에 여러 CPA 인스턴스를 등록합니다. 인스턴스별로 사용량과 요청 이벤트를 필터링할 수 있으며, 결정적 `Legacy` 인스턴스가 마이그레이션 이전 데이터를 그대로 유지합니다. |
 | **Keeper export 프로토콜 (`/api/v1/export/*`)** | 사용량 배치와 메타데이터(인증 파일, API 키, 프로바이더 아이덴티티)를 위한 Bearer 자격 증명 푸시 API입니다. 엄격한 JSON 검증, 재전송 안전 수집, Argon2id 해시 자격 증명을 제공합니다. [운영자 런북](docs/keeper-export.md)을 참조하세요. |
 | **tokscale 브리지** | `scripts/tokscale_bridge.py`가 Keeper에서 가격이 책정된 사용량을 gjc JSONL로보내 [tokscale](https://github.com/junhoyeo/tokscale) 분석 및 리더보드 제출에 사용하며, 선택적 systemd 타이머를 지원합니다. [docs/tokscale-bridge.md](docs/tokscale-bridge.md)를 참조하세요. |
-| **OpenRouter 가격 동기화** | 선택적 `OPENROUTER_API_KEY`로 비용 추정을 위한 모델 가격을 자동으로 가져옵니다. |
+| **OpenRouter 가격 동기화** | "Auto-fill from OpenRouter"로 OpenRouter를 가격 동기화 소스로 사용합니다(검토 후 적용). `OPENROUTER_API_KEY`는 선택 사항입니다. |
 | **저장소 보존 기간 설정** | `USAGE_EVENTS_HOT_RETENTION_DAYS`, `USAGE_RAW_RETENTION_DAYS`, `ERROR_EVENTS_RETENTION_DAYS`, `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS`가 계층별 보존 기간을 정해, 오래 운영한 호스트에서 SQLite 파일을 회수할 수 있게 합니다. |
 
 ## 기능
@@ -88,7 +83,6 @@ CPA Usage Keeper는 [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProx
 - 요청 단위 이벤트를 설정 가능한 테이블 컬럼으로 조회 및보내기
 - 사용량 추세, 비용 구성, 모델/API Key/AI Provider 비중, 시간대별 히트맵, 지연 시간 진단 분석
 - 사용량 지표, 상태 점검, 할당량 새로고침을 포함한 Auth Files 및 AI Providers 모니터링
-- 종합 점수, 토큰, 요청 수, 캐시 비율, 평균 TTFT/지연 시간, 피크 TPM/RPM 기준 커뮤니티 랭킹 참여
 - 개별 CPA API Key 범위로 제한된 읽기 전용 사용량 뷰 제공
 - CPA Auth Files, API Keys, AI Providers 자동 동기화 및 비용 추정용 모델 가격 유지
 - Docker/Docker Compose, 바이너리, systemd로 배포하고 선택적 비밀번호 보호 지원
@@ -136,7 +130,6 @@ internal/poller/         CPA usage and metadata synchronization
 internal/repository/     SQLite persistence and aggregations
 internal/service/        Usage, pricing, and identity services
 internal/quota/          Provider quota refresh and inspection
-internal/ranking/        Community ranking aggregation and sync
 internal/benchmark/      Capacity suite, reports, manifests, and legacy microbenchmarks
 deploy/                  Deployment templates
 web/                     React + TypeScript frontend
@@ -406,7 +399,6 @@ cp .env.example .env
 | `AUTH_ENABLED` | 아니오 | `true` | 로그인 보호 활성화 |
 | `LOGIN_PASSWORD` | 인증 활성화 시 | - | 로그인 비밀번호 |
 | `AUTH_SESSION_TTL` | 아니오 | `168h` | 로그인 세션 수명 |
-| `API_KEY_VIEWER_LOCAL_RANKING_ENABLED` | 아니오 | `false` | API Key 뷰어가 Local Ranking을 읽을 수 있도록 허용. Community Ranking은 읽기 전용으로 유지 |
 
 ### 시간대 및 요청 동작
 

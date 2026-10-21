@@ -2,6 +2,7 @@ package migration
 
 import (
 	"fmt"
+	"strings"
 
 	"cpa-usage-keeper/internal/entities"
 	"gorm.io/gorm"
@@ -47,6 +48,12 @@ func keeperInstancesMigration(tx *gorm.DB) error {
 
 	for _, table := range keeperInstanceTables {
 		if !tx.Migrator().HasTable(table) {
+			// Keeper v2 retired the ranking schema-creation migrations and upstream replays published
+			// schemas that may predate some tables; skip tables that do not exist at all. Any other
+			// object with the name (e.g. a view) still fails loudly below.
+			if !sqliteSchemaObjectExists(tx, table) {
+				continue
+			}
 			return fmt.Errorf("add instance namespace: required table %s is missing", table)
 		}
 		if !tx.Migrator().HasColumn(table, "instance_id") {
@@ -79,16 +86,23 @@ func keeperInstancesMigration(tx *gorm.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS uniq_usage_latency_stats_instance_bucket_api ON usage_latency_stats(instance_id, bucket_type, bucket_start, api_group_key)`,
 	}
 	for _, statement := range statements {
+		if table, columns := instanceIndexStatementTarget(statement); table != "" && !instanceIndexTargetExists(tx, table, columns) {
+			continue
+		}
 		if err := tx.Exec(statement).Error; err != nil {
 			return fmt.Errorf("create instance-scoped index: %w", err)
 		}
 	}
 
-	if err := rebuildUsageAggregationCheckpoints(tx); err != nil {
-		return err
+	if sqliteSchemaObjectExists(tx, "usage_aggregation_checkpoints") {
+		if err := rebuildUsageAggregationCheckpoints(tx); err != nil {
+			return err
+		}
 	}
-	if err := rebuildLocalRankingPeriodStats(tx); err != nil {
-		return err
+	if sqliteSchemaObjectExists(tx, "local_ranking_period_stats") {
+		if err := rebuildLocalRankingPeriodStats(tx); err != nil {
+			return err
+		}
 	}
 	return EnsureCPAInstanceIntegrity(tx)
 }
@@ -156,4 +170,41 @@ func runKeeperInstanceRebuildStatements(tx *gorm.DB, name string, statements []s
 		}
 	}
 	return nil
+}
+
+// sqliteSchemaObjectExists reports whether any schema object (table, view, ...) uses the name.
+func sqliteSchemaObjectExists(tx *gorm.DB, name string) bool {
+	var count int64
+	if err := tx.Raw("SELECT COUNT(*) FROM sqlite_master WHERE name = ?", name).Scan(&count).Error; err != nil {
+		return true
+	}
+	return count > 0
+}
+
+// instanceIndexStatementTarget returns the table and columns of a CREATE INDEX statement ("" otherwise).
+func instanceIndexStatementTarget(statement string) (string, []string) {
+	_, after, found := strings.Cut(statement, " ON ")
+	if !found {
+		return "", nil
+	}
+	table, rest, _ := strings.Cut(strings.TrimSpace(after), "(")
+	columnList, _, _ := strings.Cut(rest, ")")
+	columns := strings.Split(columnList, ",")
+	for index := range columns {
+		columns[index] = strings.TrimSpace(columns[index])
+	}
+	return strings.TrimSpace(table), columns
+}
+
+// instanceIndexTargetExists skips index work for tables (or columns) an older published schema never had.
+func instanceIndexTargetExists(tx *gorm.DB, table string, columns []string) bool {
+	if !sqliteSchemaObjectExists(tx, table) {
+		return false
+	}
+	for _, column := range columns {
+		if column != "" && !tx.Migrator().HasColumn(table, column) {
+			return false
+		}
+	}
+	return true
 }

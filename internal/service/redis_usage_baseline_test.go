@@ -8,6 +8,7 @@ import (
 
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/pricing"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
 	"path/filepath"
@@ -57,6 +58,7 @@ func TestBaselineRedisUsageDecodeDuplicateRequestIDYieldsIndependentEvents(t *te
 			"model":"`+model+`",
 			"api_key":"raw-key",
 			"request_id":"req-duplicated",
+			"execution_id":"exec-`+model+`",
 			"tokens":{"input_tokens":1,"output_tokens":2}
 		}`, fetchedAt)
 		if err != nil {
@@ -91,6 +93,7 @@ func TestBaselineRedisUsageLegacyPayloadCarriesRawSecrets(t *testing.T) {
 		"model":"gpt-5.6",
 		"api_key":"sk-raw-secret-key",
 		"request_id":"req-secret-baseline",
+		"execution_id":"exec-secret-baseline",
 		"failed":true,
 		"fail":{"status_code":502,"body":"upstream raw secret body"},
 		"tokens":{"input_tokens":1,"output_tokens":2},
@@ -122,19 +125,19 @@ func TestBaselineProcessRedisUsageInboxAtomicDuplicateRequestID(t *testing.T) {
 	rows, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
 		{
 			Source:     redisUsageInboxBaselineSource,
-			RawMessage: `{"timestamp":"2026-04-27T07:59:00Z","provider":"claude","model":"claude-sonnet","request_id":"req-atomic-dup","tokens":{"input_tokens":1,"output_tokens":2}}`,
+			RawMessage: `{"timestamp":"2026-04-27T07:59:00Z","provider":"claude","model":"claude-sonnet","request_id":"req-atomic-dup","execution_id":"exec-atomic-1","tokens":{"input_tokens":1,"output_tokens":2}}`,
 			PoppedAt:   poppedAt,
 		},
 		{
 			Source:     redisUsageInboxBaselineSource,
-			RawMessage: `{"timestamp":"2026-04-27T07:59:05Z","provider":"claude","model":"claude-opus","request_id":"req-atomic-dup","tokens":{"input_tokens":3,"output_tokens":4}}`,
+			RawMessage: `{"timestamp":"2026-04-27T07:59:05Z","provider":"claude","model":"claude-opus","request_id":"req-atomic-dup","execution_id":"exec-atomic-2","tokens":{"input_tokens":3,"output_tokens":4}}`,
 			PoppedAt:   poppedAt,
 		},
 	})
 	if err != nil {
 		t.Fatalf("seed inbox rows: %v", err)
 	}
-	service := NewSyncServiceWithOptions(db, SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{BaseURL: "https://cpa.example.com", PricingCatalog: pricing.NewCatalog(pricing.EmptySnapshot())})
 
 	result, err := service.ProcessRedisUsageInbox(context.Background())
 	if err != nil {

@@ -45,9 +45,12 @@ func LoadUsageAggregationCheckpointSnapshotForInstance(ctx context.Context, db *
 	}
 	// 只读路径不得 FirstOrCreate；缺失行由结构体零值表达首次聚合状态。
 	var checkpoints []entities.UsageAggregationCheckpoint
-	if err := db.Clauses(dbresolver.Read).WithContext(ctx).
-		Where("instance_id = ? AND name IN ?", instanceID, names).
-		Find(&checkpoints).Error; err != nil {
+	query := db.Clauses(dbresolver.Read).WithContext(ctx).Where("name IN ?", names)
+	// Pre-instance (upstream-lineage) checkpoint tables have no namespace during the legacy pricing upgrade.
+	if db.Migrator().HasColumn(&entities.UsageAggregationCheckpoint{}, "instance_id") {
+		query = query.Where("instance_id = ?", instanceID)
+	}
+	if err := query.Find(&checkpoints).Error; err != nil {
 		return UsageAggregationCheckpointSnapshot{}, fmt.Errorf("load usage aggregation checkpoints: %w", err)
 	}
 	// 每行按受限 name 映射到固定字段，数据库中的未知值不影响其它合法水位。

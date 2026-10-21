@@ -66,6 +66,7 @@ type usageOverviewRealtime struct {
 	WindowStart    *time.Time                        `json:"window_start,omitempty"`
 	WindowEnd      *time.Time                        `json:"window_end,omitempty"`
 	TokenVelocity  []usageOverviewTokenVelocityPoint `json:"token_velocity"`
+	ModelSpeed     usageOverviewModelSpeed           `json:"model_speed"`
 	LatencyScatter usageOverviewLatencyScatter       `json:"latency_scatter"`
 	CurrentUsage   usageOverviewRealtimeCurrentUsage `json:"current_usage"`
 	RequestLevel   []usageOverviewRequestLevelPoint  `json:"request_level"`
@@ -80,6 +81,7 @@ type keyUsageOverviewRealtime struct {
 	WindowStart    *time.Time                           `json:"window_start,omitempty"`
 	WindowEnd      *time.Time                           `json:"window_end,omitempty"`
 	TokenVelocity  []usageOverviewTokenVelocityPoint    `json:"token_velocity"`
+	ModelSpeed     usageOverviewModelSpeed              `json:"model_speed"`
 	LatencyScatter usageOverviewLatencyScatter          `json:"latency_scatter"`
 	CurrentUsage   keyUsageOverviewRealtimeCurrentUsage `json:"current_usage"`
 	RequestLevel   []usageOverviewRequestLevelPoint     `json:"request_level"`
@@ -248,7 +250,9 @@ func writeUsageOverviewComparisonsResponse(c *gin.Context, usageProvider service
 		return
 	}
 	if keyViewer && viewerKey != nil && viewerKey.ID > 0 && viewerKey.APIKey != "" {
-		apiKeyInfos[viewerKey.APIKey] = analysisAPIKeyInfo{ID: strconv.FormatInt(viewerKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(*viewerKey)}
+		viewerInfo := analysisAPIKeyInfo{ID: strconv.FormatInt(viewerKey.ID, 10), Label: helper.CPAAPIKeyDisplayName(*viewerKey)}
+		apiKeyInfos[viewerKey.APIKey] = viewerInfo
+		apiKeyInfos[apiKeyInfoLookupKey(viewerKey.InstanceID, viewerKey.APIKey)] = viewerInfo
 	}
 	comparisons := buildUsageOverviewComparisons(overview, apiKeyInfos)
 	if keyViewer {
@@ -403,6 +407,7 @@ func emptyUsageOverviewRealtime(window string) usageOverviewRealtime {
 		WindowStart:    base.WindowStart,
 		WindowEnd:      base.WindowEnd,
 		TokenVelocity:  base.TokenVelocity,
+		ModelSpeed:     buildUsageOverviewModelSpeed(servicedto.RealtimeModelSpeed{}),
 		LatencyScatter: base.LatencyScatter,
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
 			Models:      []usageOverviewRealtimeUsageTopItem{},
@@ -424,6 +429,7 @@ func emptyKeyUsageOverviewRealtime(window string) keyUsageOverviewRealtime {
 		WindowStart:    base.WindowStart,
 		WindowEnd:      base.WindowEnd,
 		TokenVelocity:  base.TokenVelocity,
+		ModelSpeed:     buildUsageOverviewModelSpeed(servicedto.RealtimeModelSpeed{}),
 		LatencyScatter: base.LatencyScatter,
 		CurrentUsage: keyUsageOverviewRealtimeCurrentUsage{
 			Models: []usageOverviewRealtimeUsageTopItem{},
@@ -480,6 +486,7 @@ func buildUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, wind
 		WindowStart:    usageOverviewOptionalTime(realtime.WindowStart),
 		WindowEnd:      usageOverviewOptionalTime(realtime.WindowEnd),
 		TokenVelocity:  make([]usageOverviewTokenVelocityPoint, 0, len(realtime.TokenVelocity)),
+		ModelSpeed:     buildUsageOverviewModelSpeed(realtime.ModelSpeed),
 		LatencyScatter: mapUsageOverviewLatencyScatter(realtime.LatencyScatter),
 		CurrentUsage: usageOverviewRealtimeCurrentUsage{
 			Models:      mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models),
@@ -535,6 +542,7 @@ func buildKeyUsageOverviewRealtime(realtime *servicedto.UsageOverviewRealtime, w
 		WindowStart:    usageOverviewOptionalTime(realtime.WindowStart),
 		WindowEnd:      usageOverviewOptionalTime(realtime.WindowEnd),
 		TokenVelocity:  make([]usageOverviewTokenVelocityPoint, 0, len(realtime.TokenVelocity)),
+		ModelSpeed:     buildUsageOverviewModelSpeed(realtime.ModelSpeed),
 		LatencyScatter: mapUsageOverviewLatencyScatter(realtime.LatencyScatter),
 		CurrentUsage: keyUsageOverviewRealtimeCurrentUsage{
 			Models: mapUsageOverviewRealtimeTopItems(realtime.CurrentUsage.Models),
@@ -652,4 +660,31 @@ func apiKeyInfoExists(infos map[string]analysisAPIKeyInfo, instanceID, apiKey st
 		return ok
 	}
 	return false
+}
+
+type usageOverviewModelSpeed struct {
+	Available bool                            `json:"available"`
+	Start     *time.Time                      `json:"start,omitempty"`
+	Mid       *time.Time                      `json:"mid,omitempty"`
+	End       *time.Time                      `json:"end,omitempty"`
+	Series    []usageOverviewModelSpeedSeries `json:"series"`
+}
+
+type usageOverviewModelSpeedSeries struct {
+	Model            string                   `json:"model"`
+	TotalTokens      int64                    `json:"total_tokens"`
+	SpeedSampleCount int64                    `json:"speed_sample_count"`
+	FirstHalf        analysisModelSpeedSample `json:"first_half"`
+	SecondHalf       analysisModelSpeedSample `json:"second_half"`
+}
+
+func buildUsageOverviewModelSpeed(speed servicedto.RealtimeModelSpeed) usageOverviewModelSpeed {
+	result := usageOverviewModelSpeed{Available: speed.Available, Start: usageOverviewOptionalTime(speed.Start), Mid: usageOverviewOptionalTime(speed.Mid), End: usageOverviewOptionalTime(speed.End), Series: make([]usageOverviewModelSpeedSeries, 0, len(speed.Series))}
+	sample := func(row servicedto.RealtimeModelSpeedSample) analysisModelSpeedSample {
+		return analysisModelSpeedSample{SpeedTPSSum: row.SpeedTPSSum, SpeedSampleCount: row.SpeedSampleCount, MeanTPS: row.MeanTPS}
+	}
+	for _, row := range speed.Series {
+		result.Series = append(result.Series, usageOverviewModelSpeedSeries{Model: row.Model, TotalTokens: row.TotalTokens, SpeedSampleCount: row.SpeedSampleCount, FirstHalf: sample(row.FirstHalf), SecondHalf: sample(row.SecondHalf)})
+	}
+	return result
 }

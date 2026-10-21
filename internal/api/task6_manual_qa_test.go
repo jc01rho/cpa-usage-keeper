@@ -16,7 +16,6 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/pricing"
-	"cpa-usage-keeper/internal/ranking"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/service"
 )
@@ -43,11 +42,7 @@ func TestTask6ManualQALiveHTTP(t *testing.T) {
 	a, b := issue("A"), issue("B")
 	usageService := service.NewUsageService(db, pricing.NewCatalog(pricing.EmptySnapshot()))
 	qaNow := time.Now().Truncate(time.Second)
-	localRankingService, err := ranking.NewLocalRankingService(db, ranking.LocalRankingServiceOptions{Now: func() time.Time { return qaNow }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	router := NewRouter(nil, nil, usageService, nil, AuthConfig{}, NewAuthHandler(AuthConfig{}, nil), "", OptionalProviders{MetadataExport: service.NewMetadataExportService(db), MetadataStatus: service.NewMetadataStatusService(db), CPAInstances: instanceService, CPAAPIKeys: service.NewCPAAPIKeyService(db), UsageIdentity: service.NewUsageIdentityService(db), LocalRanking: localRankingService})
+	router := NewRouter(nil, nil, usageService, nil, AuthConfig{}, NewAuthHandler(AuthConfig{}, nil), "", OptionalProviders{MetadataExport: service.NewMetadataExportService(db), MetadataStatus: service.NewMetadataStatusService(db), CPAInstances: instanceService, CPAAPIKeys: service.NewCPAAPIKeyService(db), UsageIdentity: service.NewUsageIdentityService(db)})
 	server := httptest.NewServer(router)
 	defer server.Close()
 	body := func(revision int, alias string, empty bool) []byte {
@@ -92,16 +87,6 @@ func TestTask6ManualQALiveHTTP(t *testing.T) {
 	if err := db.Order("instance_id").Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
-	periodKey := usageAt.In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02")
-	for _, row := range rows {
-		tokens := int64(10)
-		if row.InstanceID == b.Instance.ID {
-			tokens = 20
-		}
-		if err := db.Create(&entities.LocalRankingPeriodStat{InstanceID: row.InstanceID, PeriodKind: entities.LocalRankingPeriodDay, PeriodKey: periodKey, APIKeyID: row.ID, RequestCount: 1, TotalTokens: tokens, UpdatedAt: usageAt}).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
 	get := func(path string) (int, string) {
 		res, err := http.Get(server.URL + path)
 		if err != nil {
@@ -116,13 +101,10 @@ func TestTask6ManualQALiveHTTP(t *testing.T) {
 	eventsAllStatus, eventsAllResponse := get("/api/v1/usage/events?range=24h&instance_id=all")
 	legacyStatus, legacyResponse := get("/api/v1/usage/events?range=24h")
 	metadataStatusCode, metadataStatusResponse := get("/api/v1/instances/metadata-status?instance_id=all")
-	localRankingAStatus, localRankingAResponse := get("/api/v1/ranking/local/leaderboards?period=today&metric=total_tokens&instance_id=" + a.Instance.ID)
-	localRankingBStatus, localRankingBResponse := get("/api/v1/ranking/local/leaderboards?period=today&metric=total_tokens&instance_id=" + b.Instance.ID)
-	localRankingAllStatus, localRankingAllResponse := get("/api/v1/ranking/local/leaderboards?period=today&metric=total_tokens&instance_id=all")
 	var activeA, activeB int64
 	db.Model(&entities.CPAAPIKey{}).Where("instance_id = ? AND is_deleted = ?", a.Instance.ID, false).Count(&activeA)
 	db.Model(&entities.CPAAPIKey{}).Where("instance_id = ? AND is_deleted = ?", b.Instance.ID, false).Count(&activeB)
-	evidence := map[string]any{"server": server.URL, "database": dbPath, "instanceA": a.Instance.ID, "instanceB": b.Instance.ID, "applyA": []any{statusA, json.RawMessage(responseA)}, "applyB": []any{statusB, json.RawMessage(responseB)}, "replay": []any{replayStatus, json.RawMessage(replayResponse)}, "conflict": []any{conflictStatus, json.RawMessage(conflictResponse)}, "stale": []any{staleStatus, json.RawMessage(staleResponse)}, "emptyA": []any{emptyStatus, json.RawMessage(emptyResponse)}, "selectorRejected": []any{selectorStatus, json.RawMessage(selectorResponse)}, "activeAfterEmpty": map[string]int64{"A": activeA, "B": activeB}, "eventsA": []any{eventsAStatus, json.RawMessage(eventsAResponse)}, "eventsB": []any{eventsBStatus, json.RawMessage(eventsBResponse)}, "eventsAll": []any{eventsAllStatus, json.RawMessage(eventsAllResponse)}, "legacyNoFilter": []any{legacyStatus, json.RawMessage(legacyResponse)}, "localRankingA": []any{localRankingAStatus, json.RawMessage(localRankingAResponse)}, "localRankingB": []any{localRankingBStatus, json.RawMessage(localRankingBResponse)}, "localRankingAll": []any{localRankingAllStatus, json.RawMessage(localRankingAllResponse)}, "metadataStatus": []any{metadataStatusCode, json.RawMessage(metadataStatusResponse)}, "rows": rows, "verifiedAt": time.Now().UTC()}
+	evidence := map[string]any{"server": server.URL, "database": dbPath, "instanceA": a.Instance.ID, "instanceB": b.Instance.ID, "applyA": []any{statusA, json.RawMessage(responseA)}, "applyB": []any{statusB, json.RawMessage(responseB)}, "replay": []any{replayStatus, json.RawMessage(replayResponse)}, "conflict": []any{conflictStatus, json.RawMessage(conflictResponse)}, "stale": []any{staleStatus, json.RawMessage(staleResponse)}, "emptyA": []any{emptyStatus, json.RawMessage(emptyResponse)}, "selectorRejected": []any{selectorStatus, json.RawMessage(selectorResponse)}, "activeAfterEmpty": map[string]int64{"A": activeA, "B": activeB}, "eventsA": []any{eventsAStatus, json.RawMessage(eventsAResponse)}, "eventsB": []any{eventsBStatus, json.RawMessage(eventsBResponse)}, "eventsAll": []any{eventsAllStatus, json.RawMessage(eventsAllResponse)}, "legacyNoFilter": []any{legacyStatus, json.RawMessage(legacyResponse)}, "metadataStatus": []any{metadataStatusCode, json.RawMessage(metadataStatusResponse)}, "rows": rows, "verifiedAt": time.Now().UTC()}
 	raw, _ := json.MarshalIndent(evidence, "", "  ")
 	fmt.Println(string(raw))
 	var failures []string
@@ -145,20 +127,12 @@ func TestTask6ManualQALiveHTTP(t *testing.T) {
 	check(eventsAllStatus == 200, "events all status")
 	check(legacyStatus == 200, "legacy events status")
 	check(metadataStatusCode == 200, "metadata status")
-	check(localRankingAStatus == 200, "ranking A status")
-	check(localRankingBStatus == 200, "ranking B status")
-	check(localRankingAllStatus == 200, "ranking all status")
 	check(strings.Count(eventsAResponse, `"instance_id"`) == 1, "events A instance count")
 	check(strings.Count(eventsBResponse, `"instance_id"`) == 1, "events B instance count")
 	check(strings.Count(eventsAllResponse, `"instance_id"`) == 2, "events all instance count")
 	check(strings.Count(legacyResponse, `"instance_id"`) == 0, "legacy instance count")
 	check(!strings.Contains(eventsAResponse, `"api_key":"B"`), "events A alias isolation")
 	check(strings.Contains(eventsBResponse, `"api_key":"B"`), "events B alias")
-	check(strings.Contains(localRankingAResponse, `"instanceId":"`+a.Instance.ID+`"`), "ranking A instance")
-	check(!strings.Contains(localRankingAResponse, `"instanceId":"`+b.Instance.ID+`"`), "ranking A excludes B")
-	check(strings.Contains(localRankingBResponse, `"instanceId":"`+b.Instance.ID+`"`), "ranking B instance")
-	check(!strings.Contains(localRankingBResponse, `"instanceId":"`+a.Instance.ID+`"`), "ranking B excludes A")
-	check(strings.Count(localRankingAllResponse, `"instanceId"`) == 2, "ranking all instance count")
 	if len(failures) > 0 {
 		t.Fatalf("manual QA assertions failed (%s): %s", strings.Join(failures, ", "), raw)
 	}

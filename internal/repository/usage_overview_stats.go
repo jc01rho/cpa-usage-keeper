@@ -103,7 +103,10 @@ func aggregateUsageOverviewStatsBatch(ctx context.Context, db *gorm.DB, instance
 	}
 
 	// Overview 纯计算仍由原 BuildRows 唯一负责，输入事件页不被修改。
-	hourlyRows, dailyRows, maxEventID := overview.BuildRows(events)
+	hourlyRows, dailyRows, maxEventID, buildErr := overview.BuildRows(events)
+	if buildErr != nil {
+		return 0, buildErr
+	}
 	if err := ApplyUsageOverviewAggregationPageForInstance(ctx, db, instanceID, snapshot.OverviewCursor, maxEventID, hourlyRows, dailyRows, now); err != nil {
 		return 0, err
 	}

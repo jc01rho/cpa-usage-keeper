@@ -3,8 +3,6 @@ package migration
 import (
 	"fmt"
 
-	"cpa-usage-keeper/internal/entities"
-
 	"gorm.io/gorm"
 )
 
@@ -15,7 +13,7 @@ func createUsageOverviewStatsMigration(tx *gorm.DB) error {
 		&legacyUsageOverviewDailyStat{},
 		// 历史 migration 使用包内 legacy 结构，避免最终业务 entity 继续暴露旧 Health 表。
 		&legacyUsageOverviewHealthStat{},
-		&entities.UsageOverviewAggregationCheckpoint{},
+		&legacyUsageOverviewAggregationCheckpoint{},
 	); err != nil {
 		return fmt.Errorf("auto migrate usage overview stats: %w", err)
 	}

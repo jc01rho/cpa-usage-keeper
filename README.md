@@ -57,11 +57,6 @@ CPA Usage Keeper is a standalone persistence and analytics dashboard for [CLIPro
 </p>
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/ranking-dark.png" />
-    <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/ranking-light.png" />
-    <img src="./assets/screenshots/ranking-light.png" alt="CPA Usage Keeper Ranking" width="49%" />
-  </picture>
-  <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/screenshots/login-dark.png" />
     <source media="(prefers-color-scheme: light)" srcset="./assets/screenshots/login-light.png" />
     <img src="./assets/screenshots/login-light.png" alt="CPA Usage Keeper Login" width="49%" />
@@ -74,25 +69,22 @@ Everything upstream ships, plus the pieces needed to run against [CLIProxyAPIPlu
 
 | Addition | What it does |
 | --- | --- |
-| **Multi-instance support** | Register several CPA instances in one Keeper. Filter usage, ranking, and request events per instance; a deterministic `Legacy` instance keeps pre-migration data intact. |
+| **Multi-instance support** | Register several CPA instances in one Keeper. Filter usage and request events per instance; a deterministic `Legacy` instance keeps pre-migration data intact. |
 | **Keeper export protocol (`/api/v1/export/*`)** | Bearer-credential push API for usage batches and metadata (auth files, API keys, provider identities). Strict JSON validation, replay-safe ingestion, Argon2id-hashed credentials. See the [operator runbook](docs/keeper-export.md). |
 | **tokscale bridge** | `scripts/tokscale_bridge.py` exports keeper-priced usage to gjc JSONL for [tokscale](https://github.com/junhoyeo/tokscale) analytics and leaderboard submission, with optional systemd timer. See [docs/tokscale-bridge.md](docs/tokscale-bridge.md). |
-| **OpenRouter pricing sync** | Optional `OPENROUTER_API_KEY` auto-fetches model pricing for cost estimates. |
+| **OpenRouter pricing sync** | "Auto-fill from OpenRouter" adds OpenRouter as a pricing sync source (review, then apply); optional `OPENROUTER_API_KEY`. |
 | **Configurable storage retention** | `USAGE_EVENTS_HOT_RETENTION_DAYS`, `USAGE_RAW_RETENTION_DAYS`, `ERROR_EVENTS_RETENTION_DAYS`, and `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS` bound how long each storage layer keeps data, so a long-running host can reclaim the SQLite file. |
 
 ## Features
 
 - [Keeper export operator runbook](docs/keeper-export.md) — migration, credentials, ingestion, recovery, and release operations.
-- Persist CPA usage data in SQLite, with optional scheduled backups
-- Track requests, tokens, cost, cache usage, success rate, RPM/TPM, and latency, with filters for time range, model, API Key, source, and result
-- Inspect and export request-level events with configurable table columns
-- Analyze usage trends, cost composition, model/API Key/AI Provider mix, hourly heatmaps, and latency diagnostics
-- Monitor Auth Files and AI Providers with usage metrics, health inspection, and quota refresh
-- Opt into community rankings by overall score, tokens, requests, cache rate, average TTFT/latency, or peak TPM/RPM
-- Open a read-only usage view scoped to an individual CPA API Key
-- Sync CPA Auth Files, API Keys, and AI Providers automatically, and maintain model pricing for cost estimates
-- Deploy with Docker/Docker Compose, binaries, or systemd, with optional password protection
-- Embed the Keeper dashboard in CPAMC through the CPA plugin
+- **Keep your history**: persist CPA usage in SQLite with scheduled backups.
+- **Understand costs**: analyze usage, caching, and estimated costs by model, API Key, and provider.
+- **Investigate requests**: inspect and export request details, and explore success rates, time to first token (TTFT), and total latency.
+- **Track quotas**: monitor credential health and remaining quotas, refresh quotas, edit priorities, and explore Codex quota history.
+- **Share scoped access**: provide a read-only usage view for an individual CPA API Key.
+
+CPA plugin embedding in CPAMC is also available. Deploy with Docker Compose, Homebrew, or binaries; login protection is enabled by default.
 
 ## Sponsors and Special Thanks
 
@@ -102,8 +94,8 @@ Everything upstream ships, plus the pieces needed to run against [CLIProxyAPIPlu
 
 ## Quick Start
 
-> Before using CPA Usage Keeper, make sure CPA usage statistics are enabled: `usage-statistics-enabled: true`.
->
+> Keeper supports CPA v8.0.12+. Enable CPA usage statistics by setting `observability.usage.usage-statistics-enabled` to `true`.
+
 > When multiple usage collectors share one CPA instance, ensure they all use subscription mode; otherwise, collection may stop or become incomplete.
 
 Docker Compose is the recommended deployment method. Use the full stack when deploying CPA and Keeper together, or the Keeper-only stack when CPA already exists.
@@ -123,7 +115,10 @@ Login protection is enabled by default. Configure `LOGIN_PASSWORD` before starti
 
 ## Benchmark
 
-Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/REPORT.md).
+Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/reports/capacity/README.md).
+
+<details>
+<summary>Developer reference: project structure, local setup, and tests</summary>
 
 ## Project Structure
 
@@ -136,7 +131,6 @@ internal/poller/         CPA usage and metadata synchronization
 internal/repository/     SQLite persistence and aggregations
 internal/service/        Usage, pricing, and identity services
 internal/quota/          Provider quota refresh and inspection
-internal/ranking/        Community ranking aggregation and sync
 internal/benchmark/      Capacity suite, reports, manifests, and legacy microbenchmarks
 deploy/                  Deployment templates
 web/                     React + TypeScript frontend
@@ -192,6 +186,17 @@ npm --prefix ./web run lint
 npm --prefix ./web run typecheck
 npm --prefix ./web run build
 ```
+
+### Chart time handling
+
+- Use the response/configured timezone. Calendar days use `internal/timeutil.CivilDate` and `DayBounds`; rolling windows use elapsed durations. A calendar day is not always 24 hours.
+- Read existing rollups through the repository bucket adapters. Overview and Latency have different hourly anchors; Activity retains its existing 364-block grid and stored ends. Query fixes must not change write buckets or repartition stored aggregates.
+- Reuse `internal/repository/usage_event_time_read.go` for raw-event time predicates and instant filtering. Use bounded segments for queries and the open-ended reader for recent-cache startup/reload; keep projections and lifecycle logic in callers.
+- Keep bucket identity as an instant or full date, never a formatted clock label. Sort timestamps by instant; use actual full-day minutes for day-bucket rates.
+- Reuse `web/src/utils/usage/timeLabels.ts` for timezone parts and repeated-clock disambiguation. Preserve each chart's locale, precision, fallback and empty-point rules; add offsets only to ambiguous local clocks.
+- Test ordinary Shanghai dates alongside DST gaps/folds, including a browser timezone different from the response. Preserve existing chart styles and lifecycle behavior.
+
+</details>
 
 ## Deployment
 
@@ -249,7 +254,37 @@ Set `KEEPER_LOGIN_PASSWORD` in the shell or the Compose `.env` file before start
 
 This fork does not publish a Docker image, so the `build` above compiles Keeper from this repository. To use a local checkout instead, replace the `build` block with `build: .` inside a clone.
 
-Run `docker compose up -d` to start the stack and `docker compose down` to stop it.
+Use this download command for a new deployment only; edit an existing configuration directly to avoid overwriting it.
+
+**2. Configure CPA and Keeper**
+
+Edit the existing settings in `cpa/config.yaml` as listed below, preserving YAML nesting and indentation. Dots in the table denote nested paths, not literal YAML keys to add:
+
+| Setting | What to configure |
+| --- | --- |
+| `management.allow-remote` | Set to `true` so Keeper can access CPA management features from another container. |
+| `management.secret-key` | Set a private management key and use the same original key for `CPA_MANAGEMENT_KEY` in `docker-compose.yml`. |
+| `observability.usage.usage-statistics-enabled` | Set to `true` to enable usage statistics. |
+| `access.api-keys` | Replace the example keys with your own client API keys; these are separate from the CPA management key and Keeper login password. |
+
+Keep `server.host` as an empty string, `server.port` as `8317`, and `oauth.auth-dir` as `"~/.cli-proxy-api"` to match the container network and volume mounts in the template.
+
+Edit the downloaded `docker-compose.yml` and fill in two values under Keeper's `environment`:
+
+- `CPA_MANAGEMENT_KEY`: use the same original management key configured in CPA.
+- `LOGIN_PASSWORD`: replace the empty string `""` with your own Keeper login password.
+
+Alternatively, put the settings in `./keeper/.env`; the template loads it through an optional `env_file` entry and accepts a missing file. Values in `environment` take precedence, so remove the corresponding entries, including empty placeholders, to use values from the file.
+
+**3. Start and open Keeper**
+
+```bash
+docker compose up -d
+```
+
+Open `http://your-server-address:8080` and sign in with your Keeper password. Run `docker compose down` to stop the stack.
+
+For a new deployment, add model credentials in CPA and make a model request to generate usage records.
 
 CPA data is stored under `./cpa`, and Keeper data is stored under `./keeper`.
 
@@ -276,11 +311,32 @@ LOGIN_PASSWORD=
 
 Set a private `LOGIN_PASSWORD` before starting the container.
 
-Set `CPA_BASE_URL` to the reachable CPA address for other network layouts. If CPA uses a non-default Redis/RESP address, also set `REDIS_QUEUE_ADDR`.
+Whether CPA runs on the Docker host or another machine, it must allow remote management and listen on an address reachable from the Keeper container; a listener bound only to `127.0.0.1` is not reachable. Set `management.allow-remote: true` and check `server.host`.
 
 Run `docker compose up -d` to start Keeper and `docker compose down` to stop it.
 
 Keeper data is stored under `./data` by the provided template.
+
+#### Logs and Updates
+
+For either Compose setup, view Keeper logs from the deployment directory:
+
+```bash
+docker compose logs --tail=100 -f cpa-usage-keeper
+```
+
+To update Keeper, keep your configuration and data directories and run:
+
+```bash
+docker compose pull cpa-usage-keeper
+docker compose up -d cpa-usage-keeper
+```
+
+#### No Data After Startup?
+
+- Check that CPA usage statistics are enabled: `observability.usage.usage-statistics-enabled` must be `true`.
+- Ensure Keeper can reach `CPA_BASE_URL` and that `CPA_MANAGEMENT_KEY` matches the CPA management key.
+- Check that CPA has received new model requests. If data is still missing, use the log command above to look for connection or authentication errors.
 
 ### Docker (CPA Already Runs On The Host)
 
@@ -406,7 +462,6 @@ For cross-origin CPAMC embedding, `CPA_PUBLIC_URL` must be a complete `http://` 
 | `AUTH_ENABLED` | No | `true` | Enable login protection |
 | `LOGIN_PASSWORD` | When auth is enabled | - | Login password |
 | `AUTH_SESSION_TTL` | No | `168h` | Login session lifetime |
-| `API_KEY_VIEWER_LOCAL_RANKING_ENABLED` | No | `false` | Allow API Key viewers to read Local Ranking; Community Ranking remains read-only |
 
 ### Timezone And Request Behavior
 
@@ -429,8 +484,8 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | CPA Redis/RESP TCP address; normally leave empty. Set `host:port` for non-default ports or separately exposed Redis streams |
-| `REDIS_QUEUE_TLS` | No | `false` | Use TLS for Redis queue connection; set `true` when `REDIS_QUEUE_ADDR` is explicit and requires TLS |
+| `REDIS_QUEUE_ADDR` | No | Derived from `CPA_BASE_URL` | An explicit value takes precedence. When empty, use the hostname and explicit port from `CPA_BASE_URL`, or `8317` if no port is specified. Set `host:port` for a separate address |
+| `REDIS_QUEUE_TLS` | No | `false` | Set to `true` to force TLS for the Redis queue; when no queue address is specified, TLS follows the protocol of `CPA_BASE_URL` by default. `false` does not override automatically inferred TLS settings. |
 | `REDIS_QUEUE_BATCH_SIZE` | No | `10000` | Maximum queue records per pull |
 | `REDIS_QUEUE_IDLE_INTERVAL` | No | `1s` | Empty queue check interval |
 
@@ -442,7 +497,7 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | `LOG_LEVEL` | No | `info` | Log level |
 | `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
 | `LOG_RETENTION_DAYS` | No | `7` | Combined-log history days, plus the current day; `0` disables cleanup. Error-only logs keep 30 history days plus the current day |
-| `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
+| `BACKUP_ENABLED` | No | `true` | Enable scheduled database backups |
 | `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
 | `USAGE_EVENTS_HOT_RETENTION_DAYS` | No | `90` | Local calendar days of raw `usage_events` kept in the hot table before archiving. Must be positive |
@@ -453,6 +508,16 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 Keeper archives raw request records older than `USAGE_EVENTS_HOT_RETENTION_DAYS` (default 90) local calendar days daily at 04:30 in the configured timezone, and retains archives permanently by default. Setting `USAGE_RAW_RETENTION_DAYS` to at least the hot window makes daily maintenance delete expired archived records in batches after archiving, using the request timestamp and local calendar days in the configured timezone. `ERROR_EVENTS_RETENTION_DAYS` and `USAGE_OVERVIEW_HOURLY_RETENTION_DAYS` bound the credential error history and the hourly rollup independently. Normal pages do not directly query archived records; historical aggregates and backups keep their own retention policies. Deleted raw records cannot support later historical recalculation, and hourly rollups older than their retention are only needed for the partial start/end day of a custom range longer than that retention (full days are served by the daily rollup). Deletion may not immediately shrink the SQLite file: freed space can be reused and is reclaimed by the conditional compaction policy, which now runs once the freelist holds at least 256 MiB and 10% of the database. Archived rows are stored in the `usage_events_archive` cold table, which is also used to rebuild incremental data for future schema migrations.
 
 When file logging is enabled, `cpa-usage-keeper-YYYY-MM-DD.log` contains all emitted levels. Error, fatal, and panic entries are also copied to `cpa-usage-keeper-error-YYYY-MM-DD.log`, which keeps the previous 30 local calendar dates plus the current date.
+
+### Rolling Back A Failed v1-to-v2 Upgrade
+
+Keeper creates a database backup before migrating v1 data. If migration fails and that backup is verified, the logs include English rollback instructions and its `backup_path`.
+
+1. Stop Keeper v2 and preserve the failed database together with any `-wal` and `-shm` files.
+2. Copy the pre-upgrade backup to `<new WORK_DIR>/app.db` in a separate data directory, renaming the backup copy to `app.db`. Keep the original backup intact; do not mix the copy with files from the failed database.
+3. Install Keeper v1 and set `WORK_DIR` to that new directory. With the default Docker setup, mount the new directory at `/data`, so the restored file is `/data/app.db` inside the container. Do not open the partially migrated database with v1.
+
+This returns data to the backup point. Usage received afterward is not included. If no verified backup is available, locate and validate a known pre-upgrade backup before attempting rollback.
 
 ### Built-In HTTPS
 

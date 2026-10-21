@@ -12,6 +12,10 @@ import (
 // It is shared by the upgrade migration and fresh-schema initialization.
 func EnsureCPAInstanceIntegrity(db *gorm.DB) error {
 	for _, table := range keeperInstanceTables {
+		// Keeper v2 retired local_ranking_period_stats; never attach triggers to a table that does not exist.
+		if !db.Migrator().HasTable(table) {
+			continue
+		}
 		for _, operation := range []string{"INSERT", "UPDATE OF instance_id"} {
 			suffix := "insert"
 			if operation != "INSERT" {
