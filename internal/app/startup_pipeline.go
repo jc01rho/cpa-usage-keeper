@@ -82,7 +82,7 @@ func (a *App) Initialize(ctx context.Context) error {
 		return err
 	}
 	// 价格数据已经受保护并完成后，再补齐后来注册的普通版本；重启不跳过合法新增 migration。
-	if err := repository.RunDatabaseMigrationsWithBackup(ctx, db, reader, a.Config.BackupDir); err != nil {
+	if err := repository.RunDatabaseMigrationsWithBackup(ctx, db, reader, a.Config.BackupDir, a.Config.BackupCompress); err != nil {
 		return fmt.Errorf("run remaining database migrations: %w", err)
 	}
 	ready, err := buildReadyApp(*a.Config, db, reader, a.LogCloser, a.backgroundContext, ingest)

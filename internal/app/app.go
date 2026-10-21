@@ -196,8 +196,8 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 			return nil, fmt.Errorf("initialize database backup maintenance: %w", err)
 		}
 		// 备份期间其它写入继续在 writer 池外排队；页面查询仍可使用独立 reader，不恢复旧版的全局读阻塞。
-		backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
-		// runner 继续沿用原调度、备份内容与保留策略，本次不改变任何文件结果。
+		backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir, cfg.BackupCompress)
+		// runner 继续沿用原调度、备份内容与保留策略；开启压缩时只改变落盘格式为 .db.gz。
 		backupMaintenance = NewDatabaseBackupRunner(backupStore, backupStore, cfg.BackupInterval, cfg.BackupRetentionDays)
 	}
 

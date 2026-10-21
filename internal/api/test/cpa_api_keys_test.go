@@ -64,7 +64,7 @@ func TestCPAAPIKeyRoutesReturnDisplayDataWithoutRawKeys(t *testing.T) {
 	}
 }
 
-func TestCPAAPIKeyListIncludesInstanceIdentityAndScopesCollidingKeys(t *testing.T) {
+func TestCPAAPIKeyListMergesCollidingKeysOnlyInAllInstanceView(t *testing.T) {
 	db := openCPAAPIKeyAPITestDatabase(t)
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	instanceA := "0198aa10-4d88-7a20-8f4e-8c8de4a9cb11"
@@ -82,26 +82,27 @@ func TestCPAAPIKeyListIncludesInstanceIdentityAndScopesCollidingKeys(t *testing.
 	instanceService := service.NewCPAInstanceServiceWithDB(repository.NewCPAInstanceRepository(db))
 	router := keeperapi.NewRouter(nil, nil, nil, nil, keeperapi.AuthConfig{}, nil, "", keeperapi.OptionalProviders{CPAInstances: instanceService, CPAAPIKeys: service.NewCPAAPIKeyService(db)})
 
-	for _, tc := range []struct {
-		query string
-		want  []string
-	}{
-		{query: "instance_id=" + instanceA, want: []string{`"instanceId":"` + instanceA + `"`}},
-		{query: "instance_id=all", want: []string{`"instanceId":"` + instanceA + `"`, `"instanceId":"` + instanceB + `"`}},
-	} {
+	list := func(query string) string {
+		t.Helper()
 		response := httptest.NewRecorder()
-		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys?"+tc.query, nil))
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/usage/api-keys?"+query, nil))
 		if response.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
-		for _, want := range tc.want {
-			if !strings.Contains(response.Body.String(), want) {
-				t.Fatalf("missing %s in %s", want, response.Body.String())
-			}
-		}
-		if tc.query == "instance_id="+instanceA && strings.Contains(response.Body.String(), instanceB) {
-			t.Fatalf("instance B leaked into A response: %s", response.Body.String())
-		}
+		return response.Body.String()
+	}
+
+	scoped := list("instance_id=" + instanceA)
+	if !strings.Contains(scoped, `"instanceId":"`+instanceA+`"`) {
+		t.Fatalf("missing instance A in scoped view: %s", scoped)
+	}
+	if strings.Contains(scoped, instanceB) {
+		t.Fatalf("instance B leaked into A response: %s", scoped)
+	}
+
+	merged := list("instance_id=all")
+	if count := strings.Count(merged, `"instanceId":"`); count != 1 {
+		t.Fatalf("all-instance view returned %d rows, want 1: %s", count, merged)
 	}
 }
 

@@ -1,10 +1,12 @@
 package backup
 
 import (
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,12 +16,21 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
+// CompressedBackupSuffix 是压缩备份文件的后缀；未压缩备份保持 .db。
+const CompressedBackupSuffix = ".gz"
+
 type Writer struct {
 	dir string
+	// compress 控制备份完成后是否用 gzip 压缩；生产库实测压缩后约占未压缩体积的五分之一。
+	compress bool
 }
 
 func NewWriter(dir string) *Writer {
-	return &Writer{dir: strings.TrimSpace(dir)}
+	return NewWriterWithCompression(dir, false)
+}
+
+func NewWriterWithCompression(dir string, compress bool) *Writer {
+	return &Writer{dir: strings.TrimSpace(dir), compress: compress}
 }
 
 func (w *Writer) WriteDatabase(ctx context.Context, db *sql.DB, backupAt time.Time) (string, error) {
@@ -61,7 +72,74 @@ func (w *Writer) WriteDatabase(ctx context.Context, db *sql.DB, backupAt time.Ti
 		_ = os.Remove(tempPath)
 		return "", fmt.Errorf("finalize backup file: %w", err)
 	}
-	return fullPath, nil
+	if !w.compress {
+		return fullPath, nil
+	}
+	compressedPath, err := compressBackupFile(fullPath)
+	if err != nil {
+		return "", err
+	}
+	return compressedPath, nil
+}
+
+// compressBackupFile 把已完成的备份就地压成 gzip，成功后才删除未压缩文件。
+func compressBackupFile(sourcePath string) (string, error) {
+	compressedPath := sourcePath + CompressedBackupSuffix
+	if err := writeCompressedCopy(sourcePath, compressedPath); err != nil {
+		return "", err
+	}
+	// 只有压缩文件落盘成功后才删除未压缩副本，失败时仍保留可用的 .db。
+	// 源文件句柄已在 writeCompressedCopy 内关闭：Windows 上仍被占用的文件无法删除。
+	if err := os.Remove(sourcePath); err != nil {
+		return "", fmt.Errorf("remove uncompressed backup file: %w", err)
+	}
+	return compressedPath, nil
+}
+
+// writeCompressedCopy 写出 gzip 副本并原子改名，返回前关闭全部句柄，
+// 让调用方可以立即删除源文件（Windows 不允许删除仍打开的文件）。
+func writeCompressedCopy(sourcePath, compressedPath string) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open backup file for compression: %w", err)
+	}
+	defer source.Close()
+
+	tempPath := compressedPath + ".tmp"
+	_ = os.Remove(tempPath)
+	target, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("create compressed backup file: %w", err)
+	}
+	writer, err := gzip.NewWriterLevel(target, gzip.BestSpeed)
+	if err != nil {
+		_ = target.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("create gzip writer: %w", err)
+	}
+	if _, err := io.Copy(writer, source); err != nil {
+		_ = writer.Close()
+		_ = target.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("compress backup file: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		_ = target.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("finish gzip stream: %w", err)
+	}
+	if err := target.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("close compressed backup file: %w", err)
+	}
+	// Windows 的 Rename 不覆盖已存在的目标文件，重新压缩时先移除上一次的 .gz。
+	// 此时新文件已完整落盘，替换只会丢掉同一份内容的旧副本。
+	_ = os.Remove(compressedPath)
+	if err := os.Rename(tempPath, compressedPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("finalize compressed backup file: %w", err)
+	}
+	return nil
 }
 
 // copySQLiteDatabase 在源连接上固定读快照，避免并发 inbox 写入使分步备份反复从头复制。
@@ -140,7 +218,50 @@ func (w *Writer) Cleanup(retentionDays int, now time.Time) (int, error) {
 	if w == nil {
 		return 0, fmt.Errorf("backup writer is nil")
 	}
+	// 开启压缩时先把历史未压缩备份补压，升级后首次维护就能回收存量空间。
+	if w.compress {
+		if _, err := compressExistingBackups(w.dir); err != nil {
+			return 0, err
+		}
+	}
 	return Cleanup(w.dir, retentionDays, now)
+}
+
+// compressExistingBackups 把目录内已完成的未压缩备份逐个压成 gzip，返回实际压缩的文件数。
+// 备份 runner 在同一 goroutine 里先写备份再清理，因此这里不会与进行中的写入竞争。
+func compressExistingBackups(dir string) (int, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return 0, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read backup directory: %w", err)
+	}
+	compressed := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dayDir := filepath.Join(dir, entry.Name())
+		files, err := os.ReadDir(dayDir)
+		if err != nil {
+			return compressed, fmt.Errorf("read backup day directory %s: %w", entry.Name(), err)
+		}
+		for _, file := range files {
+			if file.IsDir() || !strings.EqualFold(filepath.Ext(file.Name()), ".db") {
+				continue
+			}
+			if _, err := compressBackupFile(filepath.Join(dayDir, file.Name())); err != nil {
+				return compressed, err
+			}
+			compressed++
+		}
+	}
+	return compressed, nil
 }
 
 func Cleanup(dir string, retentionDays int, now time.Time) (int, error) {
@@ -190,7 +311,8 @@ func ListFiles(dir string) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if strings.EqualFold(filepath.Ext(d.Name()), ".db") {
+		// 压缩备份同样计入备份历史，否则 LastBackupAt 会漏掉最新备份并触发重复备份。
+		if strings.EqualFold(filepath.Ext(d.Name()), ".db") || strings.HasSuffix(strings.ToLower(d.Name()), ".db"+CompressedBackupSuffix) {
 			files = append(files, path)
 		}
 		return nil

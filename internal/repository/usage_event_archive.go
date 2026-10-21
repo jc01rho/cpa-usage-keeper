@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
@@ -71,7 +72,9 @@ func archiveExpiredUsageEventsBatchForInstance(ctx context.Context, db *gorm.DB,
 		}
 
 		// 只有确有过期候选时才检查保守门禁，避免没有归档积压时误报水位阻塞。
-		safe, err := usageEventAggregationsCaughtUpForInstance(tx, instanceID)
+		// 门禁只要求本批事件已聚合，在线写入的新事件不应阻塞旧事件离开 hot 表。
+		batchMaxID := slices.Max(ids)
+		safe, err := usageEventAggregationsCaughtUpForInstance(tx, instanceID, batchMaxID)
 		if err != nil {
 			return err
 		}

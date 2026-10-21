@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
@@ -76,6 +77,12 @@ type SyncService struct {
 	usageAggregation UsageAggregationNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
 	usageHeaderQuota UsageHeaderSnapshotAppender
+	// providerMetadataRefreshInterval 是 provider 配置端点的最小拉取间隔；0 表示每轮都拉取。
+	providerMetadataRefreshInterval time.Duration
+	// providerMetadataMu 保护最近一次成功拉取时间，避免并发同步重复拉取。
+	providerMetadataMu sync.Mutex
+	// providerMetadataFetchedAt 是最近一次成功拉取 provider 配置的时间。
+	providerMetadataFetchedAt time.Time
 }
 
 // NewSyncService 按配置组装 metadata／维护服务；远端 usage 拉取由 poller 独立负责。
@@ -87,6 +94,7 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 		UsageEventsHotRetentionDays:      cfg.UsageEventsHotRetentionDays,
 		ErrorEventsRetentionDays:         cfg.ErrorEventsRetentionDays,
 		UsageOverviewHourlyRetentionDays: cfg.UsageOverviewHourlyRetentionDays,
+		ProviderMetadataRefreshInterval:  cfg.ProviderMetadataRefreshInterval,
 		Client:                           cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
 	})
 }
@@ -111,6 +119,8 @@ type SyncServiceOptions struct {
 	UsageAggregationNotifier UsageAggregationNotifier
 	// UsageHeaderQuota 独立接收原始 Header；是否配置聚合 notifier 不影响它。
 	UsageHeaderQuota UsageHeaderSnapshotAppender
+	// ProviderMetadataRefreshInterval 是 provider 配置端点的最小拉取间隔；0 表示每轮都拉取。
+	ProviderMetadataRefreshInterval time.Duration
 }
 
 // NewSyncServiceWithOptions 是统一构造入口，负责填充默认时钟和 metadata fetcher。
@@ -140,6 +150,8 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		usageAggregation: opts.UsageAggregationNotifier,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
 		usageHeaderQuota: opts.UsageHeaderQuota,
+		// provider 配置端点按 TTL 节流，零值保持每轮都拉取的旧行为。
+		providerMetadataRefreshInterval: opts.ProviderMetadataRefreshInterval,
 	}
 }
 

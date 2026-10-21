@@ -495,6 +495,7 @@ Auth Files 定时限额刷新在 Auth Files 巡检弹窗的小齿轮中配置。
 | `BACKUP_ENABLED` | 否 | `true` | 是否启用定时数据库备份 |
 | `BACKUP_INTERVAL` | 否 | `24h` | 数据库备份间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
+| `BACKUP_COMPRESS` | 否 | `true` | 备份完成后 gzip 压缩保存（`.db.gz`），体积约为未压缩的五分之一 |
 | `USAGE_EVENTS_HOT_RETENTION_DAYS` | 否 | `90` | 热表在归档前保留 `usage_events` 的本地自然日数，必须为正 |
 | `USAGE_RAW_RETENTION_DAYS` | 否 | `0` | 原始请求总保留天数，仅清理归档表；`0` 永久保留。小于 `USAGE_EVENTS_HOT_RETENTION_DAYS` 时按 `0` 处理并记录 warning，不影响启动 |
 | `ERROR_EVENTS_RETENTION_DAYS` | 否 | `30` | 凭证 `error_events` 保留的本地自然日数；`0` 表示全部保留 |

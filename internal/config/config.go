@@ -18,14 +18,16 @@ import (
 )
 
 const (
-	DefaultTimeZone                 = "Asia/Shanghai"
-	publicLoginPasswordPlaceholder  = "replace-with-your-login-password"
-	RedisQueueBatchSizeDefault      = 10000
-	MetadataSyncIntervalDefault     = 30 * time.Second
-	QuotaAutoRefreshIntervalDefault = 5 * time.Minute
-	QuotaAutoRefreshIntervalMin     = 60 * time.Second
-	QuotaRefreshWorkerLimitDefault  = 10
-	QuotaRefreshWorkerLimitMax      = 100
+	DefaultTimeZone                = "Asia/Shanghai"
+	publicLoginPasswordPlaceholder = "replace-with-your-login-password"
+	RedisQueueBatchSizeDefault     = 10000
+	MetadataSyncIntervalDefault    = 30 * time.Second
+	// ProviderMetadataRefreshIntervalDefault 是八个 provider 配置端点的最小拉取间隔。
+	ProviderMetadataRefreshIntervalDefault = 10 * time.Minute
+	QuotaAutoRefreshIntervalDefault        = 5 * time.Minute
+	QuotaAutoRefreshIntervalMin            = 60 * time.Second
+	QuotaRefreshWorkerLimitDefault         = 10
+	QuotaRefreshWorkerLimitMax             = 100
 )
 
 var (
@@ -71,6 +73,8 @@ type Config struct {
 	RedisQueueIdleInterval time.Duration
 	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
 	MetadataSyncInterval time.Duration
+	// ProviderMetadataRefreshInterval 是 provider 配置端点的最小拉取间隔；0 表示每轮都拉取。
+	ProviderMetadataRefreshInterval time.Duration
 	// QuotaAutoRefreshEnabled 控制是否启动 Auth Files 限额自动刷新后台任务。
 	QuotaAutoRefreshEnabled bool
 	// QuotaAutoRefreshInterval 是 Auth Files 限额自动刷新的固定调度间隔。
@@ -91,6 +95,8 @@ type Config struct {
 	BackupInterval time.Duration
 	// BackupRetentionDays 是备份文件保留天数。
 	BackupRetentionDays int
+	// BackupCompress 控制备份完成后是否压缩保存，压缩后备份体积约为未压缩的五分之一。
+	BackupCompress bool
 	// UsageRawRetentionDays 是原始请求总保留天数；0 永久保留，仅清理归档表。
 	UsageRawRetentionDays int
 	// UsageEventsHotRetentionDays 是 usage_events 热表保留的自然日数。
@@ -169,6 +175,14 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, fmt.Errorf("REDIS_QUEUE_IDLE_INTERVAL must be positive")
 	}
 
+	providerMetadataRefreshInterval, err := getDuration("PROVIDER_METADATA_REFRESH_INTERVAL", ProviderMetadataRefreshIntervalDefault)
+	if err != nil {
+		return nil, err
+	}
+	if providerMetadataRefreshInterval < 0 {
+		return nil, fmt.Errorf("PROVIDER_METADATA_REFRESH_INTERVAL must not be negative")
+	}
+
 	quotaAutoRefreshEnabled, err := getBool("QUOTA_AUTO_REFRESH_ENABLED", false)
 	if err != nil {
 		return nil, err
@@ -221,6 +235,10 @@ func Load(options LoadOptions) (*Config, error) {
 	}
 	if backupRetentionDays < 0 {
 		return nil, fmt.Errorf("BACKUP_RETENTION_DAYS must be non-negative")
+	}
+	backupCompress, err := getBool("BACKUP_COMPRESS", true)
+	if err != nil {
+		return nil, err
 	}
 	usageEventsHotRetentionDays, err := getInt("USAGE_EVENTS_HOT_RETENTION_DAYS", entities.DefaultUsageEventsHotRetentionDays)
 	if err != nil {
@@ -327,6 +345,7 @@ func Load(options LoadOptions) (*Config, error) {
 		RedisQueueBatchSize:              redisQueueBatchSize,
 		RedisQueueIdleInterval:           redisQueueIdleInterval,
 		MetadataSyncInterval:             MetadataSyncIntervalDefault,
+		ProviderMetadataRefreshInterval:  providerMetadataRefreshInterval,
 		QuotaAutoRefreshEnabled:          quotaAutoRefreshEnabled,
 		QuotaAutoRefreshInterval:         quotaAutoRefreshInterval,
 		QuotaRefreshWorkerLimit:          quotaRefreshWorkerLimit,
@@ -337,6 +356,7 @@ func Load(options LoadOptions) (*Config, error) {
 		BackupDir:                        filepath.Join(workDir, workDirBackupsName),
 		BackupInterval:                   backupInterval,
 		BackupRetentionDays:              backupRetentionDays,
+		BackupCompress:                   backupCompress,
 		UsageRawRetentionDays:            usageRawRetentionDays,
 		UsageEventsHotRetentionDays:      usageEventsHotRetentionDays,
 		ErrorEventsRetentionDays:         errorEventsRetentionDays,

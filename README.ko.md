@@ -437,6 +437,7 @@ cp .env.example .env
 | `BACKUP_ENABLED` | 아니오 | `true` | SQLite 데이터베이스 백업 활성화 |
 | `BACKUP_INTERVAL` | 아니오 | `24h` | 데이터베이스 백업 간격 |
 | `BACKUP_RETENTION_DAYS` | 아니오 | `7` | 백업 보관 일수 |
+| `BACKUP_COMPRESS` | 아니오 | `true` | 완료된 백업을 gzip(`.db.gz`)으로 압축 저장, 용량 약 1/5 |
 | `USAGE_EVENTS_HOT_RETENTION_DAYS` | 아니오 | `90` | 아카이브로 옮기기 전까지 핫 테이블에 두는 `usage_events` 로컬 자연일 수. 양수여야 함 |
 | `USAGE_RAW_RETENTION_DAYS` | 아니오 | `0` | 원시 요청 총 보존 일수. 아카이브만 삭제됨. `0`은 아카이브 영구 보존. `USAGE_EVENTS_HOT_RETENTION_DAYS`보다 작으면 경고 후 `0`으로 처리되며 기동은 막지 않음 |
 | `ERROR_EVENTS_RETENTION_DAYS` | 아니오 | `30` | 자격 증명 `error_events` 보관 로컬 자연일 수. `0`은 전부 보관 |

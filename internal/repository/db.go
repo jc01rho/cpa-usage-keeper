@@ -133,7 +133,7 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 		return db, nil
 	}
 	// 现有同步入口维持原行为；App 的未迁移入口必须先完成 M1 再调用同一 migration helper。
-	if err := RunDatabaseMigrationsWithBackup(context.Background(), db, db, cfg.BackupDir); err != nil {
+	if err := RunDatabaseMigrationsWithBackup(context.Background(), db, db, cfg.BackupDir, cfg.BackupCompress); err != nil {
 		return nil, fmt.Errorf("run schema migrations: %w", err)
 	}
 	closeOnError = false
@@ -142,7 +142,8 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 
 // RunDatabaseMigrationsWithBackup 在旧数据保护完成后补齐仍 pending 的已注册版本。
 // 文件库 App 传独立 reader 生成一致备份；原同步入口保持单池备份合同。
-func RunDatabaseMigrationsWithBackup(ctx context.Context, writer, backupSource *gorm.DB, backupDir string) error {
+// compress (fork, optional) writes gzip database_*.db.gz backups like the scheduled runner (BACKUP_COMPRESS).
+func RunDatabaseMigrationsWithBackup(ctx context.Context, writer, backupSource *gorm.DB, backupDir string, compress ...bool) error {
 	if writer == nil || backupSource == nil {
 		return fmt.Errorf("database migration pools are missing")
 	}
@@ -150,7 +151,7 @@ func RunDatabaseMigrationsWithBackup(ctx context.Context, writer, backupSource *
 	if err != nil {
 		return fmt.Errorf("open database migration backup source: %w", err)
 	}
-	migrationBackupWriter := backup.NewWriter(backupDir)
+	migrationBackupWriter := backup.NewWriterWithCompression(backupDir, len(compress) > 0 && compress[0])
 	return migration.Run(writer.WithContext(ctx), migration.RunOptions{BeforeDestructiveMigration: func(hookCtx context.Context, version string) error {
 		backupPath, err := migrationBackupWriter.WriteDatabase(hookCtx, sqlDB, time.Now())
 		if err != nil {
@@ -458,17 +459,28 @@ func CleanupStorage(db *gorm.DB, now time.Time, policy StorageCleanupPolicy) (dt
 	if err != nil {
 		return result, err
 	}
+	// WAL 文件不会随检查点自动缩小；TRUNCATE 把历史高水位还给文件系统。
+	// 回收失败不影响已完成的清理结果，只记录告警。
+	if err := truncateWriteAheadLog(db); err != nil {
+		logrus.WithError(err).Warn("sqlite wal truncate failed")
+	}
 	return result, nil
 }
 
-func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string) (bool, error) {
-	// 当前实例最大 event ID 是三个 checkpoint 和每行 Identity cursor 的共同安全目标。
-	var maxEventID int64
-	if err := tx.Model(&entities.UsageEvent{}).Where("instance_id = ?", instanceID).Select("COALESCE(MAX(id), 0)").Scan(&maxEventID).Error; err != nil {
-		return false, fmt.Errorf("load usage event archive watermark: %w", err)
+// truncateWriteAheadLog 在每日维护末尾把 WAL 收缩到零长度；有未结束的读事务时 SQLite 会保守保留。
+func truncateWriteAheadLog(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
 	}
-	// 空 hot 表没有待聚合数据，也没有需要归档的事件。
-	if maxEventID == 0 {
+	return db.Clauses(dbresolver.Write).Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error
+}
+
+// usageEventAggregationsCaughtUpForInstance 判断 ID 不超过 maxEventID 的事件是否已全部进入聚合。
+// maxEventID 是本批待归档事件的最大 ID：在线实例每秒都有新事件，若以全表最大 ID 为目标，
+// 维护时刻只要有一条新事件尚未聚合就会把早已聚合的旧事件一起扣在 hot 表。
+func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string, maxEventID int64) (bool, error) {
+	// 没有待归档事件时无需等待任何聚合。
+	if maxEventID <= 0 {
 		return true, nil
 	}
 
@@ -494,7 +506,7 @@ func usageEventAggregationsCaughtUpForInstance(tx *gorm.DB, instanceID string) (
 	}
 
 	// Identity 没有全局 checkpoint；复用兼容追赶的同一 EXISTS 判断，但保持在当前 archive 事务内读取。
-	pendingIdentity, err := hasPendingUsageIdentityAggregationForInstance(tx, instanceID)
+	pendingIdentity, err := hasPendingUsageIdentityAggregationForInstance(tx, instanceID, maxEventID)
 	if err != nil {
 		return false, fmt.Errorf("check identity archive watermark: %w", err)
 	}

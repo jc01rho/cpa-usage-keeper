@@ -30,8 +30,8 @@ type databaseBackupStore struct {
 	writer *backup.Writer
 }
 
-func newDatabaseBackupStore(db *sql.DB, dir string) *databaseBackupStore {
-	return &databaseBackupStore{db: db, dir: dir, writer: backup.NewWriter(dir)}
+func newDatabaseBackupStore(db *sql.DB, dir string, compress bool) *databaseBackupStore {
+	return &databaseBackupStore{db: db, dir: dir, writer: backup.NewWriterWithCompression(dir, compress)}
 }
 
 func (s *databaseBackupStore) WriteDatabase(ctx context.Context, backupAt time.Time) (string, error) {
