@@ -912,10 +912,10 @@ func TestCleanupStorageArchivesAggregatedEventsWhileNewerEventsArePending(t *tes
 	db := openTestDatabase(t)
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.Local)
 
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, requestEventFixtureWithZeroFees([]entities.UsageEvent{
 		{EventKey: "aggregated-old-1", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -92), TotalTokens: 1},
 		{EventKey: "aggregated-old-2", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: now.AddDate(0, 0, -91), TotalTokens: 2},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, now); err != nil {
@@ -941,9 +941,9 @@ func TestCleanupStorageArchivesAggregatedEventsWhileNewerEventsArePending(t *tes
 	}
 
 	// 所有聚合水位都停在旧事件上，这条新事件模拟维护时刻仍在流入的请求。
-	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{
+	if _, _, err := repository.InsertUsageEvents(db, requestEventFixtureWithZeroFees([]entities.UsageEvent{
 		{EventKey: "fresh-pending", AuthType: "oauth", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: now.Add(-time.Minute), TotalTokens: 3},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("insert fresh event: %v", err)
 	}
 
