@@ -1,4 +1,4 @@
-import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type AuthFilesManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CPAInstance, type CPAInstanceCredential, type CreateCPAInstanceRequest, type CreateCPAInstanceResponse, type ListCPAInstanceCredentialsResponse, type ListCPAInstancesResponse, type UpdateCPAInstanceRequest, type UpdateCPAInstanceResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingSyncSource, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
+import { type AnalysisLatencyDiagnostics, type AnalysisResponse, type CredentialsManagementResponse, type AuthManagedSessionsResponse, type AuthSessionResponse, type CodexQuotaHistoryResponse, type CPAInstance, type CPAInstanceCredential, type CreateCPAInstanceRequest, type CreateCPAInstanceResponse, type ListCPAInstanceCredentialsResponse, type ListCPAInstancesResponse, type UpdateCPAInstanceRequest, type UpdateCPAInstanceResponse, type CpaApiKeyDisplayItem, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsResponse, type CpaApiKeysResponse, type ErrorEventsResponse, type OverviewRealtimeBlock, type OverviewRealtimeWindow, type PricingSyncSource, type QuotaAutoRefreshSettings, type StatusResponse, type UpdateCheckResponse, type UsageActivityRequest, type UsageActivityResponse, type UsageEventModelFilterOptionsResponse, type UsageEventRequestLogResponse, type UsageEventSourceFilterOptionsResponse, type UsageRangeRequest, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentity, type UsageIdentityAuthType, type UsageOverviewComparisons, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaInspectionStatusResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UsageQuotaResetCreditsResponse, type UsageQuotaResetResponse, type VersionResponse } from './types'
 import type { DeletePricingModelResponse, ModelPricingConfig, PricingErrorResponse, PricingFieldError, PricingModelOptionsResponse, PricingModelsResponse, PricingRecalculationOptions, PricingRecalculationTask, PricingSyncApplyRequest, PricingSyncApplyResponse, PricingSyncFetchResponse, SavePricingModelResponse, StartPricingRecalculationRequest, StartPricingRecalculationResponse } from './types'
 import { isCPAMCEmbed } from '@/embed/cpamcEmbed'
 import type { UsageEventProviderFilterOptionsResponse } from './types'
@@ -97,7 +97,7 @@ function normalizeOverviewRealtimeBlock(
     current_usage: {
       models: currentUsage.models ?? [],
       api_keys: currentUsage.api_keys ?? [],
-      auth_files: currentUsage.auth_files ?? [],
+      credentials: currentUsage.credentials ?? [],
       ai_providers: currentUsage.ai_providers ?? [],
     },
     request_level: block.request_level ?? [],
@@ -244,6 +244,18 @@ export async function getSession(signal?: AbortSignal): Promise<AuthSessionRespo
     clearEmbedSessionToken()
   }
   return session
+}
+
+export async function startOIDCLogin(returnTo: string): Promise<{ authorization_url: string }> {
+  const response = await apiFetch(apiPath('/auth/oidc/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ return_to: returnTo }),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Unable to start OIDC login: ${response.status}`)
+  }
+  return await response.json()
 }
 
 async function readEmbedLoginResponse(response: Response): Promise<EmbedLoginResponse> {
@@ -960,8 +972,8 @@ export async function fetchUsageQuotaRefreshTask(authIndex: string, signal?: Abo
   return response.json()
 }
 
-export async function setAuthFilesDisabled(names: string[], disabled: boolean): Promise<AuthFilesManagementResponse> {
-  const response = await apiFetch(apiPath('/auth-files/status'), {
+export async function setCredentialsDisabled(names: string[], disabled: boolean): Promise<CredentialsManagementResponse> {
+  const response = await apiFetch(apiPath('/credentials/status'), {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -969,21 +981,21 @@ export async function setAuthFilesDisabled(names: string[], disabled: boolean): 
     body: JSON.stringify({ names, disabled }),
   })
   if (!response.ok) {
-    await parseApiError(response, `Failed to update auth file status: ${response.status}`)
+    await parseApiError(response, `Failed to update credential status: ${response.status}`)
   }
   return response.json()
 }
 
-export type CredentialStatusKind = 'auth-file' | 'ai-provider'
+export type CredentialStatusKind = 'credential' | 'ai-provider'
 
 export interface CredentialStatusResponse {
   auth_index: string
   disabled: boolean
 }
 
-// 认证文件与 AI 供应商共用前端调用形状，由后端按 auth_index 翻译成各自的上游写操作。
+// 凭证与 AI 供应商共用前端调用形状，由后端按 auth_index 翻译成各自的上游写操作。
 const credentialStatusPathByKind: Record<CredentialStatusKind, string> = {
-  'auth-file': '/auth-files',
+  'credential': '/credentials',
   'ai-provider': '/ai-providers',
 }
 
@@ -1018,8 +1030,8 @@ export async function setCredentialPriority(kind: CredentialStatusKind, authInde
   return response.json()
 }
 
-export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagementResponse> {
-  const response = await apiFetch(apiPath('/auth-files'), {
+export async function deleteCredentials(names: string[]): Promise<CredentialsManagementResponse> {
+  const response = await apiFetch(apiPath('/credentials'), {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
@@ -1027,7 +1039,7 @@ export async function deleteAuthFiles(names: string[]): Promise<AuthFilesManagem
     body: JSON.stringify({ names }),
   })
   if (!response.ok) {
-    await parseApiError(response, `Failed to delete auth files: ${response.status}`)
+    await parseApiError(response, `Failed to delete credentials: ${response.status}`)
   }
   return response.json()
 }

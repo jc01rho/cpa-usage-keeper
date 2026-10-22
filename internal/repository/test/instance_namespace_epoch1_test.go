@@ -100,10 +100,10 @@ func TestLegacyIdentityAggregationDoesNotProcessFutureInstanceEvents(t *testing.
 	db := openTestDatabase(t)
 	seedFutureInstance(t, db)
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	if err := db.Create(&entities.UsageIdentity{InstanceID: entities.LegacyCPAInstanceID, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "shared-auth", Name: "legacy", Type: "claude"}).Error; err != nil {
+	if err := db.Create(&entities.UsageIdentity{InstanceID: entities.LegacyCPAInstanceID, AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "shared-auth", Name: "legacy", Type: "claude"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&entities.UsageIdentity{InstanceID: futureInstanceID, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "shared-auth", Name: "future", Type: "claude"}).Error; err != nil {
+	if err := db.Create(&entities.UsageIdentity{InstanceID: futureInstanceID, AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "shared-auth", Name: "future", Type: "claude"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{InstanceID: futureInstanceID, EventKey: "future-event", AuthType: "oauth", AuthIndex: "shared-auth", Timestamp: now, TotalTokens: 7}}); err != nil {

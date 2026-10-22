@@ -34,9 +34,9 @@ interface AnalysisPanelProps {
   latencyRefreshSignal?: ChartRefreshSignal;
 }
 
-export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider' | 'provider';
+export type AnalysisCompositionDimension = 'api_key' | 'model' | 'credentials' | 'ai_provider' | 'provider';
 
-const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['api_key', 'model', 'auth_files', 'ai_provider', 'provider'];
+const DEFAULT_COMPOSITION_DIMENSIONS: readonly AnalysisCompositionDimension[] = ['api_key', 'model', 'credentials', 'ai_provider', 'provider'];
 
 type ChartRow = {
   label: string;
@@ -1698,7 +1698,7 @@ export function AnalysisPanel({
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
   const apiComposition = analysis?.api_key_composition ?? EMPTY_COMPOSITION_ITEMS;
   const modelComposition = analysis?.model_composition ?? EMPTY_COMPOSITION_ITEMS;
-  const authFilesComposition = analysis?.auth_files_composition ?? EMPTY_COMPOSITION_ITEMS;
+  const credentialsComposition = analysis?.credentials_composition ?? EMPTY_COMPOSITION_ITEMS;
   const aiProviderComposition = analysis?.ai_provider_composition ?? EMPTY_COMPOSITION_ITEMS;
   const providerComposition = analysis?.provider_composition ?? EMPTY_COMPOSITION_ITEMS;
   const analysisWindowMinutes = useMemo(() => calculateAnalysisWindowMinutes(analysis), [analysis]);
@@ -1706,12 +1706,12 @@ export function AnalysisPanel({
     const tabs: Record<AnalysisCompositionDimension, CompositionTab> = {
       api_key: { id: 'api_key', label: t('usage_stats.analysis_composition_api_key_tab'), items: apiComposition },
       model: { id: 'model', label: t('usage_stats.analysis_composition_model_tab'), items: modelComposition },
-      auth_files: { id: 'auth_files', label: t('usage_stats.analysis_composition_auth_files_tab'), items: authFilesComposition },
+      credentials: { id: 'credentials', label: t('usage_stats.analysis_composition_credentials_tab'), items: credentialsComposition },
       ai_provider: { id: 'ai_provider', label: t('usage_stats.analysis_composition_ai_provider_tab'), items: aiProviderComposition },
       provider: { id: 'provider', label: t('usage_stats.analysis_composition_provider_tab'), items: providerComposition },
     };
     return compositionDimensions.map((dimension) => tabs[dimension]);
-  }, [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, providerComposition, compositionDimensions, t]);
+  }, [apiComposition, modelComposition, credentialsComposition, aiProviderComposition, providerComposition, compositionDimensions, t]);
 
   return (
     <ChartLifecycleProvider queryKey={modelSpeedQueryKey} source={analysis} refreshSignal={chartRefreshSignal}>

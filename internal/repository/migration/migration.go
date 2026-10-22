@@ -326,6 +326,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationDropRankingInstanceTrigger, run: dropRankingInstanceTriggerMigration},
 		// 恢复迁移追加在 v2 既有迁移之后，保留已部署 next 的执行顺序。
 		{version: migrationRecoverExecutionUsageEvents, run: recoverExecutionUsageEventsMigration, disableTransaction: true},
+		{version: "20261020_add_auth_session_oidc_identity", run: addAuthSessionOIDCIdentityMigration},
 	}
 }
 

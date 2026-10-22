@@ -97,13 +97,13 @@ func TestLegacyMetadataSyncDoesNotDeleteFutureInstanceRows(t *testing.T) {
 	if err := db.Create(&entities.CPAAPIKey{InstanceID: futureInstanceID, APIKey: "future-key", DisplayKey: "future"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&entities.UsageIdentity{InstanceID: futureInstanceID, AuthType: entities.UsageIdentityAuthTypeAuthFile, Identity: "future-auth", Name: "future"}).Error; err != nil {
+	if err := db.Create(&entities.UsageIdentity{InstanceID: futureInstanceID, AuthType: entities.UsageIdentityAuthTypeCredential, Identity: "future-auth", Name: "future"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.SyncCPAAPIKeys(db, []string{"legacy-key"}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.ReplaceUsageIdentitiesForAuthType(context.Background(), db, nil, entities.UsageIdentityAuthTypeAuthFile, now); err != nil {
+	if err := repository.ReplaceUsageIdentitiesForAuthType(context.Background(), db, nil, entities.UsageIdentityAuthTypeCredential, now); err != nil {
 		t.Fatal(err)
 	}
 	var key entities.CPAAPIKey

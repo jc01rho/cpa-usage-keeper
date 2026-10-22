@@ -296,19 +296,19 @@ func TestBuildAnalysisWithFilterBuildsIdentityCompositionsFromActiveUsageIdentit
 		t.Fatalf("insert CPA API keys: %v", err)
 	}
 	if err := db.Create([]entities.UsageIdentity{
-		{AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "auth_file", Identity: "auth-file-1", Name: "Auth File One"},
-		{AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "auth_file", Identity: "auth-file-deleted", Name: "Deleted Auth File", IsDeleted: true},
+		{AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "credential-1", Name: "Credential One"},
+		{AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "credential-deleted", Name: "Deleted Credential", IsDeleted: true},
 		{AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "ai_provider", Identity: "provider-1", Name: "Provider One", Prefix: "Team Prefix", BaseURL: "https://api.openai.com/v1/"},
 		{AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "ai_provider", Identity: "shared-index", Name: "Provider Shared", Prefix: "Shared Prefix"},
-		{AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "auth_file", Identity: "shared-index", Name: "Auth Shared"},
+		{AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "oauth", Identity: "shared-index", Name: "Auth Shared"},
 	}).Error; err != nil {
 		t.Fatalf("insert usage identities: %v", err)
 	}
 	if err := db.Create([]entities.UsageOverviewHourlyStat{
-		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", AuthIndex: "auth-file-1", RequestCount: 2, InputTokens: 10, OutputTokens: 20, TotalTokens: 30},
-		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-3-sonnet", AuthIndex: "auth-file-1", RequestCount: 1, InputTokens: 5, OutputTokens: 5, TotalTokens: 10},
+		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", AuthIndex: "credential-1", RequestCount: 2, InputTokens: 10, OutputTokens: 20, TotalTokens: 30},
+		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-3-sonnet", AuthIndex: "credential-1", RequestCount: 1, InputTokens: 5, OutputTokens: 5, TotalTokens: 10},
 		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-opus", AuthIndex: "provider-1", RequestCount: 3, InputTokens: 40, OutputTokens: 20, TotalTokens: 60},
-		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-haiku", AuthIndex: "auth-file-deleted", RequestCount: 4, InputTokens: 50, OutputTokens: 10, TotalTokens: 60},
+		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-haiku", AuthIndex: "credential-deleted", RequestCount: 4, InputTokens: 50, OutputTokens: 10, TotalTokens: 60},
 		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "gpt-4", AuthIndex: "missing-index", RequestCount: 5, InputTokens: 60, OutputTokens: 20, TotalTokens: 80},
 		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-active-key", Model: "claude-sonnet", AuthIndex: "shared-index", ModelAlias: "alias-a", RequestCount: 6, InputTokens: 70, OutputTokens: 20, TotalTokens: 90},
 		{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(1), BucketStart: bucket, APIGroupKey: "sk-deleted-key", Model: "claude-sonnet", AuthIndex: "provider-1", RequestCount: 7, InputTokens: 80, OutputTokens: 20, TotalTokens: 100},
@@ -326,14 +326,14 @@ func TestBuildAnalysisWithFilterBuildsIdentityCompositionsFromActiveUsageIdentit
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
 
-	if len(analysis.AuthFilesComposition) != 2 {
-		t.Fatalf("expected two auth file composition rows, got %+v", analysis.AuthFilesComposition)
+	if len(analysis.CredentialsComposition) != 2 {
+		t.Fatalf("expected two credential composition rows, got %+v", analysis.CredentialsComposition)
 	}
-	if analysis.AuthFilesComposition[0].Key != "shared-index" || analysis.AuthFilesComposition[0].Label != "Auth Shared" || analysis.AuthFilesComposition[0].TotalTokens != 90 {
-		t.Fatalf("expected shared auth file row first, got %+v", analysis.AuthFilesComposition)
+	if analysis.CredentialsComposition[0].Key != "shared-index" || analysis.CredentialsComposition[0].Label != "Auth Shared" || analysis.CredentialsComposition[0].TotalTokens != 90 {
+		t.Fatalf("expected shared credential row first, got %+v", analysis.CredentialsComposition)
 	}
-	if analysis.AuthFilesComposition[1].Key != "auth-file-1" || analysis.AuthFilesComposition[1].Label != "Auth File One" || analysis.AuthFilesComposition[1].TotalTokens != 40 || analysis.AuthFilesComposition[1].Requests != 3 {
-		t.Fatalf("expected merged auth file row second, got %+v", analysis.AuthFilesComposition)
+	if analysis.CredentialsComposition[1].Key != "credential-1" || analysis.CredentialsComposition[1].Label != "Credential One" || analysis.CredentialsComposition[1].TotalTokens != 40 || analysis.CredentialsComposition[1].Requests != 3 {
+		t.Fatalf("expected merged credential row second, got %+v", analysis.CredentialsComposition)
 	}
 	if len(analysis.AIProviderComposition) != 2 {
 		t.Fatalf("expected two ai provider composition rows, got %+v", analysis.AIProviderComposition)
@@ -358,8 +358,8 @@ func TestBuildAnalysisAllInstancesNamespacesIdentityComposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Create([]entities.UsageIdentity{
-		{InstanceID: instanceA, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "auth_file", Identity: "same-auth", Name: "Auth A"},
-		{InstanceID: instanceB, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "auth_file", Identity: "same-auth", Name: "Auth B"},
+		{InstanceID: instanceA, AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "auth_file", Identity: "same-auth", Name: "Auth A"},
+		{InstanceID: instanceB, AuthType: entities.UsageIdentityAuthTypeCredential, AuthTypeName: "auth_file", Identity: "same-auth", Name: "Auth B"},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -374,8 +374,8 @@ func TestBuildAnalysisAllInstancesNamespacesIdentityComposition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(analysis.AuthFilesComposition) != 2 || analysis.AuthFilesComposition[0].InstanceID == analysis.AuthFilesComposition[1].InstanceID {
-		t.Fatalf("identity composition merged: %+v", analysis.AuthFilesComposition)
+	if len(analysis.CredentialsComposition) != 2 || analysis.CredentialsComposition[0].InstanceID == analysis.CredentialsComposition[1].InstanceID {
+		t.Fatalf("identity composition merged: %+v", analysis.CredentialsComposition)
 	}
 	if len(analysis.APIKeyComposition) != 2 || len(analysis.Heatmap) != 2 {
 		t.Fatalf("api or heatmap merged: api=%+v heatmap=%+v", analysis.APIKeyComposition, analysis.Heatmap)

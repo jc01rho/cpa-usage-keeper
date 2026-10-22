@@ -118,7 +118,7 @@ func replaceAuthFileSnapshot(ctx context.Context, tx *gorm.DB, instanceID string
 		priority := intPtrFromInt64(item.Priority)
 		identities = append(identities, entities.UsageIdentity{Identity: item.AuthIndex, Name: item.DisplayName, AuthTypeName: "oauth", Type: item.Type, Provider: item.Provider, Prefix: item.Prefix, FileName: metadataStringPtr(item.Name), Priority: priority, Disabled: item.Disabled, Note: item.Note, AccountID: item.AccountID, ProjectID: item.ProjectID, XAIUserID: item.XAIUserID, ActiveStart: protocolTimePtr(item.ActiveStart), ActiveUntil: protocolTimePtr(item.ActiveUntil), PlanType: item.PlanType})
 	}
-	return ReplaceUsageIdentitiesForAuthTypeForInstance(ctx, tx, instanceID, identities, entities.UsageIdentityAuthTypeAuthFile, now)
+	return ReplaceUsageIdentitiesForAuthTypeForInstance(ctx, tx, instanceID, identities, entities.UsageIdentityAuthTypeCredential, now)
 }
 
 func replaceProviderIdentitySnapshot(ctx context.Context, tx *gorm.DB, instanceID string, items []protocol.ProviderIdentityItem, now time.Time) error {

@@ -134,18 +134,18 @@ type AnalysisLatencyDiagnostics struct {
 }
 
 type AnalysisSnapshot struct {
-	Granularity           AnalysisGranularity
-	RangeStart            *time.Time
-	RangeEnd              *time.Time
-	TokenUsage            []AnalysisTokenUsageBucket
-	ModelSpeed            AnalysisModelSpeed
-	ModelUsage            []AnalysisModelUsage
-	APIKeyComposition     []AnalysisCompositionItem
-	ModelComposition      []AnalysisCompositionItem
-	AuthFilesComposition  []AnalysisCompositionItem
-	AIProviderComposition []AnalysisCompositionItem
-	ProviderComposition   []AnalysisCompositionItem
-	Heatmap               []AnalysisHeatmapCell
-	CostSummary           AnalysisCostSummary
-	ModelEfficiency       []AnalysisModelEfficiencyItem
+	Granularity            AnalysisGranularity
+	RangeStart             *time.Time
+	RangeEnd               *time.Time
+	TokenUsage             []AnalysisTokenUsageBucket
+	ModelSpeed             AnalysisModelSpeed
+	ModelUsage             []AnalysisModelUsage
+	APIKeyComposition      []AnalysisCompositionItem
+	ModelComposition       []AnalysisCompositionItem
+	CredentialsComposition []AnalysisCompositionItem
+	AIProviderComposition  []AnalysisCompositionItem
+	ProviderComposition    []AnalysisCompositionItem
+	Heatmap                []AnalysisHeatmapCell
+	CostSummary            AnalysisCostSummary
+	ModelEfficiency        []AnalysisModelEfficiencyItem
 }

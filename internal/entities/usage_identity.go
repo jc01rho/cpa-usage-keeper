@@ -6,11 +6,11 @@ import "time"
 type UsageIdentityAuthType int
 
 const (
-	UsageIdentityAuthTypeAuthFile   UsageIdentityAuthType = 1
+	UsageIdentityAuthTypeCredential UsageIdentityAuthType = 1
 	UsageIdentityAuthTypeAIProvider UsageIdentityAuthType = 2
 )
 
-// UsageIdentity 是从 CPA auth_files 和 provider config 同步出的 usage source 身份实体。
+// UsageIdentity 是从 CPA credentials 和 provider config 同步出的 usage source 身份实体。
 type UsageIdentity struct {
 	ID           int64  `gorm:"primaryKey;index:idx_usage_identities_auth_type_name_id,priority:3"`
 	InstanceID   string `gorm:"type:text;not null;default:00000000-0000-7000-8000-000000000000;uniqueIndex:uniq_usage_identities_instance_type_identity,priority:1;index:idx_usage_identities_instance_id"`

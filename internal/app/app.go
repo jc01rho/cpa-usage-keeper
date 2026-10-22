@@ -14,6 +14,7 @@ import (
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
+	"cpa-usage-keeper/internal/oidc"
 	"cpa-usage-keeper/internal/openrouter"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/pricing"
@@ -214,7 +215,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 	cpaInstanceService := service.NewCPAInstanceServiceWithDB(repository.NewCPAInstanceRepository(db))
 	// 单条凭证开关成功后立即与 CPA 对齐；runner 自带合并窗口和 nil 保护。
 	credentialMutationLocks := &service.CredentialMutationLocks{}
-	authFilesManagementService := service.NewAuthFilesManagementService(cpaClient, credentialMutationLocks)
+	credentialsManagementService := service.NewCredentialsManagementService(cpaClient, credentialMutationLocks)
 	credentialStatusService := service.NewCredentialStatusService(db, cpaClient, metadataSyncRunner, credentialMutationLocks)
 	credentialPriorityService := service.NewCredentialPriorityService(db, cpaClient, metadataSyncRunner, credentialMutationLocks)
 	if cfg.TLSSkipVerify {
@@ -226,12 +227,25 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 	}, cpaClient)
 	// Fork-only OpenRouter pricing sync source keeps the optional OPENROUTER_API_KEY.
 	service.SetOpenRouterClient(pricingService, openrouter.NewClient(cfg.OpenRouterAPIKey, cfg.RequestTimeout))
+	authConfig := appAuthConfig(cfg)
+	if cfg.OIDC.Enabled {
+		oidcClient, err := oidc.NewClient(cfg.OIDC, nil)
+		if err != nil {
+			return nil, fmt.Errorf("initialize OIDC client: %w", err)
+		}
+		authConfig.OIDC = oidcClient
+	}
+	// 缓存尚未建立，业务路由尚未就绪；即使旧浏览器不再访问，也要先持久撤销失效的 OIDC 会话。
+	sessionStore := auth.NewGormSessionStore(db)
+	policy := auth.OIDCSessionPolicy{Enabled: cfg.AuthEnabled && cfg.OIDC.Enabled, Issuer: cfg.OIDC.Issuer, ClientID: cfg.OIDC.ClientID, AllowedSubjects: cfg.OIDC.AllowedSubjects}
+	if _, err := sessionStore.RevokeInvalidOIDCSessions(policy); err != nil {
+		return nil, fmt.Errorf("revoke invalid OIDC sessions: %w", err)
+	}
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	if cfg.AuthEnabled {
 		// Session Get/List 自动走 reader，Save/Delete 仍由写回调路由到唯一 writer。
-		sessionManager = auth.NewPersistentSessionManager(cfg.AuthSessionTTL, auth.NewGormSessionStore(db))
+		sessionManager = auth.NewPersistentSessionManager(cfg.AuthSessionTTL, sessionStore)
 	}
-	authConfig := appAuthConfig(cfg)
 	authHandler := api.NewAuthHandler(authConfig, sessionManager)
 
 	ready := &App{
@@ -274,8 +288,8 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 				CPAInstances:   cpaInstanceService,
 				Quota:          quotaService,
 				CPAAPIKeys:     cpaAPIKeyService,
-				AuthFiles:      authFilesManagementService,
-				// 认证文件与 AI 供应商共用一个 service，路由层按类型分发。
+				Credentials:    credentialsManagementService,
+				// 凭证与 AI 供应商共用一个 service，路由层按类型分发。
 				CredentialStatus:   credentialStatusService,
 				CredentialPriority: credentialPriorityService,
 				RequestLogs:        requestLogService,
