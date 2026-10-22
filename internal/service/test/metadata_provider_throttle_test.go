@@ -39,8 +39,8 @@ func TestProviderMetadataSyncThrottlesProviderFetchWithinInterval(t *testing.T) 
 	if got := fetcher.callCount("xai"); got != 1 {
 		t.Fatalf("second provider endpoint refetched inside TTL: count = %d, want 1", got)
 	}
-	if got := fetcher.callCount("auth-files"); got != 2 {
-		t.Fatalf("auth files fetch count = %d, want 2", got)
+	if got := fetcher.callCount("credentials"); got != 2 {
+		t.Fatalf("credentials fetch count = %d, want 2", got)
 	}
 	if got := fetcher.callCount("management-api-keys"); got != 2 {
 		t.Fatalf("management api keys fetch count = %d, want 2", got)
