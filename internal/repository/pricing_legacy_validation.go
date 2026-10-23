@@ -71,8 +71,9 @@ func VerifyLegacyPricingData(ctx context.Context, reader *gorm.DB, baseline Pric
 		return fmt.Errorf("pricing M6 overview checkpoint table is missing")
 	}
 	checkpoint, _, err := pricingLegacyOverviewCursor(ctx, reader, liveSchema)
-	if err != nil || checkpoint != fixed.OverviewCursor {
-		return fmt.Errorf("pricing M6 overview checkpoint changed from fixed C %d: current %d, error %v", fixed.OverviewCursor, checkpoint, err)
+	// 运行中的 v2 会继续聚合固定 C 之后的新事件，水位只能前进；回退才说明旧桶被破坏。
+	if err != nil || checkpoint < fixed.OverviewCursor {
+		return fmt.Errorf("pricing M6 overview checkpoint moved back from fixed C %d: current %d, error %v", fixed.OverviewCursor, checkpoint, err)
 	}
 	for _, target := range []struct {
 		table string

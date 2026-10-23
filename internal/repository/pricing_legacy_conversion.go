@@ -55,8 +55,8 @@ func VerifyPublishedPricingMigration(ctx context.Context, backupDB, liveDB *gorm
 		if liveCursor != original.Hot.MaxID {
 			return fmt.Errorf("converted overview cursor %d does not match replay target %d", liveCursor, original.Hot.MaxID)
 		}
-	} else if liveCursor != original.Overview.Cursor {
-		return fmt.Errorf("converted overview cursor changed from %d to %d without five-dimension replay", original.Overview.Cursor, liveCursor)
+	} else if liveCursor < original.Overview.Cursor {
+		return fmt.Errorf("converted overview cursor moved back from %d to %d without five-dimension replay", original.Overview.Cursor, liveCursor)
 	}
 	return nil
 }

@@ -19,6 +19,16 @@ func TestVerifyLegacyPricingDataAcceptsCoveredHotColdAndExplicitZero(t *testing.
 	}
 }
 
+func TestVerifyLegacyPricingDataAcceptsOverviewCheckpointAdvancedByLiveWrites(t *testing.T) {
+	fixture, baseline := pricingLegacyValidationFixture(t, pricingLegacyFixtureOptions{})
+	if err := fixture.writer.Exec("UPDATE usage_aggregation_checkpoints SET last_aggregated_usage_event_id = 1183892 WHERE name = 'overview'").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.VerifyLegacyPricingData(context.Background(), fixture.reader, baseline); err != nil {
+		t.Fatalf("live-advanced overview checkpoint rejected: %v", err)
+	}
+}
+
 func TestVerifyLegacyPricingDataAcceptsEmptyHotWithCoveredArchive(t *testing.T) {
 	fixture, baseline := pricingLegacyValidationFixture(t, pricingLegacyFixtureOptions{coldOnly: true})
 	if baseline.Fixed.HotMaxID != 0 || baseline.Fixed.ArchiveMaxID != 2 || baseline.Fixed.OverviewCursor != 2 {
