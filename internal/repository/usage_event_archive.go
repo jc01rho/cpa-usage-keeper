@@ -8,7 +8,6 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
-	"cpa-usage-keeper/internal/timeutil"
 
 	"gorm.io/gorm"
 )
@@ -57,11 +56,12 @@ func archiveExpiredUsageEventsBatchForInstance(ctx context.Context, db *gorm.DB,
 	archived := int64(0)
 	status := dto.UsageEventArchiveStatusEmpty
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		cutoff := usageEventsArchiveCutoff(now, hotRetentionDays)
+		// 和归档清理一样按本地日期比较，避免 UTC 零点小数秒在文本排序中被提前归档。
+		cutoff := usageEventsArchiveCutoff(now, hotRetentionDays).Format("2006-01-02")
 		var ids []int64
 		if err := tx.Model(&entities.UsageEvent{}).
 			Select("id").
-			Where("instance_id = ? AND timestamp < ?", instanceID, timeutil.FormatStorageTime(cutoff)).
+			Where("instance_id = ? AND timestamp < ?", instanceID, cutoff).
 			Order("timestamp asc, id asc").
 			Limit(usageEventArchiveBatchSize).
 			Pluck("id", &ids).Error; err != nil {

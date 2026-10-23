@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-alpine AS web-builder
+FROM node:24.22.1-alpine AS web-builder
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.26.6-alpine AS go-builder
+FROM golang:1.26.10-alpine AS go-builder
 WORKDIR /app
 RUN apk add --no-cache build-base
 COPY go.mod go.sum ./

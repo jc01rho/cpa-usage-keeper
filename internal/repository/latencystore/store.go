@@ -228,7 +228,12 @@ func WritePreparedRows(tx *gorm.DB, rows []entities.UsageLatencyStat) error {
 }
 
 func latencyRowKey(row entities.UsageLatencyStat) rowKey {
-	return rowKey{InstanceID: row.InstanceID, BucketType: row.BucketType, BucketStart: timeutil.FormatStorageTime(row.BucketStart), APIGroupKey: row.APIGroupKey}
+	// 旧 schema 尚无 instance_id 列时读回的行 InstanceID 为空，需与归一化后的输入键保持一致。
+	instanceID := row.InstanceID
+	if instanceID == "" {
+		instanceID = entities.LegacyCPAInstanceID
+	}
+	return rowKey{InstanceID: instanceID, BucketType: row.BucketType, BucketStart: timeutil.FormatStorageTime(row.BucketStart), APIGroupKey: row.APIGroupKey}
 }
 
 func decodeLatencyRow(row entities.UsageLatencyStat) (decodedRow, error) {
