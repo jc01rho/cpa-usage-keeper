@@ -1164,7 +1164,8 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('keeps the Speed Mode tooltip target on the normal arrow cursor', () => {
-    const speedModeCellBlock = styleRuleBlock(usagePageStyles, '.requestEventsSpeedModeCell')
+    // Upstream renamed the shared tooltip cell class (51bca848); Speed Mode still uses it.
+    const speedModeCellBlock = styleRuleBlock(usagePageStyles, '.requestEventsTooltipCell')
     expect(speedModeCellBlock).toContain('cursor: default;')
     expect(speedModeCellBlock).not.toContain('cursor: help;')
   })

@@ -34,6 +34,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   fetchPricingModelOptions: async () => ({ models: [] }),
   fetchCurrentPricingRecalculation: async () => null,
   fetchUsageEventModelFilterOptions: async () => ({ models: [] }),
+  fetchUsageEventProviderFilterOptions: async () => ({ providers: [] }),
   fetchUsageEventSourceFilterOptions: async () => ({ sources: [] }),
   fetchUsageEvents: async (): Promise<UsageEventsResponse> => ({
     events: [{
