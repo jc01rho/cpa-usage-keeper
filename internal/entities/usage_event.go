@@ -17,6 +17,8 @@ type UsageEvent struct {
 	InstanceID           string `gorm:"type:text;not null;default:00000000-0000-7000-8000-000000000000;index:idx_usage_events_instance_id"`
 	EventKey             string
 	APIGroupKey          string    `gorm:"index:idx_usage_events_api_group_key_timestamp,priority:1"`
+	IsNativeKey          *bool     `gorm:"column:is_native_key"`
+	AccessProvider       *string   `gorm:"column:access_provider"`
 	Provider             string    `gorm:"column:provider"`
 	Endpoint             string    `gorm:"column:endpoint"`
 	AuthType             string    `gorm:"column:auth_type;index:idx_usage_events_auth_type_auth_index_id,priority:1"`

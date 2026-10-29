@@ -8,6 +8,7 @@ import (
 	"cpa-usage-keeper/internal/helper"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/plugin/dbresolver"
 )
 
@@ -38,7 +39,8 @@ func SyncCPAAPIKeysForInstance(db *gorm.DB, instanceID string, keys []string, sy
 	}
 	// 先在独立 reader 上比较完整 key 集合，只有变化才进入 writer 事务。
 	if err := db.Clauses(dbresolver.Read).Model(&entities.CPAAPIKey{}).
-		Select("id, api_key, display_key, is_deleted").Where("instance_id = ?", instanceID).Find(&existingRows).Error; err != nil {
+		Where("instance_id = ? AND source_type = ?", instanceID, entities.CPAAPIKeySourceNative).
+		Select("id, api_key, display_key, is_deleted").Find(&existingRows).Error; err != nil {
 		return err
 	}
 	type keyUpdate struct {
@@ -73,6 +75,7 @@ func SyncCPAAPIKeysForInstance(db *gorm.DB, instanceID string, keys []string, sy
 		toCreate = append(toCreate, entities.CPAAPIKey{
 			InstanceID:   instanceID,
 			APIKey:       key,
+			SourceType:   entities.CPAAPIKeySourceNative,
 			DisplayKey:   helper.RedactSensitiveValue(key),
 			IsDeleted:    false,
 			LastSyncedAt: &syncedAt,
@@ -92,19 +95,19 @@ func SyncCPAAPIKeysForInstance(db *gorm.DB, instanceID string, keys []string, sy
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		for _, change := range toUpdate {
-			if err := tx.Model(&entities.CPAAPIKey{}).Where("instance_id = ? AND id = ?", instanceID, change.id).Updates(change.fields).Error; err != nil {
+			if err := tx.Model(&entities.CPAAPIKey{}).Where("instance_id = ? AND id = ? AND source_type = ?", instanceID, change.id, entities.CPAAPIKeySourceNative).Updates(change.fields).Error; err != nil {
 				return err
 			}
 		}
 		if len(toCreate) > 0 {
-			if err := tx.Create(&toCreate).Error; err != nil {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(&toCreate, insertBatchSize(entities.CPAAPIKey{})).Error; err != nil {
 				return err
 			}
 		}
 		if len(staleIDs) == 0 {
 			return nil
 		}
-		return tx.Model(&entities.CPAAPIKey{}).Where("instance_id = ? AND id IN ?", instanceID, staleIDs).Updates(map[string]any{"is_deleted": true, "updated_at": syncedAt}).Error
+		return tx.Model(&entities.CPAAPIKey{}).Where("instance_id = ? AND id IN ? AND source_type = ?", instanceID, staleIDs, entities.CPAAPIKeySourceNative).Updates(map[string]any{"is_deleted": true, "updated_at": syncedAt}).Error
 	})
 }
 
@@ -152,7 +155,8 @@ func FindActiveCPAAPIKeyByValue(db *gorm.DB, apiKey string) (entities.CPAAPIKey,
 
 func FindActiveCPAAPIKeyByValueForInstance(db *gorm.DB, apiKey, instanceID string) (entities.CPAAPIKey, error) {
 	var row entities.CPAAPIKey
-	query := db.Where("api_key = ? AND is_deleted = ?", apiKey, false)
+	// 该入口用于 API key 登录，插件的统计关联标识不能作为原生凭证。
+	query := db.Where("api_key = ? AND is_deleted = ? AND source_type = ?", apiKey, false, entities.CPAAPIKeySourceNative)
 	if instanceID = strings.TrimSpace(instanceID); instanceID != "" {
 		query = query.Where("instance_id = ?", instanceID)
 	}
