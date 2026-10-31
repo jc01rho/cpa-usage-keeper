@@ -196,6 +196,37 @@ func TestReleasePublishersUseValidatedChannels(t *testing.T) {
 	}
 }
 
+// python310Dir returns a directory to prepend to PATH so "python3" is at least
+// 3.10, which the tap updater needs for Path.write_text(newline=). It returns ""
+// when the system python3 already qualifies and skips the test when none does.
+func python310Dir(t *testing.T) string {
+	t.Helper()
+	isModern := func(name string) (string, bool) {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			return "", false
+		}
+		check := exec.Command(path, "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)")
+		return path, check.Run() == nil
+	}
+	if _, ok := isModern("python3"); ok {
+		return ""
+	}
+	for _, name := range []string{"python3.13", "python3.12", "python3.11", "python3.10"} {
+		path, ok := isModern(name)
+		if !ok {
+			continue
+		}
+		dir := t.TempDir()
+		if err := os.Symlink(path, filepath.Join(dir, "python3")); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	t.Skip("python 3.10+ is required: the tap updater uses Path.write_text(newline=)")
+	return ""
+}
+
 func TestHomebrewReleaseUpdatePreservesFormulaSettings(t *testing.T) {
 	bash, err := exec.LookPath("bash")
 	if err != nil {
@@ -204,6 +235,7 @@ func TestHomebrewReleaseUpdatePreservesFormulaSettings(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 is required for the Linux tap updater")
 	}
+	pythonDir := python310Dir(t)
 	script := channelScript(t, "binary-release.yml", "update-homebrew-tap", "Update formula")
 	for _, tc := range []struct {
 		name, version, formula string
@@ -251,6 +283,9 @@ func TestHomebrewReleaseUpdatePreservesFormulaSettings(t *testing.T) {
 			cmd.Env = append(os.Environ(), "FORMULA="+tc.formula, "TAG="+tag, "VERSION="+tc.version,
 				"ARM_FILE=cpa-usage-keeper_"+tag+"_darwin_arm64.tar.gz", "AMD_FILE=cpa-usage-keeper_"+tag+"_darwin_amd64.tar.gz",
 				"ARM_SHA="+armSHA, "AMD_SHA="+amdSHA)
+			if pythonDir != "" {
+				cmd.Env = append(cmd.Env, "PATH="+pythonDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
 			output, err := cmd.CombinedOutput()
 			if (err == nil) != tc.pass {
 				t.Fatalf("want pass=%t: %v\n%s", tc.pass, err, output)
