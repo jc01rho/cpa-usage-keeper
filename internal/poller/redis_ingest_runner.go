@@ -55,6 +55,10 @@ type RedisIngestRunner struct {
 	startupAllFailedBackoff *RedisIngestBackoff
 	// opMu 串行化远端拉取和 inbox 写入，避免同一 runner 内不同路径重复消费。
 	opMu sync.Mutex
+	// pendingInbox holds consumed batches whose inbox write failed, guarded by opMu.
+	// Pulls and subscribe deliveries remove messages from the remote queue, so these
+	// batches are written again before anything new is pulled instead of being dropped.
+	pendingInbox []pendingInboxBatch
 	// mu 保护状态字段，Status、日志记录和 runner goroutine 都会访问这些字段。
 	mu sync.Mutex
 	// running 表示长生命周期 ingest runner 是否在运行，不代表当前是否正在拉取。
@@ -73,6 +77,12 @@ type RedisIngestRunner struct {
 	lastWarning string
 	// lastStatus 保存最近一次状态字符串，兼容现有状态接口展示。
 	lastStatus string
+}
+
+// pendingInboxBatch is a remotely consumed batch that still has to reach the inbox.
+type pendingInboxBatch struct {
+	source   string
+	messages []string
 }
 
 func NewRedisIngestRunner(sub UsageSubscriptionSource, redis UsagePullSource, http UsagePullSource, writer RedisInboxWriter, cfg RedisIngestRunnerConfig) *RedisIngestRunner {
@@ -382,10 +392,10 @@ func (r *RedisIngestRunner) receiveSubscribeBatches(ctx context.Context, sub Usa
 			// 已有首条消息时，任何窗口结束/断开前都先把已有 batch 落库。
 			if len(batch) > 0 {
 				// 订阅消息仍按 raw usage JSON 原样写入 inbox，后续解码路径不变。
-				inserted, writeErr := r.writer.Insert(ctx, RedisIngestSourceSubscribe, batch, timeutil.NormalizeStorageTime(r.now()))
+				inserted, writeErr := r.writeSubscribeBatch(ctx, batch)
 				if writeErr != nil {
 					// 写入失败说明本地 durable sink 不可用，不能继续消费更多远端消息。
-					return fmt.Errorf("%w: %v", errRedisIngestInboxWrite, writeErr)
+					return writeErr
 				}
 				// 订阅循环收到和写入的数量只放 debug，不能在 info 刷屏。
 				if logrus.IsLevelEnabled(logrus.DebugLevel) {
@@ -403,10 +413,10 @@ func (r *RedisIngestRunner) receiveSubscribeBatches(ctx context.Context, sub Usa
 		batch = append(batch, message)
 	}
 	// 达到 batch size 后立即写入，不再等待 1s 窗口结束。
-	inserted, err := r.writer.Insert(ctx, RedisIngestSourceSubscribe, batch, timeutil.NormalizeStorageTime(r.now()))
+	inserted, err := r.writeSubscribeBatch(ctx, batch)
 	if err != nil {
 		// 写入失败说明本地 durable sink 不可用，不能继续消费更多远端消息。
-		return fmt.Errorf("%w: %v", errRedisIngestInboxWrite, err)
+		return err
 	}
 	// 订阅循环收到和写入的数量只放 debug，不能在 info 刷屏。
 	if logrus.IsLevelEnabled(logrus.DebugLevel) {
@@ -727,6 +737,11 @@ func (r *RedisIngestRunner) serialPullAndWrite(ctx context.Context, sourceName s
 		// source 缺失是配置/构造错误，直接返回给上层记录。
 		return 0, fmt.Errorf("%s source is nil", sourceName)
 	}
+	// Batches kept after an earlier inbox write failure go first. While they cannot be
+	// written nothing new is pulled, so the backlog stays in the remote queue.
+	if _, err := r.writeInboxLocked(ctx, "", nil); err != nil {
+		return 0, err
+	}
 	// source 只负责拿 raw message，不负责 fallback、不负责落库。
 	messages, err := source.Pull(ctx)
 	if err != nil {
@@ -752,10 +767,10 @@ func (r *RedisIngestRunner) serialPullAndWrite(ctx context.Context, sourceName s
 		return 0, nil
 	}
 	// 所有来源的 raw usage message 都写入 redis_usage_inboxes，保持后续 decode/process 不变。
-	inserted, err := r.writer.Insert(ctx, writeSourceName, messages, timeutil.NormalizeStorageTime(r.now()))
+	inserted, err := r.writeInboxLocked(ctx, writeSourceName, messages)
 	if err != nil {
 		// 落库失败必须返回给上层，不能吞掉导致消息丢失不可见。
-		return 0, fmt.Errorf("%w: %v", errRedisIngestInboxWrite, err)
+		return 0, err
 	}
 	// 每次写入数量也属于可刷屏排查信息，只写 debug。
 	if logrus.IsLevelEnabled(logrus.DebugLevel) {
@@ -763,6 +778,37 @@ func (r *RedisIngestRunner) serialPullAndWrite(ctx context.Context, sourceName s
 	}
 	// 返回本次远端实际拉取数量，调用方据此判断是否可能还有下一批。
 	return len(messages), nil
+}
+
+// writeSubscribeBatch writes messages received on the subscription under opMu, so they
+// share the pending-batch retry with the pull paths.
+func (r *RedisIngestRunner) writeSubscribeBatch(ctx context.Context, batch []string) (int, error) {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	return r.writeInboxLocked(ctx, RedisIngestSourceSubscribe, batch)
+}
+
+// writeInboxLocked writes pending batches in arrival order, then messages. The remote
+// pull already consumed them (at-most-once LPOP), so a batch whose write fails is kept
+// in pendingInbox and returned as errRedisIngestInboxWrite; callers back off through
+// pauseAfterInboxWriteFailure (bounded, context-aware) and the next write retries it.
+// The caller must hold opMu.
+func (r *RedisIngestRunner) writeInboxLocked(ctx context.Context, sourceName string, messages []string) (int, error) {
+	if len(messages) > 0 {
+		r.pendingInbox = append(r.pendingInbox, pendingInboxBatch{source: sourceName, messages: messages})
+	}
+	inserted := 0
+	for len(r.pendingInbox) > 0 {
+		batch := r.pendingInbox[0]
+		count, err := r.writer.Insert(ctx, batch.source, batch.messages, timeutil.NormalizeStorageTime(r.now()))
+		if err != nil {
+			return inserted, fmt.Errorf("%w: %v", errRedisIngestInboxWrite, err)
+		}
+		inserted += count
+		r.pendingInbox[0] = pendingInboxBatch{}
+		r.pendingInbox = r.pendingInbox[1:]
+	}
+	return inserted, nil
 }
 
 func (r *RedisIngestRunner) Status() Status {
