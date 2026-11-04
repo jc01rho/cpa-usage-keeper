@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, appPath, isCostsBusy, isUsageRangeBoundsConflict, createUsageEventRequestLogDownloadURL, deleteCredentials, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCodexQuotaHistory, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyAnalysis, fetchKeyAnalysisLatency, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setCredentialsDisabled, setCredentialDisabled, setCredentialPriority, startUsageQuotaInspection, updateAuthSessionAlias, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
+import { ApiError, appPath, isCostsBusy, isUsageRangeBoundsConflict, createUsageEventRequestLogDownloadURL, deleteCredentials, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCodexQuotaHistory, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchCpaApiKeySettings, fetchKeyActivity, fetchKeyAnalysis, fetchKeyAnalysisLatency, fetchKeyOverview, fetchKeyOverviewRealtime, fetchQuotaAutoRefreshSettings, fetchUsageActivity, fetchUsageOverview, fetchUsageOverviewComparisons, fetchUsageOverviewRealtime, fetchUsageQuotaCache, fetchUsageQuotaInspectionStatus, fetchUsageQuotaResetCredits, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, fetchVersion, loginWithCPAAPIKey, logout, refreshUsageQuotas, resetUsageQuota, revokeAuthSession, setCredentialsDisabled, setCredentialDisabled, setCredentialPriority, startUsageQuotaInspection, updateAuthSessionAlias, updateCpaApiKeyAlias, updateQuotaAutoRefreshSettings } from '../api';
 
 const headerValue = (init: RequestInit | undefined, name: string): string | null => new Headers(init?.headers).get(name);
 
@@ -205,6 +205,21 @@ describe('fetchUsageEvents', () => {
     const usageUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
     expect(usageUrl.searchParams.getAll('exclude_api_key_id')).toEqual(['12', '34']);
     expect(usageUrl.searchParams.get('api_key_id')).toBeNull();
+  });
+
+  it('sends excluded API key ids to the usage comparisons request but never to the key viewer route', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ models: [] }) } as Response);
+
+    await fetchUsageOverviewComparisons({ range: '7d' }, { apiKeyId: '5', excludedApiKeyIds: ['12', '34'] });
+    await fetchUsageOverviewComparisons({ range: '7d' }, { keyViewer: true, excludedApiKeyIds: ['12'] });
+
+    const adminUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    const viewerUrl = new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost');
+    expect(adminUrl.pathname).toBe('/api/v1/usage/overview/comparisons');
+    expect(adminUrl.searchParams.getAll('exclude_api_key_id')).toEqual(['12', '34']);
+    expect(viewerUrl.pathname).toBe('/api/v1/key-overview/comparisons');
+    expect(viewerUrl.searchParams.getAll('exclude_api_key_id')).toEqual([]);
   });
 
   it('loads one-year Recent Activity through its dedicated window parameter', async () => {

@@ -859,6 +859,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     onRangeBoundsConflict: recoverRangeBoundsConflict,
     enabled: activeTab === 'overview' && usageRangeQuery.valid && apiKeyFilterReady,
     apiKeyId: requestApiKeyId,
+    excludedApiKeyIds: excludedApiKeyIdsParam,
     providers: selectedProvidersParam,
     range: timeRange,
     customUnit: activeCustomRange?.unit,
