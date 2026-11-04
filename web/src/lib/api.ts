@@ -553,11 +553,12 @@ export async function fetchUsageOverview(request: UsageRangeRequest, signal?: Ab
   return response.json()
 }
 
-export async function fetchUsageOverviewComparisons(request: UsageRangeRequest, options: { signal?: AbortSignal; apiKeyId?: string; keyViewer?: boolean; providers?: ReadonlyArray<string> } = {}): Promise<UsageOverviewComparisons> {
+export async function fetchUsageOverviewComparisons(request: UsageRangeRequest, options: { signal?: AbortSignal; apiKeyId?: string; excludedApiKeyIds?: ReadonlyArray<string>; keyViewer?: boolean; providers?: ReadonlyArray<string> } = {}): Promise<UsageOverviewComparisons> {
   const params = buildUsageRangeParams(request)
   appendProviderParams(params, options.providers)
   const selectedAPIKeyId = options.apiKeyId?.trim()
   if (selectedAPIKeyId) params.set('api_key_id', selectedAPIKeyId)
+  if (!options.keyViewer) appendExcludedAPIKeyIDs(params, options.excludedApiKeyIds)
   const path = options.keyViewer ? '/key-overview/comparisons' : '/usage/overview/comparisons'
   const query = params.toString()
   const response = await apiFetch(`${apiPath(path)}${query ? `?${query}` : ''}`, { signal: options.signal })

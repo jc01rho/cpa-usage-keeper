@@ -197,22 +197,23 @@ func (s *usageService) GetUsageOverviewComparisons(ctx context.Context, filter s
 	if err != nil {
 		return nil, err
 	}
-	apiGroupKey, err := s.resolveAPIGroupKey(ctx, filter.InstanceID, filter.APIKeyID)
+	apiGroupKey, excludedAPIGroupKeys, err := s.resolveAPIKeyScope(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	overview, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(s.db.WithContext(ctx), repodto.UsageQueryFilter{
-		Providers:           providers,
-		ProviderAuthIndexes: authIndexes,
-		InstanceID:          filter.InstanceID,
-		Range:               filter.Range,
-		ComparisonOnly:      true,
-		CustomUnit:          filter.CustomUnit,
-		StartTime:           filter.StartTime,
-		EndTime:             filter.EndTime,
-		EndExclusive:        filter.EndExclusive,
-		QueryNow:            filter.QueryNow,
-		APIGroupKey:         apiGroupKey,
+		Providers:            providers,
+		ProviderAuthIndexes:  authIndexes,
+		InstanceID:           filter.InstanceID,
+		Range:                filter.Range,
+		ComparisonOnly:       true,
+		CustomUnit:           filter.CustomUnit,
+		StartTime:            filter.StartTime,
+		EndTime:              filter.EndTime,
+		EndExclusive:         filter.EndExclusive,
+		QueryNow:             filter.QueryNow,
+		APIGroupKey:          apiGroupKey,
+		ExcludedAPIGroupKeys: excludedAPIGroupKeys,
 	}, s.recentUsage)
 	if err != nil {
 		return nil, err
