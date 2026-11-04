@@ -63,6 +63,7 @@ type OptionalProviders struct {
 	CredentialStatus   service.CredentialStatusProvider
 	CredentialPriority service.CredentialPriorityProvider
 	RequestLogs        service.RequestLogProvider
+	Models             service.ModelsFetcher
 	Status             StatusRouteConfig
 }
 
@@ -125,6 +126,7 @@ func NewRouter(
 	var credentialStatusProvider service.CredentialStatusProvider
 	var credentialPriorityProvider service.CredentialPriorityProvider
 	var requestLogProvider service.RequestLogProvider
+	var modelsProvider service.ModelsFetcher
 	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
 		usageExportProvider = optionalProviders[0].UsageExport
@@ -139,6 +141,7 @@ func NewRouter(
 		credentialStatusProvider = optionalProviders[0].CredentialStatus
 		credentialPriorityProvider = optionalProviders[0].CredentialPriority
 		requestLogProvider = optionalProviders[0].RequestLogs
+		modelsProvider = optionalProviders[0].Models
 		statusConfig = optionalProviders[0].Status
 	}
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
@@ -170,6 +173,7 @@ func NewRouter(
 	registerAuthSessionManagementRoutes(adminProtected, authHandler)
 	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider, usageProvider)
 	registerPricingRoutes(adminProtected, pricingProvider)
+	registerModelsRoutes(adminProtected, modelsProvider)
 	registerQuotaRoutes(adminProtected, quotaProvider)
 	registerInstanceRoutes(adminProtected, instanceProvider)
 	registerMetadataStatusRoutes(adminProtected, metadataStatusProvider)
