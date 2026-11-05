@@ -67,14 +67,14 @@
   background: #fff;
 }
 
-.providerBrandIconAvatar[data-provider-brand-icon='ollama'] {
-  --provider-brand-icon-avatar-scale: 0.72;
-  background: #fff;
-}
-
 .providerBrandIconAvatar[data-provider-brand-icon='openai'] {
   --provider-brand-icon-avatar-scale: 0.75;
   background: #000;
+}
+
+.providerBrandIconAvatar[data-provider-brand-icon='ollama'] {
+  --provider-brand-icon-avatar-scale: 0.72;
+  background: #fff;
 }
 
 .providerBrandIconAvatar[data-provider-brand-icon='qwen'] {

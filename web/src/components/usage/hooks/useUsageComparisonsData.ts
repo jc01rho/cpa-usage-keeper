@@ -11,6 +11,7 @@ export interface UseUsageComparisonsDataOptions {
   keyViewer?: boolean
   viewerIdentity?: object
   apiKeyId?: string
+  excludedApiKeyIds?: ReadonlyArray<string>
   providers?: ReadonlyArray<string>
   range?: UsageTimeRange
   customUnit?: UsageCustomRangeUnit
@@ -24,7 +25,7 @@ interface LoadComparisonsOptions {
 }
 
 export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions = {}) {
-  const { onAuthRequired, onRangeBoundsConflict, enabled = true, keyViewer = false, viewerIdentity, apiKeyId, providers, range = 'today', customUnit, customStart, customEnd } = options
+  const { onAuthRequired, onRangeBoundsConflict, enabled = true, keyViewer = false, viewerIdentity, apiKeyId, excludedApiKeyIds, providers, range = 'today', customUnit, customStart, customEnd } = options
   const [comparisons, setComparisons] = useState<UsageOverviewComparisons | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -32,7 +33,7 @@ export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions 
   const activeController = useRef<AbortController | null>(null)
   const loadedScope = useRef<{ queryKey: string; viewerIdentity?: object } | null>(null)
   const rangeQuery = useMemo(() => buildUsageRangeQuery({ range, customUnit, customStart, customEnd }), [customEnd, customStart, customUnit, range])
-  const queryKey = rangeQuery.valid ? `${buildUsageStatsQueryKey(rangeQuery, apiKeyId)}${providers ? `|providers:${providers.join(',')}` : ''}` : null
+  const queryKey = rangeQuery.valid ? `${buildUsageStatsQueryKey(rangeQuery, apiKeyId, excludedApiKeyIds)}${providers ? `|providers:${providers.join(',')}` : ''}` : null
 
   const loadComparisons = useCallback(async (options: LoadComparisonsOptions = {}) => {
     if (!rangeQuery.valid) return
@@ -44,7 +45,7 @@ export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions 
     setLoading(true)
     setError('')
     try {
-      const nextComparisons = await fetchUsageOverviewComparisons(rangeQuery, { apiKeyId, keyViewer, signal: controller.signal, ...(providers ? { providers } : {}) })
+      const nextComparisons = await fetchUsageOverviewComparisons(rangeQuery, { apiKeyId, ...(excludedApiKeyIds ? { excludedApiKeyIds } : {}), keyViewer, signal: controller.signal, ...(providers ? { providers } : {}) })
       if (sequence === requestSequence.current) {
         loadedScope.current = { queryKey: queryKey!, viewerIdentity }
         setComparisons(nextComparisons)
@@ -59,7 +60,7 @@ export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions 
       if (sequence === requestSequence.current) setLoading(false)
       if (sequence === requestSequence.current) activeController.current = null
     }
-  }, [apiKeyId, providers, keyViewer, onAuthRequired, onRangeBoundsConflict, queryKey, rangeQuery, viewerIdentity])
+  }, [apiKeyId, excludedApiKeyIds, providers, keyViewer, onAuthRequired, onRangeBoundsConflict, queryKey, rangeQuery, viewerIdentity])
 
   useEffect(() => {
     if (!enabled || !rangeQuery.valid) return

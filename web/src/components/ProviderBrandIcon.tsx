@@ -7,8 +7,8 @@ import geminiIcon from '@/assets/icons/gemini.svg'
 import grokIcon from '@/assets/icons/grok.svg'
 import kimiIcon from '@/assets/icons/kimi.svg'
 import metaIcon from '@/assets/icons/meta.svg'
-import ollamaIcon from '@/assets/icons/ollama.svg'
 import museIcon from '@/assets/icons/muse.svg'
+import ollamaIcon from '@/assets/icons/ollama.svg'
 import openaiIcon from '@/assets/icons/openai.svg'
 import qwenIcon from '@/assets/icons/qwen.svg'
 import vertexIcon from '@/assets/icons/vertex.svg'
@@ -24,8 +24,8 @@ export const PROVIDER_BRAND_ICON_KEYS = [
   'gemini',
   'kimi',
   'meta',
-  'ollama',
   'muse',
+  'ollama',
   'openai',
   'qwen',
   'vertex',
@@ -57,8 +57,8 @@ const providerBrandIconKeyByType: Readonly<Record<string, ProviderBrandIconKey>>
   'kimi.ai': 'kimi',
   'kimi.com': 'kimi',
   meta: 'meta',
-  ollama: 'ollama',
   muse: 'muse',
+  ollama: 'ollama',
   openai: 'openai',
   qwen: 'qwen',
   vertex: 'vertex',
@@ -81,8 +81,8 @@ const providerBrandIconUrlByKey: Readonly<Record<ProviderBrandIconKey, string>> 
   gemini: geminiIcon,
   kimi: kimiIcon,
   meta: metaIcon,
-  ollama: ollamaIcon,
   muse: museIcon,
+  ollama: ollamaIcon,
   openai: openaiIcon,
   qwen: qwenIcon,
   vertex: vertexIcon,
