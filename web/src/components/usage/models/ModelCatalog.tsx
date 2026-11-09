@@ -6,7 +6,7 @@ import { SearchInput } from '@/components/ui/SearchInput'
 import { IconCopy, IconFilterAll, IconSearch } from '@/components/ui/icons'
 import { ApiError, fetchAvailableModels } from '@/lib/api'
 import { copyTextToClipboard } from '@/utils/clipboard'
-import { loadModelProviderFilter, modelProviderFromFilter, normalizeCatalog, persistModelProviderFilter, type CatalogModel, type ModelProvider } from './modelCatalog'
+import { loadModelProviderFilter, modelProviderFromFilter, normalizeCatalog, persistModelProviderFilter, type CatalogModel, type ModelProvider } from './modelCatalogUtils'
 import filterStyles from '../credentials/CredentialSections.module.scss'
 import styles from './ModelCatalog.module.scss'
 
