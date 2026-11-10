@@ -323,21 +323,30 @@ func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map
 	if provider == nil {
 		return map[string]analysisAPIKeyInfo{}, nil
 	}
-	rows, err := provider.ListCPAAPIKeys(contextWithRequestInstanceFilter(c.Request.Context(), c))
+	rows, err := listRequestCPAAPIKeyRows(c, provider)
 	if err != nil {
 		writeInternalError(c, "list api key options failed", err)
+		return nil, err
+	}
+	return buildCPAAPIKeyInfos(rows), nil
+}
+
+// listRequestCPAAPIKeyRows 按请求的实例选择读取 API Key 行，供 HTTP 列表与实时流共用。
+func listRequestCPAAPIKeyRows(c *gin.Context, provider service.CPAAPIKeyProvider) ([]entities.CPAAPIKey, error) {
+	rows, err := provider.ListCPAAPIKeys(contextWithRequestInstanceFilter(c.Request.Context(), c))
+	if err != nil {
 		return nil, err
 	}
 	if historical, ok := provider.(interface {
 		ListCPAAPIKeysForInstance(context.Context, string) ([]entities.CPAAPIKey, error)
 	}); ok {
 		selection := instanceFilterFromGin(c)
-		rows, err = historical.ListCPAAPIKeysForInstance(c.Request.Context(), selection.InstanceID)
-		if err != nil {
-			writeInternalError(c, "list api key options failed", err)
-			return nil, err
-		}
+		return historical.ListCPAAPIKeysForInstance(c.Request.Context(), selection.InstanceID)
 	}
+	return rows, nil
+}
+
+func buildCPAAPIKeyInfos(rows []entities.CPAAPIKey) map[string]analysisAPIKeyInfo {
 	infos := make(map[string]analysisAPIKeyInfo, len(rows)*2)
 	uniqueByFingerprint := make(map[string]analysisAPIKeyInfo, len(rows))
 	ambiguousFingerprints := make(map[string]struct{})
@@ -366,7 +375,7 @@ func loadCPAAPIKeyInfos(c *gin.Context, provider service.CPAAPIKeyProvider) (map
 	for fingerprint, info := range uniqueByFingerprint {
 		infos[fingerprint] = info
 	}
-	return infos, nil
+	return infos
 }
 
 func apiKeyInfoLookupKey(instanceID, fingerprint string) string {

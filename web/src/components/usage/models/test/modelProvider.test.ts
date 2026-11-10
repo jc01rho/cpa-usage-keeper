@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { modelProvider, normalizeCatalog } from '../modelCatalogUtils'
+import { modelProvider, normalizeCatalog } from '../modelCatalog'
 
 describe('model provider prefix priority', () => {
   it.each([

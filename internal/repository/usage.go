@@ -419,6 +419,9 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 	query = applyUsageProviderScope(query, filter)
 	query = applyUsageQueryWindow(query, filter)
 	query = applyUsageAPIKeyScope(query, filter)
+	if filter.MaxID != nil {
+		query = query.Where("id <= ?", *filter.MaxID)
+	}
 	if model := strings.TrimSpace(filter.Model); model != "" {
 		query = query.Where("model = ?", model)
 	}

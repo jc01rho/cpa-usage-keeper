@@ -59,7 +59,7 @@ const extractTableHeaders = (html: string) =>
   Array.from(html.matchAll(/<th\b[^>]*>(.*?)<\/th>/gs), (match) => textFromMarkup(match[1]));
 
 const extractFirstTableRowCells = (html: string) => {
-  const row = html.match(/<tbody><tr>(.*?)<\/tr><\/tbody>/s)?.[1] ?? '';
+  const row = html.match(/<tbody><tr\b[^>]*>(.*?)<\/tr><\/tbody>/s)?.[1] ?? '';
   return Array.from(row.matchAll(/<td\b[^>]*>(.*?)<\/td>/gs), (match) => textFromMarkup(match[1]));
 };
 

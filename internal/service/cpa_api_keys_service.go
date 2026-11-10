@@ -31,7 +31,7 @@ func NewCPAAPIKeyService(db *gorm.DB) CPAAPIKeyProvider {
 
 func (s *cpaAPIKeyService) ListCPAAPIKeys(ctx context.Context) ([]entities.CPAAPIKey, error) {
 	instanceID := InstanceFilterFromContext(ctx)
-	rows, err := repository.ListActiveCPAAPIKeysForInstance(s.db, instanceID)
+	rows, err := repository.ListActiveCPAAPIKeysForInstance(s.db.WithContext(ctx), instanceID)
 	if err != nil {
 		return nil, err
 	}

@@ -13,17 +13,19 @@ type UsageQueryFilter struct {
 	EndTime        *time.Time
 	EndExclusive   bool
 	// QueryNow 固定仓储层一次查询里的当前时刻，避免边界补偿在同一请求内发生时间漂移。
-	QueryNow             *time.Time
-	RealtimeWindow       string
-	RealtimeEndTime      *time.Time
-	Limit                int
-	Page                 int
-	PageSize             int
-	Offset               int
-	CursorMode           bool
-	CursorTimestamp      *time.Time
-	CursorID             int64
-	SkipTotalCount       bool
+	QueryNow        *time.Time
+	RealtimeWindow  string
+	RealtimeEndTime *time.Time
+	Limit           int
+	Page            int
+	PageSize        int
+	Offset          int
+	CursorMode      bool
+	CursorTimestamp *time.Time
+	CursorID        int64
+	SkipTotalCount  bool
+	// MaxID 固定实时快照的入库上界；普通历史分页不设置。
+	MaxID                *int64
 	Model                string
 	AuthIndex            string
 	AuthType             string
