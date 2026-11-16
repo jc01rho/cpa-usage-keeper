@@ -18,6 +18,11 @@ func TestInstanceAuthenticateCachesVerificationButStillEnforcesRevocation(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	svc := service.NewCPAInstanceServiceWithDB(repository.NewCPAInstanceRepository(db))
 	ctx := context.Background()
 	issued, err := svc.Create(ctx, service.CreateInstanceInput{DisplayName: "cpa", CredentialName: "primary", Scopes: []string{service.ScopeUsagePush}})
