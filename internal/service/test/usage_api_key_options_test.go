@@ -80,3 +80,26 @@ func TestUsageServiceScopedAPIKeyOptions(t *testing.T) {
 		t.Fatal(rows)
 	}
 }
+
+func TestUsageServiceScopedAPIKeyOptionsMergesReplicaKeys(t *testing.T) {
+	db := openUsageServiceTestDatabase(t)
+	seedMergedKeyInstance(t, db)
+	now := time.Now()
+	for _, instanceID := range []string{entities.LegacyCPAInstanceID, mergedKeyTestInstanceB} {
+		if err := repository.SyncCPAAPIKeysForInstance(db, instanceID, []string{"replicated", "idle"}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&entities.UsageEvent{EventKey: "e1", APIGroupKey: "replicated", Timestamp: now.Add(-time.Minute)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	start, end := now.Add(-time.Hour), now.Add(time.Hour)
+	provider := service.NewUsageService(db, emptyPricingCatalogForTest()).(service.UsageAPIKeyOptionsProvider)
+	rows, err := provider.ListUsageAPIKeyOptions(context.Background(), "request-events", servicedto.UsageFilter{StartTime: &start, EndTime: &end})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].APIKey != "replicated" {
+		t.Fatalf("replica keys not merged into one used row: %+v", rows)
+	}
+}

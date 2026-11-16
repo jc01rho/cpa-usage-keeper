@@ -341,9 +341,13 @@ describe('UsagePage top API Key request event filter', () => {
 
   it('excludes the selected API keys from overview, analysis and request events queries', async () => {
     window.history.replaceState(null, '', '/overview');
+    // Only keys with usage in the current scope are offered; '33' (Other key) has none.
+    api.fetchCpaApiKeyOptions.mockImplementation(async (_signal, request) => request ? { options: keyOptions.options.slice(0, 2) } : keyOptions);
     await render();
+    await act(async () => container.querySelector<HTMLElement>('details summary')!.click());
     const excludeCheckbox = (label: string) => Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))
       .find((node) => node.parentElement?.textContent?.trim() === label)!;
+    expect(excludeCheckbox('Other key')).toBeUndefined();
     await act(async () => excludeCheckbox('Overview key').click());
     expect(api.fetchUsageOverview.mock.lastCall![2]).toBe('');
     expect(api.fetchUsageOverview.mock.lastCall![3]).toEqual(['11']);
