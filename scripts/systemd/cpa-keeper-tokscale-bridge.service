@@ -12,5 +12,10 @@ Type=oneshot
 #    keeper-export batches are re-submitted after their date files update.
 ExecStart=/usr/bin/python3 /home/ubuntu/usage-dashboard/scripts/tokscale_bridge.py --db /home/ubuntu/usage-dashboard/data/app.db
 ExecStart=/usr/bin/tokscale submit --week
-# Keep the scan+submit bounded so overlapping timer runs cannot stack.
-TimeoutStartSec=10min
+# Keep the scan+submit bounded so overlapping timer runs cannot stack. The bound
+# must stay above a real run: the tokscale submit step re-scans every
+# extraScanPath, and with the keeper DB at 426MB that step alone reached 9m54s
+# (2026-11-16 12:48 run) and was killed by the old 10min limit right after the
+# submission had already succeeded, so every recent run reported failure. The
+# 6h timer still prevents stacking; this only bounds a genuinely stuck run.
+TimeoutStartSec=40min
