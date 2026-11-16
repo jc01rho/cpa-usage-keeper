@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
@@ -19,7 +21,12 @@ const (
 	ScopeUsagePush    = "usage:push"
 	ScopeMetadataPush = "metadata:push"
 	ScopeIdentityTest = "identity:test"
-	dummyTokenHash    = "$argon2id$v=19$m=65536,t=3,p=2$MDEyMzQ1Njc4OWFiY2RlZg$EkSi/pcQRqWwrfurmXqWC0EtGo/wWd2oBvQr6uNTyhk"
+	// Each argon2id verification allocates 64 MiB; keep concurrency and repeat work low so a push burst
+	// from several exporters cannot exhaust memory on a small host.
+	maxConcurrentTokenVerifications = 2
+	verifiedTokenTTL                = 10 * time.Minute
+	verifiedTokenCacheLimit         = 1024
+	dummyTokenHash                  = "$argon2id$v=19$m=65536,t=3,p=2$MDEyMzQ1Njc4OWFiY2RlZg$EkSi/pcQRqWwrfurmXqWC0EtGo/wWd2oBvQr6uNTyhk"
 )
 
 var (
@@ -47,6 +54,10 @@ type InstanceStore interface {
 type CPAInstanceService struct {
 	store InstanceStore
 	now   func() time.Time
+
+	verifySlots chan struct{}
+	verifiedMu  sync.Mutex
+	verified    map[[sha256.Size]byte]time.Time
 }
 
 type CreateInstanceInput struct {
@@ -75,7 +86,12 @@ type AuthenticatedIngestCredential struct {
 }
 
 func NewCPAInstanceService(store InstanceStore) *CPAInstanceService {
-	return &CPAInstanceService{store: store, now: time.Now}
+	return &CPAInstanceService{
+		store:       store,
+		now:         time.Now,
+		verifySlots: make(chan struct{}, maxConcurrentTokenVerifications),
+		verified:    make(map[[sha256.Size]byte]time.Time),
+	}
 }
 
 func NewCPAInstanceServiceWithDB(dbStore *repository.CPAInstanceRepository) *CPAInstanceService {
@@ -164,7 +180,10 @@ func (s *CPAInstanceService) Authenticate(ctx context.Context, token string) (Au
 	if err == nil {
 		encodedHash = matched.TokenHash
 	}
-	verified := verifyToken(secret, encodedHash)
+	verified, verifyErr := s.verifyTokenCached(ctx, secret, encodedHash)
+	if verifyErr != nil {
+		return AuthenticatedIngestCredential{}, verifyErr
+	}
 	if err != nil || !verified {
 		return AuthenticatedIngestCredential{}, ErrInvalidCredential
 	}
@@ -180,6 +199,35 @@ func (s *CPAInstanceService) Authenticate(ctx context.Context, token string) (Au
 		return AuthenticatedIngestCredential{}, ErrInstanceDisabled
 	}
 	return AuthenticatedIngestCredential{Instance: instance, Credential: matched, Scopes: decodeScopes(matched.Scopes)}, nil
+}
+
+// verifyTokenCached skips argon2 for a secret that already verified against the same stored hash. Revocation,
+// expiry and instance state are still checked by Authenticate on every call; a changed hash misses the cache.
+func (s *CPAInstanceService) verifyTokenCached(ctx context.Context, secret, encodedHash string) (bool, error) {
+	key := sha256.Sum256([]byte(secret + "\x00" + encodedHash))
+	now := s.now()
+	s.verifiedMu.Lock()
+	expiresAt, hit := s.verified[key]
+	s.verifiedMu.Unlock()
+	if hit && now.Before(expiresAt) {
+		return true, nil
+	}
+	select {
+	case s.verifySlots <- struct{}{}:
+		defer func() { <-s.verifySlots }()
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+	if !verifyToken(secret, encodedHash) {
+		return false, nil
+	}
+	s.verifiedMu.Lock()
+	if len(s.verified) >= verifiedTokenCacheLimit {
+		clear(s.verified)
+	}
+	s.verified[key] = now.Add(verifiedTokenTTL)
+	s.verifiedMu.Unlock()
+	return true, nil
 }
 
 func CanonicalScopes(scopes []string) []string {
