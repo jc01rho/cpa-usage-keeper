@@ -12,6 +12,7 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/quota"
+	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 )
@@ -24,10 +25,25 @@ func DecodeRedisUsageMessage(message string, fetchedAt time.Time) (entities.Usag
 
 // DecodeRedisUsageMessageWithHeaders 解码 usage event，并在 OAuth 响应携带 headers 时抽取 quota cache 更新快照。
 func DecodeRedisUsageMessageWithHeaders(message string, fetchedAt time.Time) (entities.UsageEvent, json.RawMessage, *quota.UsageHeaderSnapshot, error) {
+	return decodeUsageMessage(message, fetchedAt, false)
+}
+
+// DecodeInboxUsageMessageWithHeaders decodes one inbox row. keeper_push rows come from the push
+// protocol, whose payload contract has request_id and no execution_id, so request_id stands in for it.
+func DecodeInboxUsageMessageWithHeaders(source, message string, fetchedAt time.Time) (entities.UsageEvent, json.RawMessage, *quota.UsageHeaderSnapshot, error) {
+	return decodeUsageMessage(message, fetchedAt, source == repository.RedisUsageInboxSourceKeeperPush)
+}
+
+func decodeUsageMessage(message string, fetchedAt time.Time, requestIDAsExecutionID bool) (entities.UsageEvent, json.RawMessage, *quota.UsageHeaderSnapshot, error) {
 	raw := json.RawMessage(message)
 	var payload queuedUsageDetail
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return entities.UsageEvent{}, nil, nil, fmt.Errorf("decode redis usage message: %w", err)
+	}
+	if requestIDAsExecutionID && (payload.ExecutionID == nil || *payload.ExecutionID == "") {
+		if requestID := strings.TrimSpace(payload.RequestID); requestID != "" {
+			payload.ExecutionID = &requestID
+		}
 	}
 	if payload.ExecutionID == nil || *payload.ExecutionID == "" {
 		return entities.UsageEvent{}, raw, nil, fmt.Errorf("decode redis usage message: execution_id is required")
