@@ -14,9 +14,14 @@ type UsageAPIKeyOptionsProvider interface {
 }
 
 func (s *usageService) ListUsageAPIKeyOptions(ctx context.Context, scope string, filter servicedto.UsageFilter) ([]entities.CPAAPIKey, error) {
-	return repository.ListUsageAPIKeyOptions(s.db.WithContext(usageServiceContext(ctx)), scope, repodto.UsageQueryFilter{
+	rows, err := repository.ListUsageAPIKeyOptions(s.db.WithContext(usageServiceContext(ctx)), scope, repodto.UsageQueryFilter{
 		Range: filter.Range, CustomUnit: filter.CustomUnit, StartTime: filter.StartTime, EndTime: filter.EndTime,
 		EndExclusive: filter.EndExclusive, RealtimeWindow: filter.RealtimeWindow,
 		RealtimeEndTime: filter.RealtimeEndTime, QueryNow: filter.QueryNow,
 	}, s.recentUsage)
+	if err != nil {
+		return nil, err
+	}
+	// Replicas register the same key on several instances; show it once.
+	return mergeCPAAPIKeysByValue(rows), nil
 }

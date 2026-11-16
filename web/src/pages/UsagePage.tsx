@@ -1005,6 +1005,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     ],
     [scopedApiKeys.options, scopedApiKeys.status, t],
   );
+  // Exclude menu lists only keys with usage in the current scope (plus already excluded ones so they can be un-excluded).
+  const apiKeyExcludeOptions = useMemo(() => {
+    const merged = new Map(scopedApiKeys.options.map((option) => [option.id, option]));
+    for (const id of excludedApiKeyIds) {
+      const known = apiKeyOptions.find((option) => option.id === id);
+      if (known && !merged.has(id)) merged.set(id, known);
+    }
+    return Array.from(merged.values());
+  }, [scopedApiKeys.options, apiKeyOptions, excludedApiKeyIds]);
+  const ensureScopedApiKeysFresh = scopedApiKeys.ensureFresh;
+  useEffect(() => {
+    if (isApiKeyExcludeOpen) void ensureScopedApiKeysFresh();
+  }, [isApiKeyExcludeOpen, ensureScopedApiKeysFresh]);
   const handleAPIKeySelectionChange = useCallback((apiKeyId: string) => {
     setSelectedApiKeyId(apiKeyId);
     setIsApiKeyExcludeOpen(false);
@@ -2140,11 +2153,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                             </button>
                           )}
                         </div>
-                        {apiKeyOptions.length === 0 ? (
-                          <span className={styles.apiKeyExcludeEmpty}>{t('usage_stats.api_key_exclude_none')}</span>
+                        {apiKeyExcludeOptions.length === 0 ? (
+                          <span className={styles.apiKeyExcludeEmpty}>{scopedApiKeys.status === 'loading' ? t('common.loading') : t('usage_stats.api_key_exclude_none')}</span>
                         ) : (
                           <div className={styles.apiKeyExcludeOptions}>
-                            {apiKeyOptions.map((option) => (
+                            {apiKeyExcludeOptions.map((option) => (
                               <label key={option.id} className={styles.apiKeyExcludeOption}>
                                 <input
                                   type="checkbox"
@@ -2236,11 +2249,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                         </button>
                       )}
                     </div>
-                    {apiKeyOptions.length === 0 ? (
-                      <span className={styles.apiKeyExcludeEmpty}>{t('usage_stats.api_key_exclude_none')}</span>
+                    {apiKeyExcludeOptions.length === 0 ? (
+                      <span className={styles.apiKeyExcludeEmpty}>{scopedApiKeys.status === 'loading' ? t('common.loading') : t('usage_stats.api_key_exclude_none')}</span>
                     ) : (
                       <div className={styles.apiKeyExcludeOptions}>
-                        {apiKeyOptions.map((option) => (
+                        {apiKeyExcludeOptions.map((option) => (
                           <label key={option.id} className={styles.apiKeyExcludeOption}>
                             <input
                               type="checkbox"
