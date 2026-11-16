@@ -351,7 +351,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 	decodeErrs := make([]error, 0)
 	// 先完整解码本批数据，坏消息单独标记，不阻断同批其它可用消息。
 	for _, row := range inboxRows {
-		event, _, snapshot, decodeErr := DecodeRedisUsageMessageWithHeaders(row.RawMessage, fetchedAt)
+		event, _, snapshot, decodeErr := DecodeInboxUsageMessageWithHeaders(row.Source, row.RawMessage, fetchedAt)
 		if decodeErr != nil {
 			logrus.WithError(decodeErr).WithField("inbox_id", row.ID).Error("redis usage message decode failed")
 			if markErr := repository.MarkRedisUsageInboxDecodeFailedForInstance(writeDB, instanceID, row.ID, decodeErr); markErr != nil {
