@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -513,8 +515,7 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		key := helper.RedactSensitiveValue(item.Key)
 		label := item.Key
 		if apiKeyInfos != nil {
-			key = analysisAPIKeyResponseKeyForInstance(item.InstanceID, item.Key, apiKeyInfos)
-			label = analysisAPIKeyLabelForInstance(item.InstanceID, item.Key, apiKeyInfos)
+			key, label = analysisAPIKeyIdentityForInstance(item.InstanceID, item.Key, apiKeyInfos)
 		} else if item.Label != "" {
 			label = item.Label
 		}
@@ -539,6 +540,19 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		})
 	}
 	return payload
+}
+
+// analysisAPIKeyIdentityForInstance returns the response key and label for an API group key. Analysis counts every
+// group key (as Overview does), so a key missing from cpa_api_keys is masked the same way Overview realtime masks it.
+func analysisAPIKeyIdentityForInstance(instanceID, apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) (string, string) {
+	if instanceID == "" || apiKeyInfoExists(apiKeyInfos, instanceID, apiKey) {
+		return analysisAPIKeyResponseKeyForInstance(instanceID, apiKey, apiKeyInfos), analysisAPIKeyLabelForInstance(instanceID, apiKey, apiKeyInfos)
+	}
+	label := strings.TrimSpace(apiKey)
+	if len(label) > 6 {
+		label = "sk-*********" + label[len(label)-6:]
+	}
+	return fmt.Sprintf("legacy:%x", sha256.Sum256([]byte(apiKey))), label
 }
 
 func analysisAPIKeyResponseKeyForInstance(instanceID, apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
@@ -583,8 +597,8 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 	modelRequests := map[string]int64{}
 	maxTokens := int64(0)
 	for _, cell := range cells {
-		apiKey := analysisAPIKeyResponseKeyForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
-		apiKeyLabels[apiKey] = analysisAPIKeyLabelForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
+		apiKey, apiKeyLabel := analysisAPIKeyIdentityForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
+		apiKeyLabels[apiKey] = apiKeyLabel
 		apiRequests[apiKey] += cell.Requests
 		modelRequests[cell.Model] += cell.Requests
 		if cell.TotalTokens > maxTokens {
@@ -599,7 +613,7 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 		if maxTokens > 0 {
 			intensity = float64(cell.TotalTokens) / float64(maxTokens)
 		}
-		apiKey := analysisAPIKeyResponseKeyForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
+		apiKey, _ := analysisAPIKeyIdentityForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
 		payloadCells = append(payloadCells, analysisHeatmapCell{
 			InstanceID:          cell.InstanceID,
 			APIKey:              apiKey,

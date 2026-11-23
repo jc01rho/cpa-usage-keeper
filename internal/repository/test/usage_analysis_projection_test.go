@@ -93,11 +93,6 @@ func TestAnalysisProjectionPreservesHourlyResultsAndAPIKeyFiltering(t *testing.T
 			ReasoningTokens: 100_000, CacheReadTokens: 200_000, CacheCreationTokens: 100_000, TotalTokens: 1_300_000,
 			CostUSD: &storedCost, UnavailableCostCount: &unavailable,
 		},
-		{
-			BucketStart: bucket, APIGroupKey: "group-deleted", Model: "model-a", RequestCount: 99,
-			InputTokens: 99_000_000, TotalTokens: 99_000_000,
-			CostUSD: &zeroCost, UnavailableCostCount: &unknown,
-		},
 	}).Error; err != nil {
 		t.Fatalf("seed hourly stats: %v", err)
 	}

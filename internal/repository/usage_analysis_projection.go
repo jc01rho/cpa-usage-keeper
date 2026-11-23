@@ -42,17 +42,16 @@ func analysisOverviewProjectionColumnsFor(table string) string {
 	return table + ".instance_id AS instance_id, " + analysisOverviewProjectionColumns
 }
 
-// loadAnalysisOverviewHourlyStatsWithFilter 只读 active Key 的完整小时汇总，不拼原始事件。
+// loadAnalysisOverviewHourlyStatsWithFilter reads complete hourly rollups for every API group key, matching Overview totals.
+// It must not join cpa_api_keys: usage whose group key is not a registered key (for example replica events grouped by provider name) would otherwise be dropped.
 func loadAnalysisOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]analysisOverviewStatProjection, error) {
-	query := db.Model(&entities.UsageOverviewHourlyStat{}).
-		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.instance_id = usage_overview_hourly_stats.instance_id AND cpa_api_keys.api_key = usage_overview_hourly_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+	query := db.Model(&entities.UsageOverviewHourlyStat{})
 	return loadAnalysisOverviewStatProjection(query, filter, start, end, "hourly", "usage_overview_hourly_stats")
 }
 
-// loadAnalysisOverviewDailyStatsWithFilter 保留自然日范围与 active Key JOIN，费用来自日汇总。
+// loadAnalysisOverviewDailyStatsWithFilter reads natural-day rollups for every API group key (no cpa_api_keys join); cost comes from the daily rollup.
 func loadAnalysisOverviewDailyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]analysisOverviewStatProjection, error) {
-	query := db.Model(&entities.UsageOverviewDailyStat{}).
-		Joins("INNER JOIN cpa_api_keys ON cpa_api_keys.instance_id = usage_overview_daily_stats.instance_id AND cpa_api_keys.api_key = usage_overview_daily_stats.api_group_key AND cpa_api_keys.is_deleted = ?", false)
+	query := db.Model(&entities.UsageOverviewDailyStat{})
 	return loadAnalysisOverviewStatProjection(query, filter, start, end, "daily", "usage_overview_daily_stats")
 }
 

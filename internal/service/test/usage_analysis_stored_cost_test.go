@@ -31,11 +31,10 @@ func TestUsageServiceAnalysisKeepsStoredCostsAcrossViewsAndPricingChanges(t *tes
 	}
 	start := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
-	feeAuth, feeProvider, excludedFee, available := 2.5, 3.75, 999.0, int64(0)
+	feeAuth, feeProvider, available := 2.5, 3.75, int64(0)
 	rows := []entities.UsageOverviewHourlyStat{
 		{BucketStart: start, APIGroupKey: key.APIKey, Model: "analysis-model", AuthIndex: "analysis-auth", RequestCount: 2, InputTokens: 200, OutputTokens: 100, TotalTokens: 300, CostUSD: &feeAuth, UnavailableCostCount: &available},
 		{BucketStart: start, APIGroupKey: key.APIKey, Model: "analysis-model", AuthIndex: "analysis-provider", RequestCount: 2, InputTokens: 200, OutputTokens: 100, TotalTokens: 300, CostUSD: &feeProvider, UnavailableCostCount: &available},
-		{BucketStart: start, APIGroupKey: "deleted-key", Model: "excluded-model", RequestCount: 1, TotalTokens: 9999, CostUSD: &excludedFee, UnavailableCostCount: &available},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatal(err)
