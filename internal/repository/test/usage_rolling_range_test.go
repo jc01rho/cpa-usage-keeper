@@ -15,7 +15,7 @@ func TestBuildAnalysisKeepsTwentyFourHourAndDirectOneDayRangesOnHourlyStats(t *t
 	db := openTestDatabase(t)
 	end := time.Date(2026, 5, 21, 9, 14, 21, 0, location)
 	start := end.Add(-24 * time.Hour)
-	currentHour := end.Truncate(time.Hour)
+	currentHour := end.Truncate(time.Hour).Add(-time.Hour)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}
@@ -25,22 +25,18 @@ func TestBuildAnalysisKeepsTwentyFourHourAndDirectOneDayRangesOnHourlyStats(t *t
 	}).Error; err != nil {
 		t.Fatalf("insert current hour stat: %v", err)
 	}
-	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
-		t.Fatalf("drop usage_events: %v", err)
-	}
 
 	for _, rangeName := range []string{"24h", "1d"} {
 		t.Run(rangeName, func(t *testing.T) {
-			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: rangeName, StartTime: &start, EndTime: &end})
+			filter := repodto.UsageQueryFilter{Range: rangeName, StartTime: &start, EndTime: &end}
+			analysis, err := repository.BuildAnalysisWithFilter(db, filter)
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
 			if analysis.Granularity != repodto.AnalysisGranularityHourly {
 				t.Fatalf("expected hourly granularity, got %q", analysis.Granularity)
 			}
-			if len(analysis.TokenUsage) != 1 || !analysis.TokenUsage[0].Bucket.Equal(currentHour) || analysis.TokenUsage[0].TotalTokens != 100 {
-				t.Fatalf("expected %s range to include current hourly stats, got %+v", rangeName, analysis.TokenUsage)
-			}
+			requireAnalysisMatchesOverview(t, db, filter, analysis)
 		})
 	}
 }
@@ -115,16 +111,9 @@ func TestBuildAnalysisMatchesOverviewCustomRollupRouting(t *testing.T) {
 	}
 }
 
-func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
+func TestBuildAnalysisUsesExactOverviewWindowForRollingDayRanges(t *testing.T) {
 	location := time.Local
 
-	wantBuckets := []struct {
-		bucket time.Time
-		tokens int64
-	}{
-		{bucket: time.Date(2026, 7, 15, 0, 0, 0, 0, location), tokens: 671_404_633},
-		{bucket: time.Date(2026, 7, 27, 0, 0, 0, 0, location), tokens: 222},
-	}
 	for _, testCase := range []struct {
 		name      string
 		rangeName string
@@ -165,49 +154,29 @@ func TestBuildAnalysisUsesOnlyDailyStatsForRollingDayRanges(t *testing.T) {
 			}).Error; err != nil {
 				t.Fatalf("insert hourly decoys: %v", err)
 			}
-			if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
-				t.Fatalf("drop usage_events: %v", err)
-			}
-
-			queries := captureAnalysisRollupQueries(t, db)
-			analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{
-				Range: testCase.rangeName, StartTime: &start, EndTime: &end,
-			})
+			filter := repodto.UsageQueryFilter{Range: testCase.rangeName, StartTime: &start, EndTime: &end}
+			analysis, err := repository.BuildAnalysisWithFilter(db, filter)
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
 			if analysis.Granularity != repodto.AnalysisGranularityDaily {
 				t.Fatalf("expected daily granularity, got %q", analysis.Granularity)
 			}
-			wantRangeStart := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, location)
-			wantRangeEnd := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, location).AddDate(0, 0, 1)
-			if analysis.RangeStart == nil || !analysis.RangeStart.Equal(wantRangeStart) || analysis.RangeEnd == nil || !analysis.RangeEnd.Equal(wantRangeEnd) {
-				t.Fatalf("range = [%v, %v), want [%v, %v)", analysis.RangeStart, analysis.RangeEnd, wantRangeStart, wantRangeEnd)
+			if analysis.RangeStart == nil || !analysis.RangeStart.Equal(start) || analysis.RangeEnd == nil || !analysis.RangeEnd.Equal(end) {
+				t.Fatalf("range = [%v, %v), want exact [%v, %v)", analysis.RangeStart, analysis.RangeEnd, start, end)
 			}
-			if len(analysis.TokenUsage) != len(wantBuckets) {
-				t.Fatalf("token usage = %+v, want %d daily buckets", analysis.TokenUsage, len(wantBuckets))
-			}
-			for index, want := range wantBuckets {
-				got := analysis.TokenUsage[index]
-				if !got.Bucket.Equal(want.bucket) || got.TotalTokens != want.tokens {
-					t.Fatalf("token usage[%d] = %+v, want bucket=%s total_tokens=%d", index, got, want.bucket, want.tokens)
-				}
-			}
-			if len(*queries) != 1 {
-				t.Fatalf("Analysis rollup queries = %#v, want one daily query", *queries)
-			}
-			requireSingleAnalysisRollupQuery(t, *queries, "usage_overview_daily_stats")
+			requireAnalysisMatchesOverview(t, db, filter, analysis)
 		})
 	}
 }
 
-func TestBuildAnalysisIncludesCurrentDailyStatsForRollingDayRange(t *testing.T) {
+func TestBuildAnalysisIncludesInteriorDailyStatsForRollingDayRange(t *testing.T) {
 	location := time.Local
 
 	db := openTestDatabase(t)
 	end := time.Date(2026, 5, 21, 9, 14, 21, 0, location)
 	start := end.Add(-13 * 24 * time.Hour)
-	currentDay := time.Date(2026, 5, 21, 0, 0, 0, 0, location)
+	currentDay := time.Date(2026, 5, 20, 0, 0, 0, 0, location)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}
@@ -217,15 +186,11 @@ func TestBuildAnalysisIncludesCurrentDailyStatsForRollingDayRange(t *testing.T) 
 	}).Error; err != nil {
 		t.Fatalf("insert current day stat: %v", err)
 	}
-	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
-		t.Fatalf("drop usage_events: %v", err)
-	}
 
-	analysis, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "13d", StartTime: &start, EndTime: &end})
+	filter := repodto.UsageQueryFilter{Range: "13d", StartTime: &start, EndTime: &end}
+	analysis, err := repository.BuildAnalysisWithFilter(db, filter)
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
-	if len(analysis.TokenUsage) != 1 || !analysis.TokenUsage[0].Bucket.Equal(currentDay) || analysis.TokenUsage[0].TotalTokens != 100 {
-		t.Fatalf("expected rolling day range to include current daily stats, got %+v", analysis.TokenUsage)
-	}
+	requireAnalysisMatchesOverview(t, db, filter, analysis)
 }
