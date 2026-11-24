@@ -194,3 +194,52 @@ func TestBuildAnalysisIncludesInteriorDailyStatsForRollingDayRange(t *testing.T)
 	}
 	requireAnalysisMatchesOverview(t, db, filter, analysis)
 }
+
+func TestBuildAnalysisTodayCountsCurrentHourEventsMissingFromStats(t *testing.T) {
+	withRepositoryTestLocation(t, "UTC")
+	db := openTestDatabase(t)
+	start := time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 5, 20, 23, 59, 59, 999999999, time.UTC)
+	queryNow := time.Date(2026, 5, 20, 10, 30, 0, 0, time.UTC)
+	if err := db.Create(&entities.CPAInstance{ID: "instance-x", DisplayName: "X", Enabled: true, CreatedAt: queryNow, UpdatedAt: queryNow}).Error; err != nil {
+		t.Fatalf("insert instance: %v", err)
+	}
+	if err := db.Create(&entities.UsageOverviewHourlyStat{CostUSD: analysisCostPtr(0), UnavailableCostCount: analysisCountPtr(0),
+		BucketStart: time.Date(2026, 5, 20, 8, 0, 0, 0, time.UTC), APIGroupKey: "main-key", Model: "claude-sonnet",
+		RequestCount: 1, InputTokens: 60, OutputTokens: 40, TotalTokens: 100,
+	}).Error; err != nil {
+		t.Fatalf("insert hourly stat: %v", err)
+	}
+	if err := db.Create(&entities.UsageEvent{EventKey: "current-hour", InstanceID: "instance-x", APIGroupKey: "sibling-key", Model: "claude-sonnet",
+		Timestamp: time.Date(2026, 5, 20, 10, 10, 0, 0, time.UTC), AuthIndex: "auth-x", InputTokens: 10, OutputTokens: 40, TotalTokens: 50, LatencyMS: 1000,
+		CostAvailable: new(true), CostUSD: new(float64(0)),
+	}).Error; err != nil {
+		t.Fatalf("insert current hour event: %v", err)
+	}
+
+	filter := repodto.UsageQueryFilter{Range: "today", StartTime: &start, EndTime: &end, QueryNow: &queryNow}
+	analysis, err := repository.BuildAnalysisWithFilter(db, filter)
+	if err != nil {
+		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
+	}
+	var tokens int64
+	for _, bucket := range analysis.TokenUsage {
+		tokens += bucket.TotalTokens
+	}
+	if tokens != 150 {
+		t.Fatalf("expected stats plus the current-hour event (150 tokens), got %d: %+v", tokens, analysis.TokenUsage)
+	}
+	requireAnalysisMatchesOverview(t, db, filter, analysis)
+	var sibling *repodto.AnalysisCompositionRecord
+	for index := range analysis.APIKeyComposition {
+		if analysis.APIKeyComposition[index].Key == "sibling-key" {
+			sibling = &analysis.APIKeyComposition[index]
+		}
+	}
+	if sibling == nil || sibling.InstanceID != "instance-x" || sibling.TotalTokens != 50 {
+		t.Fatalf("expected the current-hour event to keep its instance, got %+v", analysis.APIKeyComposition)
+	}
+	if len(analysis.ModelSpeed.Series) != 1 || analysis.ModelSpeed.Series[0].SpeedSampleCount != 1 {
+		t.Fatalf("expected one speed sample from the current-hour event, got %+v", analysis.ModelSpeed.Series)
+	}
+}

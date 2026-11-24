@@ -470,8 +470,9 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, resolvers
 		},
 	}
 
-	if timeutil.IsUsageRollingHourRange(filter.Range) || timeutil.IsUsageRollingDayRange(filter.Range) {
-		// 滚动范围按 Overview 相同的精确窗口聚合，保证两页合计一致。
+	isRolling := timeutil.IsUsageRollingHourRange(filter.Range) || timeutil.IsUsageRollingDayRange(filter.Range)
+	if isRolling || (!bucketByDay && usageOverviewCurrentRightBoundary(filter, usageOverviewQueryNow(filter))) {
+		// 滚动范围和按小时的当前范围按 Overview 相同的精确窗口聚合，保证两页合计一致；按日的当前范围保持自然日汇总契约。
 		if err := buildAnalysisExactWindow(db, filter, record, costResolver); err != nil {
 			return nil, err
 		}

@@ -13,7 +13,7 @@ import (
 
 // analysisBoundaryEventProjectionColumns adds identity columns so boundary tokens reach the same
 // credential/provider compositions as the stats passes.
-const analysisBoundaryEventProjectionColumns = usageOverviewBoundaryEventProjectionColumns + ", instance_id, auth_index"
+const analysisBoundaryEventProjectionColumns = usageOverviewBoundaryEventProjectionColumns + ", instance_id, auth_index, latency_ms"
 
 // analysisWindowAccumulator folds every source (daily stats, hourly stats, boundary events) of one
 // exact window into a single AnalysisRecord.
@@ -74,6 +74,12 @@ func (a *analysisWindowAccumulator) addEvent(event entities.UsageEvent, identity
 	}
 	bucket := a.bucketOf(event.Timestamp)
 	modelName := a.costResolver.ResolveModelName(pricing.UsageDimensions{Model: event.Model})
+	speed := analysisOverviewStatProjection{Model: event.Model, TotalTokens: event.TotalTokens}
+	if event.OutputTokens > 0 && event.LatencyMS > 0 {
+		speed.SpeedTPSSum = float64(event.OutputTokens) * 1000 / float64(event.LatencyMS)
+		speed.SpeedSampleCount = 1
+	}
+	a.speed.add(speed, bucket)
 	applyAnalysisRow(a.record, a.bucketTotals, a.modelUsageTotals, a.apiTotals, a.modelTotals, a.heatmapTotals, bucket, event.InstanceID, event.APIGroupKey, modelName, 1, event.InputTokens, event.OutputTokens, event.CacheReadTokens, event.CacheCreationTokens, event.ReasoningTokens, event.TotalTokens, cost, costAvailable)
 	applyAnalysisIdentityComposition(identityLookup, a.credentialTotals, a.aiProviderTotals, a.providerTotals, event.InstanceID, event.AuthIndex, 1, event.InputTokens, event.OutputTokens, event.CacheReadTokens, event.CacheCreationTokens, event.ReasoningTokens, event.TotalTokens, cost, costAvailable)
 	return nil
@@ -106,7 +112,7 @@ func buildAnalysisExactWindow(db *gorm.DB, filter dto.UsageQueryFilter, record *
 
 	// Partial hours at both edges cannot be served from whole-hour rollups; read the raw events.
 	currentRight := usageOverviewCurrentRightBoundary(effective, *effective.QueryNow)
-	boundaryEvents, err := loadUsageOverviewRawEventWindowsWithFilter(db, effective, usageOverviewRawEventWindows(effective, fullStart, fullEnd, currentRight), nil)
+	boundaryEvents, err := loadAnalysisBoundaryEvents(db, effective, usageOverviewRawEventWindows(effective, fullStart, fullEnd, currentRight))
 	if err != nil {
 		return err
 	}
@@ -138,6 +144,7 @@ func buildAnalysisExactWindow(db *gorm.DB, filter dto.UsageQueryFilter, record *
 
 	if !fullEnd.After(fullStart) {
 		accumulator.finalize()
+		fillAnalysisFullDayHourlyBuckets(record, filter)
 		return nil
 	}
 
@@ -170,6 +177,7 @@ func buildAnalysisExactWindow(db *gorm.DB, filter dto.UsageQueryFilter, record *
 	}
 
 	accumulator.finalize()
+	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return nil
 }
 
@@ -186,4 +194,16 @@ func accumulateAnalysisHourlyWindow(db *gorm.DB, filter dto.UsageQueryFilter, ac
 		accumulator.addStatRow(row, identityLookup)
 	}
 	return nil
+}
+
+func loadAnalysisBoundaryEvents(db *gorm.DB, filter dto.UsageQueryFilter, windows []usageOverviewRawEventWindow) ([]entities.UsageEvent, error) {
+	events := make([]entities.UsageEvent, 0)
+	for _, window := range windows {
+		windowEvents, err := loadUsageOverviewEventRangeWithProjection(db, filter, window.start, window.end, window.includeEnd, analysisBoundaryEventProjectionColumns)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, windowEvents...)
+	}
+	return events, nil
 }

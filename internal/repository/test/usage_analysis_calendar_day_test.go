@@ -36,6 +36,10 @@ func TestAnalysisCalendarDayExcludesAdjacentDates(t *testing.T) {
 				if rangeName == "yesterday" {
 					anchor = anchor.AddDate(0, 0, 1)
 				}
+				currentHourly := rangeName == "today" && tc.granularity == dto.AnalysisGranularityHourly
+				if currentHourly {
+					anchor = next.Add(-time.Second)
+				}
 				parsed, err := timeutil.ParseUsageQueryRange(rangeName, "", "", "", anchor)
 				if err != nil {
 					t.Fatal(err)
@@ -67,9 +71,11 @@ func TestAnalysisCalendarDayExcludesAdjacentDates(t *testing.T) {
 				if err := repository.AggregateUsageOverviewStats(context.Background(), db, next.Add(12*time.Hour)); err != nil {
 					t.Fatal(err)
 				}
-				// 原始事件可已过保留期，必须仅凭现有增量表隔离相邻日期。
-				if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
-					t.Fatal(err)
+				// 历史日的原始事件可已过保留期，必须仅凭现有增量表隔离相邻日期；按小时的当天范围要用原始事件补齐当前小时。
+				if !currentHourly {
+					if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+						t.Fatal(err)
+					}
 				}
 				filter := dto.UsageQueryFilter{Range: rangeName, StartTime: &parsed.StartTime, EndTime: &parsed.EndTime, QueryNow: &anchor, APIGroupKey: "boundary-key"}
 				queries := captureAllAnalysisQueries(t, db)
@@ -158,8 +164,13 @@ func TestAnalysisCalendarDayKeepsHourlyDataAndEndingSentinel(t *testing.T) {
 			if err := db.Create(&hourly).Error; err != nil {
 				t.Fatal(err)
 			}
+			// 当前小时由原始事件承接（与 Overview 一致），这里补上最后一小时的原始事件。
+			lastHour := entities.UsageEvent{EventKey: "calendar-last-hour", APIGroupKey: "calendar-key", Model: "model", Timestamp: start.Add(time.Duration(tc.hours-1)*time.Hour + time.Minute), TotalTokens: 100, CostAvailable: new(true), CostUSD: new(float64(0))}
+			if err := db.Create(&lastHour).Error; err != nil {
+				t.Fatal(err)
+			}
 			seedAnalysisLatencyRows(t, db, end, entities.UsageLatencyBucketHour, events)
-			filter := dto.UsageQueryFilter{Range: "today", StartTime: &start, EndTime: &end}
+			filter := dto.UsageQueryFilter{Range: "today", StartTime: &start, EndTime: &end, QueryNow: &end}
 			analysis, err := repository.BuildAnalysisWithFilter(db, filter)
 			if err != nil {
 				t.Fatal(err)
