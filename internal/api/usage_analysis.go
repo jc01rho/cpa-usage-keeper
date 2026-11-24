@@ -511,6 +511,8 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		total += item.TotalTokens
 	}
 	payload := make([]analysisCompositionItem, 0, len(items))
+	mergedIndex := map[string]int{}
+	merged := false
 	for _, item := range items {
 		key := helper.RedactSensitiveValue(item.Key)
 		label := item.Key
@@ -519,9 +521,13 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 		} else if item.Label != "" {
 			label = item.Label
 		}
-		percent := 0.0
-		if total > 0 {
-			percent = (float64(item.TotalTokens) / float64(total)) * 100
+		if apiKeyInfos != nil {
+			if index, duplicate := mergedIndex[key]; duplicate {
+				mergeAnalysisCompositionItem(&payload[index], item)
+				merged = true
+				continue
+			}
+			mergedIndex[key] = len(payload)
 		}
 		payload = append(payload, analysisCompositionItem{
 			InstanceID:          item.InstanceID,
@@ -529,7 +535,6 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 			Label:               label,
 			TotalTokens:         item.TotalTokens,
 			Requests:            item.Requests,
-			Percent:             percent,
 			InputTokens:         item.InputTokens,
 			OutputTokens:        item.OutputTokens,
 			CacheReadTokens:     item.CacheReadTokens,
@@ -539,14 +544,47 @@ func buildAnalysisCompositionPayload(items []servicedto.AnalysisCompositionItem,
 			CostAvailable:       item.CostAvailable,
 		})
 	}
+	for index := range payload {
+		if total > 0 {
+			payload[index].Percent = (float64(payload[index].TotalTokens) / float64(total)) * 100
+		}
+	}
+	if merged {
+		sort.SliceStable(payload, func(i, j int) bool {
+			if payload[i].TotalTokens == payload[j].TotalTokens {
+				return payload[i].Key < payload[j].Key
+			}
+			return payload[i].TotalTokens > payload[j].TotalTokens
+		})
+	}
 	return payload
+}
+
+func mergeAnalysisCompositionItem(target *analysisCompositionItem, item servicedto.AnalysisCompositionItem) {
+	if target.InstanceID != item.InstanceID {
+		target.InstanceID = ""
+	}
+	target.TotalTokens += item.TotalTokens
+	target.Requests += item.Requests
+	target.InputTokens += item.InputTokens
+	target.OutputTokens += item.OutputTokens
+	target.CacheReadTokens += item.CacheReadTokens
+	target.CacheCreationTokens += item.CacheCreationTokens
+	target.ReasoningTokens += item.ReasoningTokens
+	target.CostUSD += item.CostUSD
+	target.CostAvailable = target.CostAvailable && item.CostAvailable
 }
 
 // analysisAPIKeyIdentityForInstance returns the response key and label for an API group key. Analysis counts every
 // group key (as Overview does), so a key missing from cpa_api_keys is masked the same way Overview realtime masks it.
+// A key unregistered on its own instance resolves to the main instance's registration when the same key exists there,
+// so the same key from different instances shares one identity.
 func analysisAPIKeyIdentityForInstance(instanceID, apiKey string, apiKeyInfos map[string]analysisAPIKeyInfo) (string, string) {
 	if instanceID == "" || apiKeyInfoExists(apiKeyInfos, instanceID, apiKey) {
 		return analysisAPIKeyResponseKeyForInstance(instanceID, apiKey, apiKeyInfos), analysisAPIKeyLabelForInstance(instanceID, apiKey, apiKeyInfos)
+	}
+	if apiKeyInfoExists(apiKeyInfos, entities.LegacyCPAInstanceID, apiKey) {
+		return analysisAPIKeyResponseKeyForInstance(entities.LegacyCPAInstanceID, apiKey, apiKeyInfos), analysisAPIKeyLabelForInstance(entities.LegacyCPAInstanceID, apiKey, apiKeyInfos)
 	}
 	label := strings.TrimSpace(apiKey)
 	if len(label) > 6 {
@@ -608,12 +646,27 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 	apiKeys := sortedHeatmapKeysByRequests(apiRequests)
 	models := sortedHeatmapKeysByRequests(modelRequests)
 	payloadCells := make([]analysisHeatmapCell, 0, len(cells))
+	mergedCells := map[[2]string]int{}
 	for _, cell := range cells {
-		intensity := 0.0
-		if maxTokens > 0 {
-			intensity = float64(cell.TotalTokens) / float64(maxTokens)
-		}
 		apiKey, _ := analysisAPIKeyIdentityForInstance(cell.InstanceID, cell.APIKey, apiKeyInfos)
+		cellKey := [2]string{apiKey, cell.Model}
+		if index, merged := mergedCells[cellKey]; merged {
+			target := &payloadCells[index]
+			if target.InstanceID != cell.InstanceID {
+				target.InstanceID = ""
+			}
+			target.InputTokens += cell.InputTokens
+			target.OutputTokens += cell.OutputTokens
+			target.CacheReadTokens += cell.CacheReadTokens
+			target.CacheCreationTokens += cell.CacheCreationTokens
+			target.ReasoningTokens += cell.ReasoningTokens
+			target.TotalTokens += cell.TotalTokens
+			target.Requests += cell.Requests
+			target.CostUSD += cell.CostUSD
+			target.CostAvailable = target.CostAvailable && cell.CostAvailable
+			continue
+		}
+		mergedCells[cellKey] = len(payloadCells)
 		payloadCells = append(payloadCells, analysisHeatmapCell{
 			InstanceID:          cell.InstanceID,
 			APIKey:              apiKey,
@@ -627,8 +680,18 @@ func buildAnalysisHeatmapPayload(cells []servicedto.AnalysisHeatmapCell, apiKeyI
 			Requests:            cell.Requests,
 			CostUSD:             cell.CostUSD,
 			CostAvailable:       cell.CostAvailable,
-			Intensity:           intensity,
 		})
+	}
+	maxTokens = 0
+	for _, cell := range payloadCells {
+		if cell.TotalTokens > maxTokens {
+			maxTokens = cell.TotalTokens
+		}
+	}
+	if maxTokens > 0 {
+		for index := range payloadCells {
+			payloadCells[index].Intensity = float64(payloadCells[index].TotalTokens) / float64(maxTokens)
+		}
 	}
 	return analysisHeatmap{APIKeys: apiKeys, APIKeyLabels: apiKeyLabels, Models: models, Cells: payloadCells}
 }

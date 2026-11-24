@@ -306,3 +306,82 @@ func TestUsageAnalysisRequiresAuthWhenEnabled(t *testing.T) {
 		t.Fatalf("expected status 401, got %d", resp.Code)
 	}
 }
+
+func TestUsageAnalysisMergesSameAPIKeyAcrossInstances(t *testing.T) {
+	bucket := time.Date(2026, 4, 22, 10, 0, 0, 0, time.Local)
+	const mainKey = "main-registered-key-0001"
+	const siblingKey = "sibling-unregistered-key-0002"
+	provider := &analysisSplitStub{analysis: &servicedto.AnalysisSnapshot{
+		Granularity: servicedto.AnalysisGranularityHourly,
+		TokenUsage:  []servicedto.AnalysisTokenUsageBucket{{Bucket: bucket, TotalTokens: 210, Requests: 8}},
+		APIKeyComposition: []servicedto.AnalysisCompositionItem{
+			{InstanceID: entities.LegacyCPAInstanceID, Key: mainKey, TotalTokens: 100, Requests: 1},
+			{InstanceID: "instance-a", Key: siblingKey, TotalTokens: 10, Requests: 1},
+			{InstanceID: "instance-b", Key: siblingKey, TotalTokens: 20, Requests: 2},
+			{InstanceID: "instance-c", Key: siblingKey, TotalTokens: 30, Requests: 3},
+			{InstanceID: "instance-a", Key: mainKey, TotalTokens: 50, Requests: 1},
+		},
+		ModelComposition: []servicedto.AnalysisCompositionItem{{Key: "claude-sonnet", TotalTokens: 210, Requests: 8}},
+		Heatmap: []servicedto.AnalysisHeatmapCell{
+			{InstanceID: entities.LegacyCPAInstanceID, APIKey: mainKey, Model: "claude-sonnet", TotalTokens: 100, Requests: 1},
+			{InstanceID: "instance-a", APIKey: siblingKey, Model: "claude-sonnet", TotalTokens: 10, Requests: 1},
+			{InstanceID: "instance-b", APIKey: siblingKey, Model: "claude-sonnet", TotalTokens: 20, Requests: 2},
+			{InstanceID: "instance-a", APIKey: mainKey, Model: "claude-sonnet", TotalTokens: 50, Requests: 1},
+		},
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{CPAAPIKeys: usageAnalysisAPIKeyStub{rows: []entities.CPAAPIKey{
+		{ID: 59, InstanceID: entities.LegacyCPAInstanceID, APIKey: mainKey, DisplayKey: "sk-*********000001", KeyAlias: "Main Key"},
+	}}})
+	resp := serveAPIGet(router, "/api/v1/usage/analysis?range=24h")
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	var payload struct {
+		APIKeyComposition []struct {
+			Key         string  `json:"key"`
+			Label       string  `json:"label"`
+			TotalTokens int64   `json:"total_tokens"`
+			Requests    int64   `json:"requests"`
+			Percent     float64 `json:"percent"`
+		} `json:"api_key_composition"`
+		Heatmap struct {
+			APIKeys []string `json:"api_keys"`
+			Cells   []struct {
+				APIKey      string `json:"api_key"`
+				TotalTokens int64  `json:"total_tokens"`
+				Requests    int64  `json:"requests"`
+			} `json:"cells"`
+		} `json:"heatmap"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode analysis response: %v", err)
+	}
+	composition := payload.APIKeyComposition
+	if len(composition) != 2 {
+		t.Fatalf("expected the same key from several instances to appear once, got %+v", composition)
+	}
+	if composition[0].Key != "59" || composition[0].Label != "Main Key" || composition[0].TotalTokens != 150 || composition[0].Requests != 2 {
+		t.Fatalf("expected the main registration to absorb its key from other instances, got %+v", composition[0])
+	}
+	if !strings.HasPrefix(composition[1].Key, "legacy:") || composition[1].TotalTokens != 60 || composition[1].Requests != 6 {
+		t.Fatalf("expected the sibling key to be summed across instances, got %+v", composition[1])
+	}
+	if percent := composition[0].Percent + composition[1].Percent; percent < 99.999 || percent > 100.001 {
+		t.Fatalf("expected percents to total 100 after merging, got %v", percent)
+	}
+	if len(payload.Heatmap.APIKeys) != 2 || len(payload.Heatmap.Cells) != 2 {
+		t.Fatalf("expected one heatmap row and cell per merged key, got %+v", payload.Heatmap)
+	}
+	for _, cell := range payload.Heatmap.Cells {
+		if cell.APIKey == "59" && (cell.TotalTokens != 150 || cell.Requests != 2) {
+			t.Fatalf("expected merged main heatmap cell, got %+v", cell)
+		}
+		if cell.APIKey != "59" && (cell.TotalTokens != 30 || cell.Requests != 3) {
+			t.Fatalf("expected merged sibling heatmap cell, got %+v", cell)
+		}
+	}
+	if body := resp.Body.String(); strings.Contains(body, mainKey) || strings.Contains(body, siblingKey) {
+		t.Fatalf("expected raw keys to stay hidden, got %s", body)
+	}
+}
