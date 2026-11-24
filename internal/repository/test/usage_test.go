@@ -409,12 +409,12 @@ func TestBuildAnalysisWithFilterKeepsHeatmapPairsSeparateWhenValuesContainDelimi
 	}
 }
 
-func TestBuildAnalysisWithFilterIncludesCurrentHourStatsInRollingHourlyRanges(t *testing.T) {
+func TestBuildAnalysisWithFilterIncludesWholeHourStatsInRollingHourlyRanges(t *testing.T) {
 	withRepositoryTestLocation(t, "Asia/Shanghai")
 	db := openTestDatabase(t)
 	start := time.Date(2026, 5, 21, 4, 14, 21, 0, time.Local)
 	end := time.Date(2026, 5, 21, 9, 14, 21, 0, time.Local)
-	currentHour := time.Date(2026, 5, 21, 9, 0, 0, 0, time.Local)
+	currentHour := time.Date(2026, 5, 21, 8, 0, 0, 0, time.Local)
 	if err := db.Create(&entities.CPAAPIKey{APIKey: "sk-target-key", DisplayKey: "sk-*********target"}).Error; err != nil {
 		t.Fatalf("insert CPA API key: %v", err)
 	}
@@ -429,20 +429,16 @@ func TestBuildAnalysisWithFilterIncludesCurrentHourStatsInRollingHourlyRanges(t 
 	}).Error; err != nil {
 		t.Fatalf("insert current hour stat: %v", err)
 	}
-	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
-		t.Fatalf("drop usage_events: %v", err)
-	}
 
-	analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "5h", StartTime: &start, EndTime: &end})
+	filter := repodto.UsageQueryFilter{Range: "5h", StartTime: &start, EndTime: &end}
+	analysis, err := BuildAnalysisWithFilter(db, filter)
 	if err != nil {
 		t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 	}
-	if len(analysis.TokenUsage) != 1 {
-		t.Fatalf("expected current hour bucket only, got %+v", analysis.TokenUsage)
+	if len(analysis.TokenUsage) != 1 || !analysis.TokenUsage[0].Bucket.Equal(currentHour) {
+		t.Fatalf("expected the last whole hour bucket, got %+v", analysis.TokenUsage)
 	}
-	if !analysis.TokenUsage[0].Bucket.Equal(currentHour) || analysis.TokenUsage[0].TotalTokens != 100 || analysis.TokenUsage[0].Requests != 6 {
-		t.Fatalf("expected current hour stat to be included, got %+v", analysis.TokenUsage[0])
-	}
+	requireAnalysisMatchesOverview(t, db, filter, analysis)
 }
 
 func TestBuildAnalysisWithFilterFillsTodayAndYesterdayHourlyBucketsFromStats(t *testing.T) {
@@ -504,7 +500,7 @@ func TestBuildAnalysisWithFilterFillsTodayAndYesterdayHourlyBucketsFromStats(t *
 	}
 }
 
-func TestBuildAnalysisWithFilterUsesCurrentDailyRollupInDailyRanges(t *testing.T) {
+func TestBuildAnalysisWithFilterMatchesOverviewInDailyRollingRanges(t *testing.T) {
 	withRepositoryTestLocation(t, "UTC")
 	db := openTestDatabase(t)
 	start := time.Date(2026, 5, 11, 10, 15, 0, 0, time.UTC)
@@ -559,13 +555,11 @@ func TestBuildAnalysisWithFilterUsesCurrentDailyRollupInDailyRanges(t *testing.T
 	}).Error; err != nil {
 		t.Fatalf("insert hourly stats: %v", err)
 	}
-	if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
-		t.Fatalf("drop usage_events: %v", err)
-	}
 
 	for _, rangeValue := range []string{"7d", "30d"} {
 		t.Run(rangeValue, func(t *testing.T) {
-			analysis, err := BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: rangeValue, StartTime: &start, EndTime: &end})
+			filter := repodto.UsageQueryFilter{Range: rangeValue, StartTime: &start, EndTime: &end}
+			analysis, err := BuildAnalysisWithFilter(db, filter)
 			if err != nil {
 				t.Fatalf("BuildAnalysisWithFilter returned error: %v", err)
 			}
@@ -573,18 +567,7 @@ func TestBuildAnalysisWithFilterUsesCurrentDailyRollupInDailyRanges(t *testing.T
 			if analysis.Granularity != "daily" {
 				t.Fatalf("expected daily granularity, got %q", analysis.Granularity)
 			}
-			if len(analysis.TokenUsage) != 2 {
-				t.Fatalf("expected yesterday and current-day buckets, got %+v", analysis.TokenUsage)
-			}
-			if !analysis.TokenUsage[0].Bucket.Equal(yesterday) || analysis.TokenUsage[0].TotalTokens != 30 || analysis.TokenUsage[0].Requests != 2 {
-				t.Fatalf("expected yesterday daily stats first, got %+v", analysis.TokenUsage[0])
-			}
-			if !analysis.TokenUsage[1].Bucket.Equal(currentDay) || analysis.TokenUsage[1].TotalTokens != 90 || analysis.TokenUsage[1].Requests != 4 {
-				t.Fatalf("expected current-day daily stats, got %+v", analysis.TokenUsage[1])
-			}
-			if len(analysis.APIKeyComposition) != 1 || analysis.APIKeyComposition[0].TotalTokens != 120 || analysis.APIKeyComposition[0].Requests != 6 {
-				t.Fatalf("expected compositions to include only daily stats, got %+v", analysis.APIKeyComposition)
-			}
+			requireAnalysisMatchesOverview(t, db, filter, analysis)
 		})
 	}
 }

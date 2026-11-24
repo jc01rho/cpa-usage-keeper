@@ -470,6 +470,14 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, resolvers
 		},
 	}
 
+	if timeutil.IsUsageRollingHourRange(filter.Range) || timeutil.IsUsageRollingDayRange(filter.Range) {
+		// 滚动范围按 Overview 相同的精确窗口聚合，保证两页合计一致。
+		if err := buildAnalysisExactWindow(db, filter, record, costResolver); err != nil {
+			return nil, err
+		}
+		return record, nil
+	}
+
 	if bucketByDay {
 		dailyStart := timeutil.NormalizeStorageTime(*filter.StartTime)
 		dailyEnd := timeutil.NormalizeStorageTime(*filter.EndTime)
