@@ -1489,13 +1489,15 @@ type usageOverviewRealtimeLatencyPair struct {
 }
 
 type usageOverviewRealtimeTopAccumulator struct {
-	instanceID    string
-	key           string
-	label         string
-	tokens        int64
-	requests      int64
-	costUSD       float64
-	costAvailable bool
+	instanceID      string
+	key             string
+	label           string
+	tokens          int64
+	inputTokens     int64
+	cacheReadTokens int64
+	requests        int64
+	costUSD         float64
+	costAvailable   bool
 }
 
 type usageOverviewRealtimeEvent struct {
@@ -1799,17 +1801,19 @@ func applyUsageOverviewRealtimeTokenUsage(realtimeEvent usageOverviewRealtimeEve
 	event := realtimeEvent.event
 	// token share 的模型维度只统计成功且有 token 的请求。
 	modelKey := normalizeUsageOverviewDimension(event.Model)
-	applyUsageOverviewRealtimeTokenUsageToTotals(modelUsage, modelKey, "", modelKey, modelKey, event.TotalTokens, cost, costAvailable)
-	// token share 的 API Key 维度同样按 api_group_key 聚合。
-	applyUsageOverviewRealtimeTokenUsageToTotals(apiKeyUsage, usageOverviewRealtimeAPIKeyScope(event.InstanceID, event.APIGroupKey), event.InstanceID, normalizeUsageOverviewDimension(event.APIGroupKey), normalizeUsageOverviewDimension(event.APIGroupKey), event.TotalTokens, cost, costAvailable)
+	applyUsageOverviewRealtimeTokenUsageToTotals(modelUsage, modelKey, "", modelKey, modelKey, &event, cost, costAvailable)
+	// The API Key dimension of token share is aggregated by api_group_key as well.
+	applyUsageOverviewRealtimeTokenUsageToTotals(apiKeyUsage, usageOverviewRealtimeAPIKeyScope(event.InstanceID, event.APIGroupKey), event.InstanceID, normalizeUsageOverviewDimension(event.APIGroupKey), normalizeUsageOverviewDimension(event.APIGroupKey), &event, cost, costAvailable)
 	// 身份维度 token 聚合保持和请求数相同的身份解析策略。
 	applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent, credentialUsage, aiProviderUsage, identityLookup, cost, costAvailable)
 }
 
-func applyUsageOverviewRealtimeTokenUsageToTotals(totals map[string]*usageOverviewRealtimeTopAccumulator, key, instanceID, publicKey, label string, tokens int64, cost float64, costAvailable bool) {
-	// 同一个 key 的 token/cost 累加到同一 Top5 accumulator。
+func applyUsageOverviewRealtimeTokenUsageToTotals(totals map[string]*usageOverviewRealtimeTopAccumulator, key, instanceID, publicKey, label string, event *entities.UsageEvent, cost float64, costAvailable bool) {
+	// Token and cache-rate totals for one key share the same accumulator and the same successful-request cost set.
 	item := usageOverviewRealtimeTopItem(totals, key, instanceID, publicKey, label)
-	item.tokens += tokens
+	item.tokens += event.TotalTokens
+	item.inputTokens += event.InputTokens
+	item.cacheReadTokens += event.CacheReadTokens
 	item.costUSD += cost
 	if !costAvailable {
 		item.costAvailable = false
@@ -1848,10 +1852,10 @@ func applyUsageOverviewRealtimeIdentityTokenUsage(realtimeEvent usageOverviewRea
 	// token 累计使用和 request 累计相同的身份解析结果，避免两类统计对不上。
 	credential, aiProvider := usageOverviewRealtimeIdentityTargets(realtimeEvent, identityLookup)
 	if credential != nil {
-		applyUsageOverviewRealtimeTokenUsageToTotals(credentialUsage, analysisIdentityKey(event.InstanceID, credential.identity), event.InstanceID, credential.identity, credential.label, event.TotalTokens, cost, costAvailable)
+		applyUsageOverviewRealtimeTokenUsageToTotals(credentialUsage, analysisIdentityKey(event.InstanceID, credential.identity), event.InstanceID, credential.identity, credential.label, &event, cost, costAvailable)
 	}
 	if aiProvider != nil {
-		applyUsageOverviewRealtimeTokenUsageToTotals(aiProviderUsage, analysisIdentityKey(event.InstanceID, aiProvider.identity), event.InstanceID, aiProvider.identity, aiProvider.label, event.TotalTokens, cost, costAvailable)
+		applyUsageOverviewRealtimeTokenUsageToTotals(aiProviderUsage, analysisIdentityKey(event.InstanceID, aiProvider.identity), event.InstanceID, aiProvider.identity, aiProvider.label, &event, cost, costAvailable)
 	}
 }
 
@@ -2076,6 +2080,8 @@ func finalizeUsageOverviewRealtimeTopItems(totals map[string]*usageOverviewRealt
 		other := &usageOverviewRealtimeTopAccumulator{key: dto.RealtimeUsageOtherKey, label: "Other", costAvailable: true}
 		for _, item := range items[5:] {
 			other.tokens += item.tokens
+			other.inputTokens += item.inputTokens
+			other.cacheReadTokens += item.cacheReadTokens
 			other.requests += item.requests
 			other.costUSD += item.costUSD
 			if !item.costAvailable {
@@ -2091,13 +2097,15 @@ func finalizeUsageOverviewRealtimeTopItems(totals map[string]*usageOverviewRealt
 			share = (float64(item.tokens) / float64(totalTokens)) * 100
 		}
 		result = append(result, dto.RealtimeUsageTopItemRecord{
-			InstanceID: item.instanceID,
-			Key:        item.key,
-			Label:      item.label,
-			Tokens:     item.tokens,
-			Requests:   item.requests,
-			CostUSD:    usageOverviewRealtimeCostPtr(item.costUSD, item.costAvailable),
-			Share:      share,
+			InstanceID:      item.instanceID,
+			Key:             item.key,
+			Label:           item.label,
+			Tokens:          item.tokens,
+			InputTokens:     item.inputTokens,
+			CacheReadTokens: item.cacheReadTokens,
+			Requests:        item.requests,
+			CostUSD:         usageOverviewRealtimeCostPtr(item.costUSD, item.costAvailable),
+			Share:           share,
 		})
 	}
 	return result

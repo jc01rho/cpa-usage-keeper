@@ -61,13 +61,15 @@ const RealtimeUsageOtherKey = "__realtime_others__"
 
 // RealtimeUsageTopItemRecord 是 Overview 当前使用 Top5+Other 列表项。
 type RealtimeUsageTopItemRecord struct {
-	InstanceID string
-	Key        string
-	Label      string
-	Tokens     int64
-	Requests   int64
-	CostUSD    *float64
-	Share      float64
+	InstanceID      string
+	Key             string
+	Label           string
+	Tokens          int64
+	InputTokens     int64
+	CacheReadTokens int64
+	Requests        int64
+	CostUSD         *float64
+	Share           float64
 }
 
 // RealtimeCurrentUsageRecord 是 Overview 当前使用按维度聚合的 Top5+Other 列表。
