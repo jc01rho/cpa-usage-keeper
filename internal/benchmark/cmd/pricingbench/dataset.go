@@ -191,11 +191,21 @@ func restoreTenDimensionOverview(ctx context.Context, db *sql.DB) error {
 			}
 		}
 		index := "uniq_" + table + "_dimensions"
+		// The fork schema already carries the alias index, so creating it again is
+		// only needed when this schema lost it.
+		aliasIndex := "idx_" + table + "_model_alias_bucket"
+		var aliasPresent int
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", aliasIndex).Scan(&aliasPresent); err != nil {
+			return fmt.Errorf("inspect %s: %w", aliasIndex, err)
+		}
 		for _, step := range []string{
 			"DROP INDEX " + index,
 			"CREATE UNIQUE INDEX " + index + " ON " + table + " (" + pricingBenchTenDimensions + ")",
-			"CREATE INDEX idx_" + table + "_model_alias_bucket ON " + table + " (model_alias, bucket_start)",
+			"CREATE INDEX " + aliasIndex + " ON " + table + " (model_alias, bucket_start)",
 		} {
+			if strings.HasPrefix(step, "CREATE INDEX "+aliasIndex) && aliasPresent > 0 {
+				continue
+			}
 			if _, err := tx.ExecContext(ctx, step); err != nil {
 				return fmt.Errorf("restore ten-dimension %s indexes: %w", table, err)
 			}

@@ -307,11 +307,18 @@ func seedPublishedPricingRuntime(t *testing.T, cfg config.Config) *gorm.DB {
 			}
 		}
 		index := "uniq_" + table + "_dimensions"
+		// The fork schema already carries the alias index, so creating it again is
+		// only needed when this schema lost it.
+		aliasIndex := "idx_" + table + "_model_alias_bucket"
+		aliasIndexMissing := !seed.Migrator().HasIndex(table, aliasIndex)
 		for _, statement := range []string{
 			"DROP INDEX " + index,
 			"CREATE UNIQUE INDEX " + index + " ON " + table + " (bucket_start, api_group_key, model, auth_index, model_alias, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type)",
-			"CREATE INDEX idx_" + table + "_model_alias_bucket ON " + table + " (model_alias, bucket_start)",
+			"CREATE INDEX " + aliasIndex + " ON " + table + " (model_alias, bucket_start)",
 		} {
+			if strings.HasPrefix(statement, "CREATE INDEX "+aliasIndex) && !aliasIndexMissing {
+				continue
+			}
 			if err := seed.Exec(statement).Error; err != nil {
 				t.Fatalf("restore old %s indexes: %v", table, err)
 			}
