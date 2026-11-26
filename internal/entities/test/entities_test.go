@@ -125,8 +125,10 @@ func TestUsageOverviewSchemaIncludesOnlySixAggregationDimensions(t *testing.T) {
 
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
 		for _, dimension := range []string{"model_alias", "response_service_tier", "endpoint", "executor_type"} {
-			if db.Migrator().HasColumn(table, dimension) {
-				t.Fatalf("unexpected %s.%s", table, dimension)
+			// Fork contract: these dimensions stay in the overview schema, so the
+			// six-dimension reduction must not remove them.
+			if !db.Migrator().HasColumn(table, dimension) {
+				t.Fatalf("expected %s.%s to be present", table, dimension)
 			}
 		}
 	}

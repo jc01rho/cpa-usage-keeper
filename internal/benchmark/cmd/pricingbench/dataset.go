@@ -177,6 +177,15 @@ func restoreTenDimensionOverview(ctx context.Context, db *sql.DB) error {
 	defer tx.Rollback()
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
 		for _, column := range []string{"model_alias", "response_service_tier", "endpoint", "executor_type"} {
+			// The fork keeps these dimensions, so they may already exist; only add
+			// what this schema is actually missing.
+			var present int
+			if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", table, column).Scan(&present); err != nil {
+				return fmt.Errorf("inspect %s.%s: %w", table, column, err)
+			}
+			if present > 0 {
+				continue
+			}
 			if _, err := tx.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+column+" TEXT NOT NULL DEFAULT ''"); err != nil {
 				return fmt.Errorf("restore old %s.%s: %w", table, column, err)
 			}

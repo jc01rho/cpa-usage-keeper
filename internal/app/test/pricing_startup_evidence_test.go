@@ -297,6 +297,11 @@ func seedPublishedPricingRuntime(t *testing.T, cfg config.Config) *gorm.DB {
 			}
 		}
 		for _, column := range []string{"model_alias", "response_service_tier", "endpoint", "executor_type"} {
+			// The fork keeps these dimensions, so they may already exist; only add
+			// what this schema is actually missing.
+			if seed.Migrator().HasColumn(table, column) {
+				continue
+			}
 			if err := seed.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " TEXT NOT NULL DEFAULT ''").Error; err != nil {
 				t.Fatalf("restore old %s.%s: %v", table, column, err)
 			}

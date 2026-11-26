@@ -52,25 +52,35 @@ func TestUsageOverviewAggregationGroupsOnlySixDimensions(t *testing.T) {
 		}
 	}
 
-	type key struct{ ServiceTier, ReasoningEffort string }
+	// Fork contract: the overview key keeps every dimension the fork models
+	// (model_alias, response_service_tier, endpoint, executor_type), so the
+	// variations above stay in separate buckets instead of collapsing to six.
+	type key struct{ ModelAlias, ServiceTier, ResponseServiceTier, ReasoningEffort, Endpoint, ExecutorType string }
 	type totals struct{ RequestCount, TotalTokens int64 }
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
 		var rows []struct {
-			ServiceTier, ReasoningEffort string
-			RequestCount, TotalTokens    int64
+			ModelAlias, ServiceTier, ResponseServiceTier, ReasoningEffort, Endpoint, ExecutorType string
+			RequestCount, TotalTokens                                                             int64
 		}
-		if err := db.Table(table).Select("service_tier, reasoning_effort, request_count, total_tokens").Find(&rows).Error; err != nil {
+		if err := db.Table(table).Select("model_alias, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type, request_count, total_tokens").Find(&rows).Error; err != nil {
 			t.Fatal(err)
 		}
 		want := map[key]totals{
-			{"default", "xhigh"}: {7, 280}, {"priority", "xhigh"}: {1, 80}, {"default", "max"}: {1, 90},
-			{"", "xhigh"}: {1, 100}, {"default", ""}: {1, 110},
+			{"alias-a", "default", "default", "xhigh", "GET /v1/responses", "CodexExecutor"}:           {3, 140},
+			{"alias-b", "default", "default", "xhigh", "GET /v1/responses", "CodexExecutor"}:           {1, 20},
+			{"alias-a", "default", "priority", "xhigh", "GET /v1/responses", "CodexExecutor"}:          {1, 30},
+			{"alias-a", "default", "default", "xhigh", "POST /v1/responses", "CodexExecutor"}:          {1, 40},
+			{"alias-a", "default", "default", "xhigh", "GET /v1/responses", "CodexWebsocketsExecutor"}: {1, 50},
+			{"alias-a", "priority", "default", "xhigh", "GET /v1/responses", "CodexExecutor"}:          {1, 80},
+			{"alias-a", "default", "default", "max", "GET /v1/responses", "CodexExecutor"}:             {1, 90},
+			{"alias-a", "", "default", "xhigh", "GET /v1/responses", "CodexExecutor"}:                  {1, 100},
+			{"alias-a", "default", "default", "", "GET /v1/responses", "CodexExecutor"}:                {1, 110},
 		}
 		if len(rows) != len(want) {
 			t.Fatalf("%s: got %d rows, want %d: %+v", table, len(rows), len(want), rows)
 		}
 		for _, row := range rows {
-			k := key{row.ServiceTier, row.ReasoningEffort}
+			k := key{row.ModelAlias, row.ServiceTier, row.ResponseServiceTier, row.ReasoningEffort, row.Endpoint, row.ExecutorType}
 			if got := (totals{row.RequestCount, row.TotalTokens}); got != want[k] {
 				t.Fatalf("%s key %+v: got %+v, want %+v", table, k, got, want[k])
 			}

@@ -91,8 +91,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"auth_sessions":               {"token_hash": true, "source": true, "token": false},
 		"usage_identities":            {"alias": true},
 		"model_price_settings":        {"price_multiplier": true},
-		"usage_overview_hourly_stats": {"service_tier": true, "reasoning_effort": true, "model_alias": false, "response_service_tier": false, "endpoint": false, "executor_type": false},
-		"usage_overview_daily_stats":  {"service_tier": true, "reasoning_effort": true, "model_alias": false, "response_service_tier": false, "endpoint": false, "executor_type": false},
+		"usage_overview_hourly_stats": {"service_tier": true, "reasoning_effort": true, "model_alias": true, "response_service_tier": true, "endpoint": true, "executor_type": true},
+		"usage_overview_daily_stats":  {"service_tier": true, "reasoning_effort": true, "model_alias": true, "response_service_tier": true, "endpoint": true, "executor_type": true},
 	} {
 		columnTypes, err := db.Migrator().ColumnTypes(table)
 		if err != nil {
@@ -129,6 +129,7 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_overview_daily_stats_api_model_bucket",
 		"idx_usage_overview_daily_stats_auth_bucket",
 		"idx_usage_overview_daily_stats_model_alias_bucket",
+		"idx_usage_overview_hourly_stats_model_alias_bucket",
 		"uniq_usage_activity_stats_instance_grain_start_api",
 		"idx_usage_activity_stats_api_grain_start",
 		"idx_usage_activity_stats_grain_end",
@@ -146,15 +147,12 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 		"idx_usage_events_provider",
 		"idx_usage_events_auth_type",
 		"idx_usage_events_auth_type_source_id",
-		"idx_usage_overview_hourly_stats_model_alias_bucket",
-		"idx_usage_overview_daily_stats_model_alias_bucket",
 	} {
 		if slices.Contains(indexNames, indexName) {
 			t.Fatalf("expected sqlite index %s not to exist", indexName)
 		}
 	}
 }
-
 func TestOpenDatabaseConfiguresSQLiteRuntime(t *testing.T) {
 	db := openTestDatabase(t)
 
