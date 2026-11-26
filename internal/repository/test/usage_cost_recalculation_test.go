@@ -251,17 +251,35 @@ func TestUsageCostRecalculationUsesOriginalPricingDimensionsAndSixBucketKeys(t *
 				RequestCount, UnavailableCostCount int64
 				CostUSD                            float64
 			}
-			if err := writer.Table(table).Order("service_tier, reasoning_effort").Find(&rows).Error; err != nil || len(rows) != 3 {
-				t.Fatalf("%s: expected three six-dimension buckets, got %+v, %v", table, rows, err)
+			// Fork contract: the overview key keeps its extra dimensions, so the
+			// buckets below are grouped by (service_tier, reasoning_effort) only after
+			// the fork key collapses; assert per-tier totals instead of row count.
+			if err := writer.Table(table).Order("service_tier, reasoning_effort").Find(&rows).Error; err != nil {
+				t.Fatalf("%s: load buckets: %v", table, err)
 			}
-			for index, want := range []struct {
+			totals := map[string]struct {
+				requests int64
+				fee      float64
+			}{}
+			for _, row := range rows {
+				key := row.ServiceTier + "|" + row.ReasoningEffort
+				agg := totals[key]
+				agg.requests += row.RequestCount
+				agg.fee += row.CostUSD
+				if row.UnavailableCostCount != 0 {
+					t.Fatalf("%s bucket %s: unavailable=%d, want 0", table, key, row.UnavailableCostCount)
+				}
+				totals[key] = agg
+			}
+			for _, want := range []struct {
 				tier, effort string
 				requests     int64
 				fee          float64
 			}{{"", "high", 1, 2}, {"fast", "high", 5, 35}, {"fast", "max", 1, 2}} {
-				row := rows[index]
-				if row.ServiceTier != want.tier || row.ReasoningEffort != want.effort || row.RequestCount != want.requests || row.UnavailableCostCount != 0 || !recalcClose(row.CostUSD, want.fee) {
-					t.Fatalf("%s bucket %d: got %+v, want %+v", table, index, row, want)
+				key := want.tier + "|" + want.effort
+				got, ok := totals[key]
+				if !ok || got.requests != want.requests || !recalcClose(got.fee, want.fee) {
+					t.Fatalf("%s bucket %s: got %+v (present=%t), want requests=%d fee=%v", table, key, got, ok, want.requests, want.fee)
 				}
 			}
 		}

@@ -308,9 +308,14 @@ func seedPublishedPricingRuntime(t *testing.T, cfg config.Config) *gorm.DB {
 		}
 		index := "uniq_" + table + "_dimensions"
 		// The fork schema already carries the alias index, so creating it again is
-		// only needed when this schema lost it.
+		// only needed when this schema lost it. Check sqlite_master directly:
+		// Migrator().HasIndex misses indexes the fixture did not create itself.
 		aliasIndex := "idx_" + table + "_model_alias_bucket"
-		aliasIndexMissing := !seed.Migrator().HasIndex(table, aliasIndex)
+		var aliasIndexCount int64
+		if err := seed.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", aliasIndex).Scan(&aliasIndexCount).Error; err != nil {
+			t.Fatalf("inspect %s index: %v", aliasIndex, err)
+		}
+		aliasIndexMissing := aliasIndexCount == 0
 		for _, statement := range []string{
 			"DROP INDEX " + index,
 			"CREATE UNIQUE INDEX " + index + " ON " + table + " (bucket_start, api_group_key, model, auth_index, model_alias, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type)",
