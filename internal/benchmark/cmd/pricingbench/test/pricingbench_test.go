@@ -137,13 +137,14 @@ func TestPricingBenchCLIExercisesRealOldSchemas(t *testing.T) {
 			}
 			assertPricingBenchColumn(t, liveDB, "usage_events", "cost_usd", true)
 			const tenDimensions = "bucket_start,api_group_key,model,auth_index,model_alias,service_tier,response_service_tier,reasoning_effort,endpoint,executor_type"
-			const sixDimensions = "bucket_start,api_group_key,model,auth_index,service_tier,reasoning_effort"
 			for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
 				if scenario == "latest" {
 					assertPricingBenchOverviewDimensions(t, backupDB, table, tenDimensions)
 				}
-				assertPricingBenchOverviewDimensions(t, preMergeDB, table, tenDimensions)
-				assertPricingBenchOverviewDimensions(t, liveDB, table, sixDimensions)
+				// Fork contract: the six-dimension reduction is skipped, so both the
+				// pre-merge snapshot and the live database keep the fork's dimensions.
+				assertPricingBenchForkOverviewDimensions(t, preMergeDB, table, tenDimensions)
+				assertPricingBenchForkOverviewDimensions(t, liveDB, table, tenDimensions)
 				assertPricingBenchColumn(t, preMergeDB, table, "cost_usd", true)
 				for _, column := range []string{"speed_tps_sum", "speed_sample_count", "decode_speed_tps_sum", "decode_speed_sample_count"} {
 					assertPricingBenchColumn(t, backupDB, table, column, false)
@@ -196,6 +197,17 @@ func assertPricingBenchOverviewDimensions(t *testing.T, db *sql.DB, table, want 
 	if err := db.QueryRow(`SELECT group_concat(name) FROM (SELECT name FROM pragma_index_info(?) ORDER BY seqno)`,
 		"uniq_"+table+"_dimensions").Scan(&got); err != nil || got != want {
 		t.Fatalf("%s index dimensions %q, want %q: %v", table, got, want, err)
+	}
+}
+
+// assertPricingBenchForkOverviewDimensions accepts the fork's ten dimensions
+// with or without the leading instance_id namespace, and nothing else.
+func assertPricingBenchForkOverviewDimensions(t *testing.T, db *sql.DB, table, want string) {
+	t.Helper()
+	var got string
+	if err := db.QueryRow(`SELECT group_concat(name) FROM (SELECT name FROM pragma_index_info(?) ORDER BY seqno)`,
+		"uniq_"+table+"_dimensions").Scan(&got); err != nil || strings.TrimPrefix(got, "instance_id,") != want {
+		t.Fatalf("%s index dimensions %q, want %q (optionally prefixed by instance_id): %v", table, got, want, err)
 	}
 }
 

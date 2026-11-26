@@ -248,8 +248,10 @@ func TestPricingFailedOverviewMigrationKeepsShellAndResumesOnRestart(t *testing.
 		columns := "cost_usd, input_tokens, total_tokens"
 		if table != "usage_events" {
 			columns += ", request_count"
-			if second.app.DB.Migrator().HasColumn(table, "model_alias") {
-				t.Fatalf("%s did not switch to six dimensions before ready", table)
+			// Fork contract: the six-dimension reduction is skipped, so the fork's
+			// extra dimensions must still be present once the app is ready.
+			if !second.app.DB.Migrator().HasColumn(table, "model_alias") {
+				t.Fatalf("%s lost the fork overview dimensions before ready", table)
 			}
 		}
 		if err := second.app.DB.Table(table).Select(columns).Scan(&fact).Error; err != nil {

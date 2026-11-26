@@ -27,18 +27,18 @@ func TestUsageOverviewAggregationPreservesAllExistingHourlyAndDailyFields(t *tes
 		t.Fatalf("AggregateUsageOverviewStats returned error: %v", err)
 	}
 
-	var hourly entities.UsageOverviewHourlyStat
-	if err := db.Where("api_group_key = ? AND model = ? AND auth_index = ?", "provider-a", "model-a", "auth-a").Take(&hourly).Error; err != nil {
-		t.Fatalf("load hourly parity row: %v", err)
+	// Fork contract: the two events differ by model_alias, which the fork keeps as
+	// a dimension, so they land in separate rows. Sum the rows for the key: any
+	// loss or duplication from split batches still changes the exact totals.
+	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
+		var requests, success, failure, input, output, reasoning, cached, cacheRead, cacheCreation, total int64
+		if err := db.Table(table).Where("api_group_key = ? AND model = ? AND auth_index = ?", "provider-a", "model-a", "auth-a").
+			Select("COALESCE(SUM(request_count),0), COALESCE(SUM(success_count),0), COALESCE(SUM(failure_count),0), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(reasoning_tokens),0), COALESCE(SUM(cached_tokens),0), COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_creation_tokens),0), COALESCE(SUM(total_tokens),0)").
+			Row().Scan(&requests, &success, &failure, &input, &output, &reasoning, &cached, &cacheRead, &cacheCreation, &total); err != nil {
+			t.Fatalf("load %s parity totals: %v", table, err)
+		}
+		assertUsageOverviewParityFields(t, table, requests, success, failure, input, output, reasoning, cached, cacheRead, cacheCreation, total)
 	}
-	assertUsageOverviewParityFields(t, "hourly", hourly.RequestCount, hourly.SuccessCount, hourly.FailureCount, hourly.InputTokens, hourly.OutputTokens, hourly.ReasoningTokens, hourly.CachedTokens, hourly.CacheReadTokens, hourly.CacheCreationTokens, hourly.TotalTokens)
-
-	// daily 必须与 hourly 对同一 fixture 得到完全相同的旧字段总计。
-	var daily entities.UsageOverviewDailyStat
-	if err := db.Where("api_group_key = ? AND model = ? AND auth_index = ?", "provider-a", "model-a", "auth-a").Take(&daily).Error; err != nil {
-		t.Fatalf("load daily parity row: %v", err)
-	}
-	assertUsageOverviewParityFields(t, "daily", daily.RequestCount, daily.SuccessCount, daily.FailureCount, daily.InputTokens, daily.OutputTokens, daily.ReasoningTokens, daily.CachedTokens, daily.CacheReadTokens, daily.CacheCreationTokens, daily.TotalTokens)
 
 	// Overview checkpoint 继续精确推进到最后一条 usage event。
 	var checkpoint entities.UsageAggregationCheckpoint
