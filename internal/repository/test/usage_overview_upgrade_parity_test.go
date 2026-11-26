@@ -104,12 +104,16 @@ func TestUsageOverviewReadConsumersKeepResultsAfterSixDimensionsUpgrade(t *testi
 		len(before.IdentityModels) != 2 || before.Quota.Tokens != 430 || before.Quota.CostAvailable {
 		t.Fatalf("fixture did not hit all rollup consumers: %+v", before)
 	}
-	// 两个被合并的请求等权平均，端到端 TPS 分别为 40 和 10；缺价和失败不排除速度。
+	// Requests are averaged with equal weight: end-to-end TPS is 40 (base), 10
+	// (variant) and 40 (the deleted-key copy of base). Fork contract (v2.1.1-5):
+	// analysis covers every API key, including deleted ones, so the deleted-key
+	// event is a third sample here where upstream sees two. Missing prices and
+	// failures do not exclude speed.
 	firstSpeed := before.Analysis[0].ModelSpeed.Series[0].Samples[0]
-	if firstSpeed.SpeedSampleCount != 2 || firstSpeed.MeanTPS == nil {
+	if firstSpeed.SpeedSampleCount != 3 || firstSpeed.MeanTPS == nil {
 		t.Fatalf("missing TPS sample: %+v", firstSpeed)
 	}
-	assertFloatClose(t, *firstSpeed.MeanTPS, 25)
+	assertFloatClose(t, *firstSpeed.MeanTPS, 30)
 
 	if err := repository.RunDatabaseMigrationsWithBackup(ctx, db, db, t.TempDir()); err != nil {
 		t.Fatal(err)
