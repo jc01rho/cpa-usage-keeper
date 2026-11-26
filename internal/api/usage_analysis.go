@@ -177,6 +177,9 @@ type analysisAPIKeyInfo struct {
 	ID         string
 	InstanceID string
 	Label      string
+	// Name is the operator-facing key name (alias first, else the masked key). A key that is not
+	// registered on its own instance resolves to the main instance registration carrying the same name.
+	Name string
 }
 
 func registerUsageAnalysisRoute(router gin.IRoutes, usageProvider service.UsageProvider, cpaAPIKeyProvider service.CPAAPIKeyProvider) {
@@ -362,8 +365,15 @@ func buildCPAAPIKeyInfos(rows []entities.CPAAPIKey) map[string]analysisAPIKeyInf
 			ID:         strconv.FormatInt(row.ID, 10),
 			InstanceID: row.InstanceID,
 			Label:      label,
+			Name:       analysisAPIKeyRegistrationName(row),
 		}
 		infos[apiKeyInfoLookupKey(row.InstanceID, fingerprint)] = info
+		// A deleted registration keeps its usage history but must not capture keys of other instances by name.
+		if !row.IsDeleted && info.Name != "" && row.InstanceID == entities.LegacyCPAInstanceID {
+			if _, duplicate := infos[apiKeyNameLookupKey(info.Name)]; !duplicate {
+				infos[apiKeyNameLookupKey(info.Name)] = info
+			}
+		}
 		if _, duplicate := uniqueByFingerprint[fingerprint]; duplicate {
 			delete(uniqueByFingerprint, fingerprint)
 			ambiguousFingerprints[fingerprint] = struct{}{}
@@ -382,6 +392,24 @@ func buildCPAAPIKeyInfos(rows []entities.CPAAPIKey) map[string]analysisAPIKeyInf
 
 func apiKeyInfoLookupKey(instanceID, fingerprint string) string {
 	return strings.TrimSpace(instanceID) + "\x00" + strings.TrimSpace(fingerprint)
+}
+
+// apiKeyNameLookupKey namespaces the name index so it can never collide with an instance/fingerprint entry.
+func apiKeyNameLookupKey(name string) string {
+	return "\x01name\x00" + strings.TrimSpace(name)
+}
+
+// analysisAPIKeyRegistrationName returns the name an operator sees for a registration, or "" when the
+// row carries no usable name (deleted rows keep a raw fingerprint as their label).
+func analysisAPIKeyRegistrationName(row entities.CPAAPIKey) string {
+	if row.IsDeleted {
+		return ""
+	}
+	name := strings.TrimSpace(helper.CPAAPIKeyDisplayName(row))
+	if name == "" || name == "unknown" {
+		return ""
+	}
+	return name
 }
 
 // buildAnalysisPayload 透传已存总费用与可用性，保留原 Token、身份和 Key 脱敏响应合同。
@@ -585,6 +613,14 @@ func analysisAPIKeyIdentityForInstance(instanceID, apiKey string, apiKeyInfos ma
 	}
 	if apiKeyInfoExists(apiKeyInfos, entities.LegacyCPAInstanceID, apiKey) {
 		return analysisAPIKeyResponseKeyForInstance(entities.LegacyCPAInstanceID, apiKey, apiKeyInfos), analysisAPIKeyLabelForInstance(entities.LegacyCPAInstanceID, apiKey, apiKeyInfos)
+	}
+	// A key named like a main instance registration belongs to that registration, even when the raw key
+	// differs, so one key name shows as one row instead of one row per instance.
+	if info, ok := apiKeyInfos[apiKeyNameLookupKey(apiKey)]; ok {
+		if info.ID != "" {
+			return info.ID, info.Label
+		}
+		return helper.RedactSensitiveValue(info.Label), info.Label
 	}
 	label := strings.TrimSpace(apiKey)
 	if len(label) > 6 {
