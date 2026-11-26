@@ -209,8 +209,8 @@ func dimensionsLess(left, right BucketKey) bool {
 	if !left.BucketStart.Equal(right.BucketStart) {
 		return left.BucketStart.Before(right.BucketStart)
 	}
-	leftValues := [...]string{left.APIGroupKey, left.Model, left.AuthIndex, left.ModelAlias, left.ServiceTier, left.ResponseServiceTier, left.ReasoningEffort, left.Endpoint, left.ExecutorType}
-	rightValues := [...]string{right.APIGroupKey, right.Model, right.AuthIndex, right.ModelAlias, right.ServiceTier, right.ResponseServiceTier, right.ReasoningEffort, right.Endpoint, right.ExecutorType}
+	leftValues := [...]string{left.APIGroupKey, left.Model, left.AuthIndex, left.ServiceTier, left.ReasoningEffort}
+	rightValues := [...]string{right.APIGroupKey, right.Model, right.AuthIndex, right.ServiceTier, right.ReasoningEffort}
 	for index := range leftValues {
 		if leftValues[index] != rightValues[index] {
 			return leftValues[index] < rightValues[index]

@@ -59,6 +59,7 @@ func LoadUsageCostRecalculationPage(ctx context.Context, reader *gorm.DB, scope 
 	if afterID == scope.MaxEventID {
 		return []entities.UsageEvent{}, afterID, true, nil
 	}
+	// 重算仍需逐事件读取全部计价字段，不能用汇总桶的六维投影代替原始维度。
 	var scanned []entities.UsageEvent
 	if err := reader.Clauses(dbresolver.Read).WithContext(ctx).Model(&entities.UsageEvent{}).
 		Select(entities.UsageAggregationEventProjectionColumns).
@@ -247,7 +248,7 @@ func addUsageRecalculationBucketFee(tx *gorm.DB, table string, key overview.Buck
 	return nil
 }
 
-// usageCostRecalculationKeyArgs 按 Overview 唯一索引全部维度定位小时或日的同一行。
+// usageCostRecalculationKeyArgs 按 Overview 六维唯一索引定位小时或日的同一行。
 func usageCostRecalculationKeyArgs(key overview.BucketKey) []any {
 	return []any{key.InstanceID, timeutil.FormatStorageTime(key.BucketStart), key.APIGroupKey, key.Model, key.AuthIndex, key.ModelAlias,
 		key.ServiceTier, key.ResponseServiceTier, key.ReasoningEffort, key.Endpoint, key.ExecutorType}
@@ -264,7 +265,7 @@ type usageCostRecalculationTotal struct {
 }
 
 // FinalizeUsageCostRecalculationStats 只重算本次命中过事件的小时/自然日时间桶。
-// Reader 各 grain 一次按完整维度 SUM 全桶已存事件费用（含 S/T 外贡献），Rows 流式每 1000 组交 Writer 短事务覆盖。
+// Reader 各 grain 一次按六维 SUM 全桶已存事件费用（含 S/T 外贡献），Rows 流式每 1000 组交 Writer 短事务覆盖。
 // 调用方保证事件批次已完成且处理/聚合/维护仍停稳；错误不撤销已提交批次，也不写持久任务游标。
 func FinalizeUsageCostRecalculationStats(ctx context.Context, reader, writer *gorm.DB, scope UsageCostRecalculationScope) error {
 	if reader == nil || writer == nil {
@@ -341,7 +342,7 @@ func usageCostRecalculationGroupSelect(bucketSQL string) (string, []any) {
 	return strings.Join(parts, ", "), args
 }
 
-// overwriteUsageRecalculationGroups 持续读取 SQL 分组结果，不把一个月的高维键装进 Go map。
+// overwriteUsageRecalculationGroups 持续读取 SQL 六维分组结果，不把一个月的桶装进 Go map。
 // reader 可在 WAL 快照中保持 Rows，writer 每 1000 组独立提交并归还唯一写连接。
 func overwriteUsageRecalculationGroups[T int64 | string](ctx context.Context, reader, writer *gorm.DB, table, bucketSQL string, maxEventID int64, buckets []T) error {
 	selectSQL, selectArgs := usageCostRecalculationGroupSelect(bucketSQL)

@@ -170,7 +170,7 @@ func pricingEvidenceCertificate(t *testing.T) ([]byte, []byte) {
 		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKey})
 }
 
-// TestPricingFailedOverviewMigrationKeepsShellAndResumesOnRestart 验证M4完成后的M5故障仍可访问外壳，重启复用唯一备份。
+// TestPricingFailedOverviewMigrationKeepsShellAndResumesOnRestart 验证 M5 故障仍可访问外壳，重启复用原 M1 备份。
 func TestPricingFailedOverviewMigrationKeepsShellAndResumesOnRestart(t *testing.T) {
 	cfg := pricingRuntimeConfig(t)
 	seed := seedPublishedPricingRuntime(t, cfg)
@@ -248,6 +248,11 @@ func TestPricingFailedOverviewMigrationKeepsShellAndResumesOnRestart(t *testing.
 		columns := "cost_usd, input_tokens, total_tokens"
 		if table != "usage_events" {
 			columns += ", request_count"
+			// Fork contract: the six-dimension reduction is skipped, so the fork's
+			// extra dimensions must still be present once the app is ready.
+			if !second.app.DB.Migrator().HasColumn(table, "model_alias") {
+				t.Fatalf("%s lost the fork overview dimensions before ready", table)
+			}
 		}
 		if err := second.app.DB.Table(table).Select(columns).Scan(&fact).Error; err != nil {
 			t.Fatal(err)
@@ -288,9 +293,41 @@ func seedPublishedPricingRuntime(t *testing.T, cfg config.Config) *gorm.DB {
 		}
 	}
 	for _, table := range []string{"usage_overview_hourly_stats", "usage_overview_daily_stats"} {
-		for _, column := range []string{"cost_usd", "unavailable_cost_count"} {
+		for _, column := range []string{"cost_usd", "unavailable_cost_count", "speed_tps_sum", "speed_sample_count", "decode_speed_tps_sum", "decode_speed_sample_count"} {
 			if err := seed.Exec("ALTER TABLE " + table + " DROP COLUMN " + column).Error; err != nil {
 				t.Fatalf("restore old %s.%s: %v", table, column, err)
+			}
+		}
+		for _, column := range []string{"model_alias", "response_service_tier", "endpoint", "executor_type"} {
+			// The fork keeps these dimensions, so they may already exist; only add
+			// what this schema is actually missing.
+			if seed.Migrator().HasColumn(table, column) {
+				continue
+			}
+			if err := seed.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " TEXT NOT NULL DEFAULT ''").Error; err != nil {
+				t.Fatalf("restore old %s.%s: %v", table, column, err)
+			}
+		}
+		index := "uniq_" + table + "_dimensions"
+		// The fork schema already carries the alias index, so creating it again is
+		// only needed when this schema lost it. Check sqlite_master directly:
+		// Migrator().HasIndex misses indexes the fixture did not create itself.
+		aliasIndex := "idx_" + table + "_model_alias_bucket"
+		var aliasIndexCount int64
+		if err := seed.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", aliasIndex).Scan(&aliasIndexCount).Error; err != nil {
+			t.Fatalf("inspect %s index: %v", aliasIndex, err)
+		}
+		aliasIndexMissing := aliasIndexCount == 0
+		for _, statement := range []string{
+			"DROP INDEX " + index,
+			"CREATE UNIQUE INDEX " + index + " ON " + table + " (bucket_start, api_group_key, model, auth_index, model_alias, service_tier, response_service_tier, reasoning_effort, endpoint, executor_type)",
+			"CREATE INDEX " + aliasIndex + " ON " + table + " (model_alias, bucket_start)",
+		} {
+			if strings.HasPrefix(statement, "CREATE INDEX "+aliasIndex) && !aliasIndexMissing {
+				continue
+			}
+			if err := seed.Exec(statement).Error; err != nil {
+				t.Fatalf("restore old %s indexes: %v", table, err)
 			}
 		}
 	}
@@ -298,7 +335,7 @@ func seedPublishedPricingRuntime(t *testing.T, cfg config.Config) *gorm.DB {
 		"ALTER TABLE model_price_settings DROP COLUMN branches_json",
 		"DROP TABLE pricing_state",
 		"DROP TABLE pricing_migration_state",
-		"DELETE FROM schema_migrations WHERE version = '20261009_pricing_storage_structure'",
+		"DELETE FROM schema_migrations WHERE version IN ('20261009_pricing_storage_structure', '20261123_usage_overview_six_dimensions')",
 	} {
 		if err := seed.Exec(statement).Error; err != nil {
 			t.Fatalf("restore old physical schema with %q: %v", statement, err)

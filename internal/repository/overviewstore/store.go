@@ -19,7 +19,7 @@ const (
 // 旧费用桶必须已回填，且数据库加上本页有限增量后仍须是可保存的有限 REAL。
 const overviewReadyFeePredicate = "cost_usd IS NOT NULL AND unavailable_cost_count IS NOT NULL AND cost_usd + ? BETWEEN ? AND ?"
 
-// ApplyRows 用完整维度唯一键累加原统计、已存费用和速度；调用方持有 hourly、daily、checkpoint 的共同事务。
+// ApplyRows 用六维唯一键累加原统计、已存费用和速度；调用方持有 hourly、daily、checkpoint 的共同事务。
 func ApplyRows(tx *gorm.DB, hourlyRows []entities.UsageOverviewHourlyStat, dailyRows []entities.UsageOverviewDailyStat, now time.Time) error {
 	// hourly 必须全部成功，调用方才会继续提交 daily 和 checkpoint。
 	for _, row := range hourlyRows {
@@ -36,7 +36,7 @@ func ApplyRows(tx *gorm.DB, hourlyRows []entities.UsageOverviewHourlyStat, daily
 	return nil
 }
 
-// applyHourlyRow 在同一事务内按完整维度累加；旧 NULL 费用桶只能等迁移回填，不能当零更新。
+// applyHourlyRow 在同一事务内按六维累加；旧 NULL 费用桶只能等回填，不能当零更新。
 func applyHourlyRow(tx *gorm.DB, row entities.UsageOverviewHourlyStat, now time.Time) error {
 	if row.InstanceID == "" {
 		row.InstanceID = entities.LegacyCPAInstanceID
