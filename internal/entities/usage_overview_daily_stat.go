@@ -31,7 +31,7 @@ type UsageOverviewDailyStat struct {
 	SpeedSampleCount       int64   `gorm:"not null;default:0"`
 	DecodeSpeedTPSSum      float64 `gorm:"column:decode_speed_tps_sum;type:real;not null;default:0"`
 	DecodeSpeedSampleCount int64   `gorm:"not null;default:0"`
-	// 日桶与小时桶一致：旧结构的 NULL 在重建后消失，零费用必须写成明确的零。
+	// 日桶与小时桶一致，正常聚合将零费用明确存为零，不与旧库未回填的 NULL 混用。
 	CostUSD              *float64  `gorm:"column:cost_usd;type:real"`
 	UnavailableCostCount *int64    `gorm:"column:unavailable_cost_count"`
 	CreatedAt            time.Time `gorm:"serializer:storageTime;not null"`
